@@ -89,8 +89,8 @@ function characterFromAsset(team, src) {
   const u = { body: n('body'), legL: n('legL'), legR: n('legR'), torso: n('torso'), head: n('head'), gunHolder: n('gunHolder'), armL: n('armL'), armR: n('armR') };
   u.legL.userData.knee = n('kneeL'); u.legR.userData.knee = n('kneeR');
   u.armL.userData.elbow = n('elbowL'); u.armR.userData.elbow = n('elbowR');
-  u.armR.rotation.set(-0.75, 0, -0.1); u.armR.userData.elbow.rotation.x = -1.3;
-  u.armL.rotation.set(-1.15, 0, 0.55); u.armL.userData.elbow.rotation.x = -0.65;
+  u.armR.rotation.set(0.75, 0, -0.1); u.armR.userData.elbow.rotation.x = 1.3;
+  u.armL.rotation.set(1.15, 0, 0.55); u.armL.userData.elbow.rotation.x = 0.65;
   root.userData = u;
   return root;
 }
@@ -177,8 +177,8 @@ export function buildCharacter(team) {
   };
   const armR = mkArm(1), armL = mkArm(-1);
   torso.add(armR, armL);
-  armR.rotation.set(-0.75, 0, -0.1); armR.userData.elbow.rotation.x = -1.3;
-  armL.rotation.set(-1.15, 0, 0.55); armL.userData.elbow.rotation.x = -0.65;
+  armR.rotation.set(0.75, 0, -0.1); armR.userData.elbow.rotation.x = 1.3;
+  armL.rotation.set(1.15, 0, 0.55); armL.userData.elbow.rotation.x = 0.65;
 
   const gunHolder = new THREE.Group(); gunHolder.position.set(0.12, 0.38, -0.3); torso.add(gunHolder);
   root.userData = { body, legL, legR, torso, head: h, gunHolder, armL, armR };

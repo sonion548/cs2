@@ -338,15 +338,19 @@ export class Game {
     }
   }
 
+  // Bots only chase what they have seen or been shot from; with nothing to go on
+  // they sweep a bombsite instead of being handed enemy positions.
   assignHunt(bot) {
-    const enemies = this.characters.filter(c => c.alive && c.team !== bot.team);
-    if (!enemies.length) return;
-    const e = enemies[Math.floor(Math.random() * enemies.length)];
-    const fuzz = Math.max(2, 14 - this.roundTime / 6);
-    const p = e.pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * fuzz, 0, (Math.random() - 0.5) * fuzz));
     const nav = this.level.nav;
-    const [cx, cz] = nav.cellOf(p);
-    bot.setGoal(nav.walkable(cx, cz) ? nav.center(cx, cz) : e.pos.clone(), 'hunt');
+    if (bot.lastSeen && this.time - bot.lastSeenTime < 12) {
+      const [cx, cz] = nav.cellOf(bot.lastSeen);
+      bot.setGoal(nav.walkable(cx, cz) ? nav.center(cx, cz) : bot.lastSeen.clone(), 'hunt');
+      return;
+    }
+    const site = this.level.sites[Math.random() < 0.5 ? 'A' : 'B'];
+    const cells = site.filter(v => nav.walkable(...nav.cellOf(v)));
+    const list = cells.length ? cells : site;
+    bot.setGoal(list[Math.floor(Math.random() * list.length)].clone(), 'hunt');
   }
 
   aliveCount(team) { return this.characters.filter(c => c.team === team && c.alive).length; }
