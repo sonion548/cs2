@@ -10,6 +10,7 @@ import { audio } from './audio.js';
 import { decalTexture, radialTexture, skyTexture, tex, rng } from './textures.js';
 import { rayBox } from './physics.js';
 import { Hud } from './hud.js';
+import { NetMatch } from './net/netmatch.js';
 
 const DEG = Math.PI / 180;
 const BOT_NAMES = ['Viper', 'Rook', 'Mako', 'Sable', 'Kestrel', 'Onyx', 'Drift', 'Talon', 'Ember', 'Quill',
@@ -47,12 +48,14 @@ export class Game {
     this.buildEnvironment();
 
     // --- teams ---
-    this.playerTeam = opts.side === 'random' ? (Math.random() < 0.5 ? 'T' : 'CT') : opts.side;
+    // online matches take sides from the server's room; offline picks here
+    const meNet = opts.net ? opts.net.room.members.find(m => m.id === opts.net.you) : null;
+    this.playerTeam = meNet ? meNet.team : opts.side === 'random' ? (Math.random() < 0.5 ? 'T' : 'CT') : opts.side;
     this.player = new Character(this.playerTeam, settings.name || 'You', false);
     this.characters = [this.player];
     this.bots = [];
     const names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
-    const n = opts.teamSize;
+    const n = opts.net ? 0 : opts.teamSize;
     for (let i = 0; i < n * 2 - 1; i++) {
       const team = i < n - 1 ? this.playerTeam : (this.playerTeam === 'T' ? 'CT' : 'T');
       // ranked matches pass per-side skill generators scaled to the player's rating
@@ -87,11 +90,14 @@ export class Game {
     this.weaponKills = {};
     this.lastWeaponSlot = 2;
 
+    if (opts.net) { this.net = new NetMatch(this, opts.net); this.net.buildRoster(); }
+
     this.bindInput();
     this.onResize = () => this.resize();
     window.addEventListener('resize', this.onResize);
     this.resize();
-    this.startRound();
+    if (!this.net || this.net.isHost) this.startRound();
+    else this.clientStart();
     this.last = performance.now();
     this.running = true;
     this.loop = this.loop.bind(this);
@@ -250,6 +256,13 @@ export class Game {
   }
 
   setPaused(v) {
+    if (this.net) {
+      // online matches can't be paused: just show the menu over the running game
+      this.menuOpen = v; this.hud.showPause(v);
+      if (!v) this.canvas.requestPointerLock();
+      this.keys = {}; this.mouse.left = false;
+      return;
+    }
     this.paused = v;
     this.hud.showPause(v);
     if (!v) this.canvas.requestPointerLock();
@@ -258,6 +271,7 @@ export class Game {
 
   giveLoadout(primary, secondary) {
     this.loadout = { primary, secondary };
+    if (this.net && !this.net.isHost) this.net.loadout(primary, secondary);
     this.player.giveLoadout(primary, secondary);
     this.vm.setWeapon(this.player.weapon.id, this.player.weapon.def.type, 0.3, this.skinFor(this.player.weapon.id));
     this.hud.setScope(0);
@@ -287,14 +301,19 @@ export class Game {
 
     for (const b of this.bots) {
       const r = Math.random();
-      const primary = r < 0.15 ? 'awp' : b.team === 'T' ? 'ak47' : 'm4a1';
-      const secondary = Math.random() < 0.2 ? 'deagle' : b.team === 'T' ? 'glock' : 'usp';
+      let primary = r < 0.15 ? 'awp' : b.team === 'T' ? 'ak47' : 'm4a1';
+      let secondary = Math.random() < 0.2 ? 'deagle' : b.team === 'T' ? 'glock' : 'usp';
+      const lo = b.human && this.net?.loadouts.get(b.netId);
+      if (b.human) { primary = lo?.p || (b.team === 'T' ? 'ak47' : 'm4a1'); secondary = lo?.s || (b.team === 'T' ? 'glock' : 'usp'); }
       b.giveLoadout(primary, secondary);
       const p = place(b);
       b.spawn(p.pos, p.yaw);
+      b.netTarget = null;
+      if (b.human) this.net.event(['spawn', b.netId, p.pos.x, p.pos.y, p.pos.z, p.yaw]);
     }
     this.planRound();
     this.hud.roundStart();
+    this.net?.event(['round', 'start', this.round]);
   }
 
   planRound() {
@@ -349,16 +368,20 @@ export class Game {
     const over = this.score[winner] >= this.winRounds;
     this.hud.roundEnd(winner, reason, over);
     if (over) { this.matchOver = winner; this.stateTimer = 8; }
+    this.net?.event(['round', 'end', winner, reason, over ? 1 : 0]);
+    if (over) this.net?.event(['over', winner]);
   }
 
   // ---------------------------------------------------------------- combat
   fire(shooter, now, heavy = false) {
     const w = shooter.weapon, d = w.def;
     const isPlayer = shooter === this.player;
+    const remoteClient = this.net && !this.net.isHost;
     if (d.type === 'melee') {
       w.nextFire = now + (heavy ? d.heavyInterval : d.fireInterval);
       this.audio.knife(isPlayer ? null : shooter.pos);
       if (isPlayer) this.vm.fire();
+      if (remoteClient) { if (isPlayer) this.net.melee(heavy); return; }
       const eye = shooter.eyePos(), fwd = shooter.forward();
       let best = null, bd = d.range;
       for (const e of this.characters) {
@@ -384,7 +407,9 @@ export class Game {
     const cp = Math.cos(pitch);
     const dir = new THREE.Vector3(-Math.sin(yaw) * cp, Math.sin(pitch), -Math.cos(yaw) * cp);
     const origin = shooter.eyePos();
-    this.traceBullet(shooter, origin, dir, d);
+    // online clients only draw their own shots; the host decides what they hit
+    this.traceBullet(shooter, origin, dir, d, remoteClient);
+    if (remoteClient && isPlayer) this.net.shot(origin, dir, w.id);
     this.audio.shot(d, isPlayer ? null : shooter.pos);
     if (isPlayer) {
       this.vm.fire();
@@ -394,7 +419,7 @@ export class Game {
     } else this.muzzleFlash(shooter);
   }
 
-  traceBullet(shooter, origin, dir, d) {
+  traceBullet(shooter, origin, dir, d, visualOnly = false) {
     const wh = this.level.world.raycast(origin, dir, 250);
     let end = wh ? wh.dist : 250;
     let victim = null, group = null;
@@ -413,6 +438,8 @@ export class Game {
       startPt.addScaledVector(right, 0.12).add(new THREE.Vector3(0, -0.12, 0)).addScaledVector(dir, 0.6);
     }
     if (shooter !== this.player || Math.random() < 0.5) this.addTracer(startPt, endPt);
+    this.net?.event(['shot', shooter.netId, +startPt.x.toFixed(2), +startPt.y.toFixed(2), +startPt.z.toFixed(2), +endPt.x.toFixed(2), +endPt.y.toFixed(2), +endPt.z.toFixed(2), d.id]);
+    if (victim && visualOnly) { if (victim.team !== shooter.team) this.addPuff(endPt, this.bloodMat, 0.35); return; }
     if (victim) {
       if (victim.team === shooter.team) return; // no friendly fire
       const dmg = computeDamage(d, end, group, victim.armor, victim.helmet);
@@ -435,6 +462,7 @@ export class Game {
     // getting shot slows you down (tagging)
     victim.vel.x *= 0.45; victim.vel.z *= 0.45;
     if (attacker === this.player) { this.hud.hitmarker(group === 'head', victim.health <= 0); this.audio.hit(group === 'head'); }
+    if (attacker.human || victim.human) this.net?.event(['hit', attacker.netId, victim.netId, group === 'head' ? 1 : 0], true);
     if (victim === this.player) {
       this.audio.hurt();
       this.hud.damageFrom(attacker.pos);
@@ -463,6 +491,7 @@ export class Game {
       this.deathCam = { from: victim.eyePos(), killer, t: 0 };
     }
     this.hud.killfeed(killer, victim, weaponDef, headshot);
+    this.net?.event(['kill', killer.netId, victim.netId, weaponDef.id, headshot ? 1 : 0], true);
     this.checkRoundEnd();
   }
 
@@ -615,7 +644,7 @@ export class Game {
     // rAF timestamps can precede performance.now() taken during setup, so clamp at 0
     let dt = Math.max(0, Math.min(0.05, (t - this.last) / 1000));
     this.last = t;
-    if (!this.paused) {
+    if (!this.paused || this.net) {
       // fixed sub-steps keep movement deterministic at low frame rates
       const steps = Math.ceil(dt / (1 / 120));
       const h = dt / steps;
@@ -626,6 +655,15 @@ export class Game {
 
   tick(dt) {
     this.time += dt;
+    if (this.net && !this.net.isHost) {
+      // online client: round state comes from host snapshots
+      this.stateTimer -= dt;
+      this.freeze = this.state === 'freeze';
+      this.updatePlayer(dt);
+      for (const b of this.bots) b.update(dt, this.time);
+      this.net.tick(dt);
+      return;
+    }
     this.stateTimer -= dt;
     this.freeze = this.state === 'freeze';
     if (this.state === 'freeze' && this.stateTimer <= 0) { this.state = 'live'; this.stateTimer = this.opts.roundTime ?? 115; this.hud.goLive(); }
@@ -638,6 +676,34 @@ export class Game {
     }
     this.updatePlayer(dt);
     for (const b of this.bots) b.update(dt, this.time);
+    this.net?.tick(dt);
+  }
+
+  // ---------------------------------------------------------------- online client
+  clientStart() {
+    this.state = 'freeze'; this.stateTimer = 5; this.round = 1;
+    const sp = this.level.spawns[this.playerTeam][0];
+    this.netRespawn(sp.clone(), 0);
+    this.net.send({ k: 'hello' });
+    this.hud.roundStart();
+  }
+  netRespawn(pos, yaw) {
+    const p = this.player;
+    p.reset(); p.pos.copy(pos); p.yaw = yaw; p.pitch = 0; p.crouch = 0; p.scoped = 0;
+    this.deathCam = null; this.spectating = null;
+    this.giveLoadout(this.loadout.primary, this.loadout.secondary);
+  }
+  netDeath() {
+    const p = this.player;
+    p.alive = false; p.health = 0; p.scoped = 0;
+    this.hud.setScope(0); this.mouse.left = false;
+    this.deathCam = { from: p.eyePos(), killer: this.lastKiller || p, t: 0 };
+  }
+  finishNet(reason) {
+    if (!this.running) return;
+    this.running = false;
+    this.dispose();
+    this.onExit({ net: true, reason });
   }
 
   render(dt) {
@@ -660,6 +726,12 @@ export class Game {
   }
 
   finish() {
+    if (this.net?.isHost) {
+      // host reports the result; every player gets theirs from the server
+      this.net.report();
+      this.finishNet();
+      return;
+    }
     this.running = false;
     const result = {
       won: this.matchOver === this.playerTeam,
@@ -674,6 +746,7 @@ export class Game {
   }
 
   quit() {
+    if (this.net) { this.running = false; this.dispose(); this.onExit({ net: true, left: true }); return; }
     this.running = false; this.dispose();
     // leaving a ranked match counts as an abandon (loss + queue cooldown)
     if (this.opts.ranked) this.onExit({ abandoned: true, won: false, team: this.playerTeam, score: { ...this.score }, stats: { ...this.player.stats }, rounds: this.round, players: [], weaponKills: {} });
@@ -692,6 +765,7 @@ export class Game {
     window.removeEventListener('resize', this.onResize);
     if (document.pointerLockElement) document.exitPointerLock();
     this.hud.dispose();
+    this.net?.dispose();
     this.renderer.dispose();
     this.scene.traverse(o => { if (o.geometry) o.geometry.dispose(); });
   }

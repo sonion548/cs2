@@ -5,12 +5,34 @@ textures, sounds and spray patterns are generated in code for this project.
 
 ## Run
 
+Offline (single player against bots):
+
 ```bash
 npm install
 npm run dev
 ```
 
-Open the printed URL and click **Start match**.
+Online (accounts, market, trading, friends, parties, multiplayer). Build the client, then start the
+game server, which serves the client too:
+
+```bash
+npm install
+npm run build
+npm run server
+```
+
+Open http://localhost:8080. For development with hot reload, run `npm run server` in one terminal
+and `npm run dev` in another; the dev server forwards `/ws` to port 8080.
+
+Server settings come from environment variables: `PORT` (default 8080) and `DB_FILE` (default
+`data/db.json`). To check a running server end to end, run `node server/selftest.js ws://localhost:8080/ws`.
+
+### Hosting for other players
+
+Run the server on any machine that other players can reach: a small cloud VM, a VPS or a home PC
+with port forwarding. It needs Node 18+, the repo, `npm install && npm run build`, and then
+`npm run server` kept running (for example with systemd or pm2). Put it behind HTTPS (Caddy or
+nginx) so browsers can use `wss://`. Back up `data/db.json`, which holds all accounts and items.
 
 ## Stage 1 (this build)
 
@@ -56,10 +78,30 @@ Open the printed URL and click **Start match**.
   wildstyle graffiti, comic pop-art, tattoo flash, mecha livery and sticker bombs, in the new
   Canvas Case and Street Case
 
+## Stage 4 (this build)
+
+- Game server (`server/`): accounts with hashed passwords and session tokens, and server-owned
+  inventories (cases open on the server, so the client can't fake drops)
+- Player market: list items at your own price, buy from other players (10% fee), view the
+  listings for each item, and see sales history with a price chart, recent sales and a reference price
+- Friends (requests by name, online/in-match status), parties of up to 5, and trade offers with
+  item-for-item swaps that happen atomically on the server
+- Matchmaking: casual online (real players, bots fill empty slots), ranked vs bots with your party,
+  and ranked PvP (humans only, teams balanced by rating, search window widens over time). Online
+  ladders are stored on the server, with a leaderboard of real players.
+- Networked matches: the host simulates the round and bots, and clients send movement and shots
+  then render 20 Hz snapshots. Hits, kills, round flow and results are synced, and leaving
+  counts as an abandon in ranked.
+- Illustrated skins and stickers use a hand-drawn renderer (ink lines, layered washes, paper grain)
+
+Known limits: the host's machine runs the match, so a modified client acting as host could cheat.
+A dedicated authoritative game server would close that gap. There is no host migration (if the host
+leaves, the match ends), and offline items stay on the device that earned them.
+
 ## Roadmap
 
 1. ~~Core gameplay~~
 2. ~~Economy, cases, original skins, wear (float) values, stickers, inventory with 3D inspect~~
 3. ~~Ranked system with tiers and subranks, plus bots that scale to your rank~~
-4. Backend: accounts, party queue, matchmaking, market with sales history, trading
+4. ~~Backend: accounts, party queue, matchmaking, market with sales history, trading~~
 5. More maps and small-scale versions of each map

@@ -7,6 +7,8 @@ import { stickerCanvas } from '../items/stickers.js';
 import { STICKER_SLOTS } from '../items/render.js';
 import { MAPS } from '../maps.js';
 import * as R from '../ranked.js';
+import { net } from '../net/client.js';
+import { OnlineUI } from './online.js';
 import { audio } from '../audio.js';
 
 const h = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -53,8 +55,19 @@ export class Menu {
     this.state = { queue: 'casual', mode: '5v5', ladder: '5v5', diff: 2, side: 'random', map: 'dunehold' };
     this.invFilter = 'all'; this.invSort = 'newest';
     this.viewers = [];
+    this.online = new OnlineUI(this);
     P.onChange(() => this.updateBar());
   }
+
+  // Re-render after sign-in/out or a server profile push (soft = keep modals).
+  refresh(soft = false) {
+    if (this.root.style.display === 'none' || !this.$) return;
+    this.updateBar();
+    if (soft && this.$('.modal-layer')?.innerHTML) return;
+    if (['play', 'inventory', 'ranked', 'market', 'cases'].includes(this.tab)) this.go(this.tab);
+  }
+  onNet(ev, d) { this.online.onNet(ev, d); }
+  queue(spec) { this.online.queue(spec); }
 
   show(result) {
     this.root.style.display = 'block';
@@ -62,14 +75,16 @@ export class Menu {
       <div class="client">
         <header class="bar">
           <div class="mark"><i></i>VANTAGE</div>
-          <nav>${['play', 'ranked', 'inventory', 'cases', 'career', 'settings'].map(t => `<button data-tab="${t}">${t}</button>`).join('')}</nav>
-          <div class="who"><span class="lvl"></span><span class="credits"></span><span class="pname"></span></div>
+          <nav>${['play', 'ranked', 'inventory', 'cases', 'market', 'career', 'settings'].map(t => `<button data-tab="${t}">${t}</button>`).join('')}</nav>
+          <div class="who"><span class="lvl"></span><span class="credits"></span><button class="friends-btn"></button><span class="pname"></span></div>
         </header>
         <main class="page"></main>
         <div class="modal-layer"></div>
       </div>`;
     this.$ = (s) => this.root.querySelector(s);
     this.root.querySelector('nav').onclick = (e) => { const t = e.target.dataset.tab; if (t) { audio.init(); audio.ui(); this.go(t); } };
+    this.root.querySelector('.friends-btn').onclick = () => { audio.init(); audio.ui(); this.online.toggleDrawer(); };
+    this.root.querySelector('.client').appendChild(this.online.mount());
     this.updateBar();
     this.go(this.tab);
     if (result) this.showResult(result);
@@ -81,13 +96,17 @@ export class Menu {
     if (!this.$ || !this.$('.credits')) return;
     const p = P.getProfile(), lv = P.level();
     this.$('.credits').innerHTML = CR(p.credits);
-    this.$('.pname').textContent = p.name;
+    this.$('.pname').textContent = P.isOnline() ? p.name : 'Offline';
+    this.$('.pname').classList.toggle('off', !P.isOnline());
+    const fb = this.$('.friends-btn');
+    if (fb) fb.innerHTML = P.isOnline() ? `Friends <b>${this.online.onlineCount()}</b>` : 'Sign in';
     this.$('.lvl').innerHTML = `LV ${lv.level}<b style="--p:${(lv.progress * 100).toFixed(0)}%"></b>`;
   }
 
   disposeViewers() { for (const v of this.viewers) v.dispose(); this.viewers = []; }
 
   go(tab) {
+    if (tab === 'market' && !P.isOnline()) { this.online.signIn('The market needs an online account.'); return; }
     this.tab = tab;
     this.disposeViewers();
     for (const b of this.root.querySelectorAll('nav button')) b.classList.toggle('on', b.dataset.tab === tab);
@@ -113,16 +132,23 @@ export class Menu {
       </section>
       <aside class="queue">
         <div class="tog qtype">${[['casual', 'Casual'], ['ranked', 'Ranked']].map(([v, l]) => `<button data-queue="${v}" class="${s.queue === v ? 'on' : ''}">${l}</button>`).join('')}</div>
-        ${s.queue === 'casual' ? `
+        ${this.online.partyPanel()}
+        ${P.isOnline() && s.queue === 'casual' ? `
+        <h3>Casual <small>online</small></h3>
+        <div class="modes">${[['5v5', 'Casual 5v5', 'Real players, bots fill empty slots'], ['2v2', 'Casual 2v2', 'Real players, bots fill empty slots']].map(([id, l, n]) => `<button class="mode ${s.mode === id ? 'on' : ''}" data-mode="${id}"><b>${id}</b><span>${l}<small>${n}</small></span></button>`).join('')}
+          <button class="mode ${s.mode === 'offline' ? 'on' : ''}" data-mode="offline"><b>Solo</b><span>Practice vs bots<small>Solo match against bots (choose difficulty below)</small></span></button></div>` : ''}
+        ${P.isOnline() && s.queue === 'casual' && s.mode === 'offline' ? `
+        <div class="field"><label>Opponents</label><div class="steps">${DIFFS.map((d, i) => `<button data-diff="${i}" class="${i <= s.diff ? 'fill' : ''} ${i === s.diff ? 'on' : ''}" title="${d[0]}"></button>`).join('')}<em>${DIFFS[s.diff][0]}</em></div></div>` : ''}
+        ${!P.isOnline() && s.queue === 'casual' ? `
         <h3>Matchmaking <small>vs bots</small></h3>
         <div class="modes">${MODES.map(m => `<button class="mode ${s.mode === m.id ? 'on' : ''}" data-mode="${m.id}"><b>${m.id}</b><span>${m.label}<small>${m.note}</small></span></button>`).join('')}</div>
         <div class="field"><label>Opponents</label><div class="steps">${DIFFS.map((d, i) => `<button data-diff="${i}" class="${i <= s.diff ? 'fill' : ''} ${i === s.diff ? 'on' : ''}" title="${d[0]}"></button>`).join('')}<em>${DIFFS[s.diff][0]}</em></div></div>
-        <div class="field"><label>Side</label><div class="tog">${[['T', 'Attack'], ['CT', 'Defend'], ['random', 'Any']].map(([v, l]) => `<button data-side="${v}" class="${s.side === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>` : `
-        <h3>Ranked <small>vs bots</small></h3>
-        <div class="modes">${Object.entries(R.LADDERS).map(([id, l]) => { const L = R.ladder(id); return `<button class="mode rk ${s.ladder === id ? 'on' : ''}" data-ladder="${id}"><img src="${R.rankEmblem(L.rank, 64)}" alt=""><span>${l.label}<small>${L.rank == null ? `Placements ${L.placements}/5` : `${R.rankName(L.rank)} · ${L.rp} RP`}</small></span></button>`; }).join('')}
-          <button class="mode rk" disabled><b>PvP</b><span>Ranked vs players<small>Needs online servers (stage 4)</small></span></button></div>
-        <div class="field"><label>Opponents</label><p class="note">Bots are matched to your hidden rating: currently around <b>${R.rankName(R.mmrToRankIndex(R.ladder(s.ladder).mmr))}</b> strength. Sides are assigned randomly.</p></div>
-        <div class="field"><label>Party</label><p class="note">Queueing with friends arrives with online play (stage 4).</p></div>`}
+        <div class="field"><label>Side</label><div class="tog">${[['T', 'Attack'], ['CT', 'Defend'], ['random', 'Any']].map(([v, l]) => `<button data-side="${v}" class="${s.side === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>` : ''}
+        ${s.queue === 'ranked' ? `
+        <h3>Ranked</h3>
+        <div class="modes">${Object.entries(R.LADDERS).filter(([, l]) => P.isOnline() || !l.online).map(([id, l]) => { const L = R.ladder(id); return `<button class="mode rk ${s.ladder === id ? 'on' : ''}" data-ladder="${id}"><img src="${R.rankEmblem(L.rank, 64)}" alt=""><span>${l.label}${l.online ? '' : ' · vs bots'}<small>${L.rank == null ? `Placements ${L.placements}/5` : `${R.rankName(L.rank)} · ${L.rp} RP`}</small></span></button>`; }).join('')}
+          ${P.isOnline() ? '' : '<button class="mode rk" data-signin="1"><b>PvP</b><span>Ranked vs players<small>Sign in to play against real people</small></span></button>'}</div>
+        <div class="field"><label>Opponents</label><p class="note">${R.LADDERS[s.ladder]?.online ? 'Real players matched by hidden rating; the search window widens the longer you wait.' : `Bots are matched to your hidden rating: currently around <b>${R.rankName(R.mmrToRankIndex(R.ladder(s.ladder).mmr))}</b> strength.`} Sides are assigned randomly.</p></div>` : ''}
         <div class="field map"><label>Map</label><div class="mapcard"><canvas width="88" height="66"></canvas><div><b>${h(map.name)}</b><small>${h(map.description)}</small></div></div></div>
         <button class="go">${s.queue === 'ranked' ? 'Find ranked match' : 'Find match'}</button>
       </aside>`;
@@ -155,13 +181,23 @@ export class Menu {
       if (t.dataset.side) s.side = t.dataset.side;
       if (t.dataset.queue) s.queue = t.dataset.queue;
       if (t.dataset.ladder) s.ladder = t.dataset.ladder;
+      if (t.dataset.signin) return this.online.signIn();
+      if (t.dataset.party) return this.online.partyAction(t.dataset.party, t.dataset.id);
       if (t.classList.contains('go')) {
+        if (P.isOnline()) {
+          // online: everything goes through server matchmaking (parties included)
+          if (s.queue === 'ranked') {
+            const L = R.LADDERS[s.ladder];
+            return this.online.queue({ mode: L.online ? 'ranked-pvp' : 'ranked-bots', size: L.size });
+          }
+          if (s.mode !== 'offline' && (s.mode === '5v5' || s.mode === '2v2')) return this.online.queue({ mode: 'casual', size: s.mode === '5v5' ? 5 : 2 });
+        }
         if (s.queue === 'ranked') {
           const q = R.canQueue(s.ladder);
           if (!q.ok) return this.toast(q.reason);
           return this.onPlay({ map: s.map, ranked: s.ladder });
         }
-        const m = MODES.find(m => m.id === s.mode);
+        const m = MODES.find(m => m.id === s.mode) || MODES[0];
         return this.onPlay({ map: s.map, teamSize: m.size, winRounds: m.win, skill: DIFFS[s.diff][1], side: s.side });
       }
       this.go('play');
@@ -214,7 +250,7 @@ export class Menu {
     const img = it.kind === 'case' ? caseThumb(it.defId) : it.kind === 'sticker' ? stickerThumb(it.defId) : '';
     return `<button class="tile ${it.kind}" data-uid="${it.uid}" style="--rc:${r ? r.color : '#6d6a62'}">
       <img ${img ? `src="${img}"` : ''} alt="" ${it.kind === 'skin' ? 'data-thumb="1"' : ''}>
-      ${equipped ? '<i class="eq">Equipped</i>' : ''}
+      ${equipped ? '<i class="eq">Equipped</i>' : ''}${it.listed ? '<i class="eq listed">Listed</i>' : ''}
       ${cond ? `<i class="cond">${cond}</i>` : ''}
       ${it.tally != null ? `<i class="tally">${it.tally}</i>` : ''}
       ${it.stickers?.length ? `<i class="stk">${it.stickers.map(s => `<img src="${stickerThumb(s.defId)}" alt="">`).join('')}</i>` : ''}
@@ -264,7 +300,8 @@ export class Menu {
             <div class="acts">
               ${fromUnbox ? '<button data-act="close" class="pri">Continue</button>' : ''}
               <button data-act="equip" class="${fromUnbox ? '' : 'pri'}">${equipped ? 'Unequip' : 'Equip'}</button>
-              <button data-act="sell">Quick sell · ${CR(Math.floor(P.marketPrice(it) * 0.87))}</button>
+              ${P.isOnline() ? `<button data-act="list" ${it.listed ? 'disabled' : ''}>${it.listed ? 'Listed on market' : 'Sell on market'}</button>` : ''}
+              <button data-act="sell" ${it.listed ? 'disabled' : ''}>Quick sell · ${CR(Math.floor(P.marketPrice(it) * 0.87))}</button>
             </div>
           </div>
         </div>`;
@@ -273,18 +310,19 @@ export class Menu {
       this.modalViewer?.dispose(); this.modalViewer = v;
     };
     render();
-    layer.onclick = (e) => {
+    layer.onclick = async (e) => {
       const b = e.target.closest('button');
       if (!b) { if (e.target === layer.firstElementChild) close(); return; }
       audio.ui();
       if (b.dataset.view) return this.modalViewer.view(b.dataset.view);
       if (b.dataset.act === 'close') return close();
-      if (b.dataset.act === 'equip') { P.equip(it.uid); return render(); }
+      if (b.dataset.act === 'equip') { const r = await P.equip(it.uid); if (r?.error) this.toast(r.error); return render(); }
       if (b.dataset.act === 'sell') {
         if (!confirm(`Sell ${itemTitle(it).name} for ${Math.floor(P.marketPrice(it) * 0.87)} credits?`)) return;
-        P.sellItem(it.uid); return close();
+        const r = await P.sellItem(it.uid); if (r?.error) return this.toast(r.error); return close();
       }
-      if (b.dataset.scrape != null) { P.scrapeSticker(it.uid, +b.dataset.scrape); return render(); }
+      if (b.dataset.scrape != null) { await P.scrapeSticker(it.uid, +b.dataset.scrape); return render(); }
+      if (b.dataset.act === 'list') return this.online.listDialog(it, render);
       if (b.dataset.apply != null) return this.pickSticker(it, +b.dataset.apply, render);
     };
     const close = () => { this.modalViewer?.dispose(); this.modalViewer = null; layer.innerHTML = ''; layer.onclick = null; if (this.tab === 'inventory') this.go('inventory'); };
@@ -299,10 +337,10 @@ export class Menu {
       <div class="pgrid">${owned.map(s => `<button data-s="${s.uid}"><img src="${stickerThumb(s.defId)}" alt=""><span>${h(STICKERS[s.defId].name)}</span></button>`).join('')}</div>
       <button class="cancel">Cancel</button>`;
     this.$('.modal-layer .info').appendChild(box);
-    box.onclick = (e) => {
+    box.onclick = async (e) => {
       e.stopPropagation();
       const b = e.target.closest('button'); if (!b) return;
-      if (b.dataset.s) { P.applySticker(skin.uid, b.dataset.s, slot); audio.ui(); }
+      if (b.dataset.s) { const r = await P.applySticker(skin.uid, b.dataset.s, slot); if (r?.error) this.toast(r.error); audio.ui(); }
       rerender();
     };
   }
@@ -312,10 +350,11 @@ export class Menu {
     const layer = this.$('.modal-layer');
     layer.innerHTML = `<div class="modal small" style="--rc:${RARITY[d.rarity].color}"><img class="big" src="${stickerThumb(it.defId)}" alt="">
       <div class="info"><div class="rar"><i></i>${RARITY[d.rarity].name} sticker</div><h2>${h(d.name)}</h2><p class="note">Apply it from a weapon's inspect screen.</p>
-      <div class="acts"><button data-act="close" class="pri">Close</button><button data-act="sell">Quick sell · ${CR(Math.floor(P.marketPrice(it) * 0.87))}</button></div></div></div>`;
-    layer.onclick = (e) => {
+      <div class="acts"><button data-act="close" class="pri">Close</button>${P.isOnline() ? '<button data-act="list">Sell on market</button>' : ''}<button data-act="sell">Quick sell · ${CR(Math.floor(P.marketPrice(it) * 0.87))}</button></div></div></div>`;
+    layer.onclick = async (e) => {
       const b = e.target.closest('button'); if (!b) return;
-      if (b.dataset.act === 'sell') P.sellItem(it.uid);
+      if (b.dataset.act === 'sell') await P.sellItem(it.uid);
+      if (b.dataset.act === 'list') return this.online.listDialog(it, () => this.go('inventory'));
       layer.innerHTML = ''; this.go('inventory');
     };
   }
@@ -335,10 +374,10 @@ export class Menu {
           <div class="own">${owned[c.id] ? `<span>Owned × ${owned[c.id]}</span>` : '<span class="none">None owned</span>'}</div>
           <div class="btns"><button data-buy="${c.id}">Buy · ${CR(c.price)}</button><button data-view="${c.id}" class="pri">${owned[c.id] ? 'Open' : 'Contents'}</button></div>
         </div>`).join('')}</div>`;
-    page.onclick = (e) => {
+    page.onclick = async (e) => {
       const b = e.target.closest('button'); if (!b) return;
       audio.init(); audio.ui();
-      if (b.dataset.buy) { const r = P.buyCase(b.dataset.buy); if (r.error) this.toast(r.error); else this.toast('Added to inventory'); this.go('cases'); }
+      if (b.dataset.buy) { const r = await P.buyCase(b.dataset.buy); if (r.error) this.toast(r.error); else this.toast('Added to inventory'); this.go('cases'); }
       if (b.dataset.view) this.openCaseView(b.dataset.view);
     };
   }
@@ -368,15 +407,15 @@ export class Menu {
       </div>`;
     // previews for contents
     for (const img of layer.querySelectorAll('img[data-def]')) thumbnail({ defId: img.dataset.def, float: 0.05, seed: 1, stickers: [] }, url => { img.src = url; });
-    layer.onclick = (e) => {
+    layer.onclick = async (e) => {
       const b = e.target.closest('button'); if (!b) return;
       if (b.dataset.act === 'close') { layer.innerHTML = ''; layer.onclick = null; this.go(this.tab); return; }
       if (b.dataset.act === 'buyopen') {
-        const r = P.buyCase(caseId); if (r.error) return this.toast(r.error);
+        const r = await P.buyCase(caseId); if (r.error) return this.toast(r.error);
       }
       if (b.dataset.act === 'open' || b.dataset.act === 'buyopen') {
         const it = P.getProfile().items.find(i => i.kind === 'case' && i.defId === caseId);
-        const res = P.openCase(it.uid);
+        const res = await P.openCase(it.uid);
         if (res.error) return this.toast(res.error);
         this.spin(caseId, res.item);
       }
@@ -426,6 +465,8 @@ export class Menu {
     }, { once: true });
   }
 
+  render_market(page) { this.online.renderMarket(page); }
+
   // ------------------------------------------------------------- career
   render_career(page) {
     const p = P.getProfile(), s = p.stats, lv = P.level();
@@ -470,7 +511,7 @@ export class Menu {
     for (const inp of page.querySelectorAll('[data-s]')) {
       inp.oninput = () => {
         const k = inp.dataset.s;
-        if (k === 'name') { P.setName(inp.value); this.settings.name = inp.value; }
+        if (k === 'name') { if (!P.isOnline()) { P.setName(inp.value); this.settings.name = inp.value; } }
         else s[k] = inp.type === 'checkbox' ? inp.checked : inp.type === 'range' ? +inp.value : inp.value;
         if (inp.nextElementSibling?.tagName === 'OUTPUT') inp.nextElementSibling.textContent = inp.value;
         if (k === 'volume') audio.setVolume(s.volume);
@@ -503,16 +544,28 @@ export class Menu {
 
   // ------------------------------------------------------------- ranked
   render_ranked(page) {
+    if (!P.isOnline() && R.LADDERS[this.state.ladder]?.online) this.state.ladder = '5v5';
     const id = this.state.ladder;
     const L = R.ladder(id);
-    const pos = R.leaderboardPosition(L.mmr);
-    const dist = R.distribution();
-    const pop = R.getPopulation();
+    // online: real players from the server; offline: simulated population
+    let pos, dist, pop;
+    if (P.isOnline()) {
+      const b = this.boards?.[id];
+      if (!b) {
+        page.innerHTML = '<p class="note">Loading leaderboard…</p>';
+        net.rpc('ranked.board', { ladder: id }).then(r => { (this.boards ||= {})[id] = r; setTimeout(() => { if (this.boards) delete this.boards[id]; }, 30000); if (this.tab === 'ranked') this.go('ranked'); });
+        return;
+      }
+      pos = { position: b.position ?? b.total + 1, percentile: b.total ? 1 - ((b.position ?? b.total) - 1) / b.total : 0 };
+      dist = b.distribution; pop = b.top;
+    } else {
+      pos = R.leaderboardPosition(L.mmr); dist = R.distribution(); pop = R.getPopulation();
+    }
     const myTier = L.rank == null ? -1 : R.RANKS[L.rank].tier;
     const games = L.wins + L.losses;
     page.innerHTML = `
       <section class="rk-main">
-        <div class="tog ltabs">${Object.entries(R.LADDERS).map(([k, l]) => `<button data-l="${k}" class="${k === id ? 'on' : ''}">${l.label}</button>`).join('')}</div>
+        <div class="tog ltabs">${Object.entries(R.LADDERS).filter(([, l]) => P.isOnline() || !l.online).map(([k, l]) => `<button data-l="${k}" class="${k === id ? 'on' : ''}">${l.label}</button>`).join('')}</div>
         <div class="rk-hero">
           <img src="${R.rankEmblem(L.rank, 160)}" alt="">
           <div>

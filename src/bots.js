@@ -124,7 +124,32 @@ export class Bot extends Character {
     if (best) { this.lastSeen = best.pos.clone(); this.lastSeenTime = now; g.radarSpot(best); }
   }
 
+  // Network-driven character (remote human on the host, or anyone on a client):
+  // ease toward the latest reported state and animate.
+  updatePuppet(dt) {
+    if (!this.alive) { this.animateDeath(dt); return; }
+    const t = this.netTarget;
+    if (t) {
+      const k = 1 - Math.exp(-dt * 14);
+      const px = this.pos.x, pz = this.pos.z;
+      this.pos.lerp(t.pos, k);
+      if (dt > 0) { this.vel.x = this.vel.x * 0.8 + (this.pos.x - px) / dt * 0.2; this.vel.z = this.vel.z * 0.8 + (this.pos.z - pz) / dt * 0.2; }
+      let dy = t.yaw - this.yaw;
+      while (dy > Math.PI) dy -= Math.PI * 2;
+      while (dy < -Math.PI) dy += Math.PI * 2;
+      this.yaw += dy * k; this.pitch += (t.pitch - this.pitch) * k;
+      this.crouch = t.crouch;
+    }
+    this.onGround = true;
+    if (this.speed2D() > 3.6) {
+      this.stepTimer -= dt;
+      if (this.stepTimer <= 0) { this.game.audio.step(this.pos, 0.8); this.stepTimer = 0.36; }
+    }
+    this.animate(dt);
+  }
+
   update(dt, now) {
+    if (this.puppet || (this.game.net && !this.game.net.isHost)) { this.updatePuppet(dt); return; }
     if (!this.alive) { this.animateDeath(dt); return; }
     const g = this.game;
     const w = this.weapon;
