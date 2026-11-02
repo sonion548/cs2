@@ -91,19 +91,29 @@ export function applySkin(gun, item, { size = 1024 } = {}) {
     const mat = new THREE.MeshStandardMaterial({ map: t.map, metalness: t.metal, roughness: t.rough });
     inner.traverse(o => { if (o.isMesh && o.userData.part === 'skin') o.material = mat; });
   }
-  if (item.stickers?.length && STICKER_SLOTS[def.weapon]) addStickers(gun, def.weapon, item.stickers);
+  if (item.stickers?.length && !def.knife) addStickers(gun, def.weapon, item.stickers);
   return gun;
 }
 
 const ray = new THREE.Raycaster();
+// Four evenly spaced slots along the painted parts, for guns without hand-placed ones.
+function autoSlots(inner, targets) {
+  const box = new THREE.Box3(), inv = inner.matrixWorld.clone().invert();
+  for (const t of targets) box.union(new THREE.Box3().setFromObject(t).applyMatrix4(inv));
+  if (box.isEmpty()) return [];
+  const L = box.max.x - box.min.x, y = box.min.y + (box.max.y - box.min.y) * 0.62;
+  return [0.22, 0.4, 0.58, 0.76].map(f => [box.min.x + L * f, y]);
+}
+
 function addStickers(gun, weapon, stickers) {
   const inner = gun.userData.inner;
   inner.updateMatrixWorld(true);
   const targets = [];
   inner.traverse(o => { if (o.isMesh && o.userData.part === 'skin') targets.push(o); });
+  const slots = STICKER_SLOTS[weapon] || autoSlots(inner, targets);
   for (const st of stickers) {
     const sd = STICKERS[st.defId];
-    const slot = STICKER_SLOTS[weapon][st.slot];
+    const slot = slots[st.slot];
     if (!sd || !slot) continue;
     // cast from the left side (-Z in authoring space) toward the gun
     const originL = new THREE.Vector3(slot[0], slot[1], -1).applyMatrix4(inner.matrixWorld);

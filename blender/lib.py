@@ -64,7 +64,12 @@ def link(obj, parent=None):
     return obj
 
 
+ANCHORS = ('muzzle', 'grip', 'fore')
+
+
 def empty(name, loc, parent=None):
+    if name in ANCHORS and name in bpy.data.objects:
+        bpy.data.objects[name].name = name + '_part'   # anchors keep their exact names
     e = bpy.data.objects.new(name, None)
     e.location = loc
     e.empty_display_size = 0.01

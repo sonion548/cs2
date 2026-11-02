@@ -102,6 +102,58 @@ export class Audio {
     this.burst({ freq: stage ? 1800 : 900, q: 6, decay: 0.06, gain: 0.3 }, out, t);
     this.tone(stage ? 600 : 300, 200, 0.05, 0.15, out, t, 'square');
   }
+  explosion(pos, size = 1) {
+    if (!this.ctx) return;
+    const out = this.spatial(pos, 160), t = this.ctx.currentTime;
+    this.burst({ freq: 140, q: 0.5, decay: 1.1 * size, gain: 1.1, type: 'lowpass' }, out, t);
+    this.burst({ freq: 900, q: 0.6, decay: 0.35 * size, gain: 0.7 }, out, t);
+    this.tone(70, 28, 0.9 * size, 0.9, out, t);
+  }
+  flashbang(pos) {
+    if (!this.ctx) return;
+    const out = this.spatial(pos, 90), t = this.ctx.currentTime;
+    this.burst({ freq: 3500, q: 0.8, decay: 0.25, gain: 0.9, type: 'highpass' }, out, t);
+    this.tone(200, 80, 0.3, 0.6, out, t);
+  }
+  // high whine after being flashed
+  ring(strength, dur) {
+    if (!this.ctx) return;
+    const out = this.spatial(null), t = this.ctx.currentTime;
+    this.tone(3400, 3200, Math.max(0.3, dur), 0.08 * strength, out, t);
+  }
+  smoke(pos) {
+    if (!this.ctx) return;
+    const out = this.spatial(pos, 40), t = this.ctx.currentTime;
+    this.burst({ freq: 2600, q: 0.4, decay: 1.6, gain: 0.25, type: 'highpass' }, out, t);
+  }
+  fire(pos) {
+    if (!this.ctx) return;
+    const out = this.spatial(pos, 50), t = this.ctx.currentTime;
+    this.burst({ freq: 500, q: 0.5, decay: 0.9, gain: 0.6, type: 'lowpass' }, out, t);
+    this.burst({ freq: 2200, q: 1, decay: 0.15, gain: 0.3 }, out, t);
+  }
+  beep(pos, level = 0) {
+    if (!this.ctx) return;
+    const out = this.spatial(pos, 45), t = this.ctx.currentTime;
+    const f = [1900, 2300, 2700][level];
+    this.tone(f, f, 0.07, 0.25, out, t, 'square');
+  }
+  bombArm(pos) {
+    if (!this.ctx) return;
+    const out = this.spatial(pos, 25), t = this.ctx.currentTime;
+    for (let i = 0; i < 6; i++) this.tone(1100 + (i % 3) * 180, 1100 + (i % 3) * 180, 0.06, 0.12, out, t + i * 0.42, 'square');
+  }
+  defuse(pos) {
+    if (!this.ctx) return;
+    const out = this.spatial(pos, 25), t = this.ctx.currentTime;
+    this.burst({ freq: 2400, q: 6, decay: 0.05, gain: 0.3 }, out, t);
+    this.tone(700, 500, 0.08, 0.12, out, t + 0.06, 'square');
+  }
+  bombPlanted() {
+    if (!this.ctx) return;
+    const out = this.spatial(null), t = this.ctx.currentTime;
+    [880, 660, 880].forEach((f, i) => this.tone(f, f, 0.18, 0.14, out, t + i * 0.2, 'triangle'));
+  }
   ui(kind = 'click') {
     if (!this.ctx) return;
     const out = this.spatial(null), t = this.ctx.currentTime;

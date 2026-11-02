@@ -4,6 +4,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { Box, World } from './physics.js';
 import { surface, letterTexture, rng } from './textures.js';
 import { assets } from './assets.js';
+import { passable, INTERIOR } from './maps.js';
 
 // BoxGeometry whose UVs are scaled to world units so textures don't stretch.
 function worldBox(w, h, d, x, y, z, texScale = 4) {
@@ -30,7 +31,7 @@ function floorQuad(x0, z0, x1, z1, y, texScale = 4) {
 }
 
 // Cells bots can path through (crates and raised platforms are treated as obstacles).
-const WALKABLE = '.,usABTK';
+const WALKABLE = '.,usABTKhD';
 
 export function buildLevel(map, scene) {
   const { grid, cell: S, wallHeight: WH } = map;
@@ -78,6 +79,7 @@ export function buildLevel(map, scene) {
       if (c === ',' || c === 'T') floorMat = 'sand';
       if (c === 'A' || c === 'B' || c === '^' || c === 's') floorMat = 'tiles';
       if (c === 'u') floorMat = 'concrete';
+      if (INTERIOR.includes(c)) floorMat = 'tiles';
       put(floorMat, floorQuad(x0, z0, x0 + S, z0 + S, 0));
 
       if (c === 'T') spawns.T.push(new THREE.Vector3(cx, 0, cz));
@@ -96,6 +98,19 @@ export function buildLevel(map, scene) {
         const h = c === '^' ? 0.9 : 0.45;
         world.add(new Box(x0, 0, z0, x0 + S, h, z0 + S, 'platform'));
         put('tiles', worldBox(S, h, S, cx, h / 2, cz, 4));
+      }
+      if (INTERIOR.includes(c)) {
+        // fallback building: roof mass, and plain walls (door gap on doorway cells) toward the street
+        const ceil = 3.4;
+        world.add(new Box(x0, ceil, z0, x0 + S, WH, z0 + S, 'ceiling'));
+        put('plaster', worldBox(S, WH - ceil, S, cx, (ceil + WH) / 2, cz));
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const n = at(x + dx, z + dz);
+          if (n === '#' || INTERIOR.includes(n)) continue;
+          const t = 0.3, ex = dx > 0 ? x0 + S - t : x0, ez = dz > 0 ? z0 + S - t : z0;
+          const span = (a0, a1) => dx ? world.add(new Box(ex, 0, z0 + a0, ex + t, ceil, z0 + a1)) : world.add(new Box(x0 + a0, 0, ez, x0 + a1, ceil, ez + t));
+          if (c === 'D') { span(0, S / 2 - 0.8); span(S / 2 + 0.8, S); } else span(0, S);
+        }
       }
       if (c === 'u') {
         const ceil = 3.4;
@@ -200,6 +215,7 @@ export function buildLevel(map, scene) {
   const nav = {
     W, H, S,
     walkable: (x, z) => WALKABLE.includes(at(x, z)),
+    passable: (x0, z0, x1, z1) => passable(at(x0, z0), at(x1, z1)),
     cost: (x, z) => (at(x, z) === 'u' ? 1.2 : 1),
     cellOf: (p) => [Math.floor(p.x / S), Math.floor(p.z / S)],
     center: (x, z) => new THREE.Vector3(x * S + S / 2, 0, z * S + S / 2),
@@ -228,6 +244,9 @@ export function findPath(nav, from, to) {
       const nx = x + dx, nz = z + dz;
       if (!nav.walkable(nx, nz)) continue;
       if (dx && dz && (!nav.walkable(x + dx, z) || !nav.walkable(x, z + dz))) continue;
+      // building walls: only cross between inside and outside through doorways, and never diagonally
+      if (nav.passable && !nav.passable(x, z, nx, nz)) continue;
+      if (dx && dz && nav.passable && (!nav.passable(x, z, x + dx, z) || !nav.passable(x, z, x, z + dz) || !nav.passable(x + dx, z, nx, nz) || !nav.passable(x, z + dz, nx, nz))) continue;
       const ng = g.get(key(x, z)) + Math.hypot(dx, dz) * nav.cost(nx, nz);
       const k = key(nx, nz);
       if (!g.has(k) || ng < g.get(k)) {

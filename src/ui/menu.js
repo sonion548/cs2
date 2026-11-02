@@ -10,6 +10,9 @@ import * as R from '../ranked.js';
 import { net } from '../net/client.js';
 import { OnlineUI } from './online.js';
 import { audio } from '../audio.js';
+import { WEAPONS } from '../weapons.js';
+import { ACTIONS, DEFAULT_BINDS, bindsFrom, keyLabel } from '../input.js';
+import { DEFAULT_CROSSHAIR, crosshairFrom, drawCrosshair } from '../crosshair.js';
 
 const h = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const fmt = (n) => n.toLocaleString('en-US');
@@ -111,6 +114,9 @@ export class Menu {
     this.disposeViewers();
     for (const b of this.root.querySelectorAll('nav button')) b.classList.toggle('on', b.dataset.tab === tab);
     const page = this.$('.page');
+    // every page installs its own click handler; clear the last one so it can't
+    // react to clicks on this page (the Play handler used to send you back to Play)
+    page.onclick = null;
     page.className = 'page page-' + tab;
     this[`render_${tab}`](page);
   }
@@ -207,12 +213,13 @@ export class Menu {
   // ------------------------------------------------------------- inventory
   render_inventory(page) {
     const p = P.getProfile();
-    const cats = [['all', 'All'], ['rifle', 'Rifles'], ['pistol', 'Pistols'], ['sniper', 'Snipers'], ['knife', 'Knives'], ['sticker', 'Stickers'], ['case', 'Containers']];
+    const cats = [['all', 'All'], ['rifle', 'Rifles'], ['smg', 'SMGs'], ['pistol', 'Pistols'], ['sniper', 'Snipers'], ['heavy', 'Heavy'], ['knife', 'Knives'], ['sticker', 'Stickers'], ['case', 'Containers']];
     const catOf = (it) => {
       if (it.kind !== 'skin') return it.kind;
       const d = SKINS[it.defId];
       if (d.knife) return 'knife';
-      return { ak47: 'rifle', m4a1: 'rifle', awp: 'sniper' }[d.weapon] || 'pistol';
+      const c = WEAPONS[d.weapon]?.cls || 'pistol';
+      return c === 'shotgun' || c === 'lmg' ? 'heavy' : c;
     };
     let items = p.items.filter(it => this.invFilter === 'all' || catOf(it) === this.invFilter);
     const sorters = {
@@ -273,7 +280,7 @@ export class Menu {
       const p = P.getProfile();
       const equipped = Object.values(p.equipped).includes(it.uid);
       const stickersOwned = p.items.filter(x => x.kind === 'sticker');
-      const slots = d.knife ? [] : STICKER_SLOTS[d.weapon] || [];
+      const slots = d.knife ? [] : STICKER_SLOTS[d.weapon] || [0, 1, 2, 3];
       layer.innerHTML = `
         <div class="modal inspect" style="--rc:${r.color}">
           <div class="view"><div class="vp"></div>
@@ -499,12 +506,10 @@ export class Menu {
         <h3>Audio</h3>
         <div class="row"><label>Master volume</label><input type="range" min="0" max="1" step="0.01" data-s="volume" value="${s.volume}"><output>${s.volume}</output></div>
         <h3>Crosshair</h3>
-        <div class="row"><label>Colour</label><input type="color" data-s="crosshairColor" value="${s.crosshairColor}"></div>
-        <div class="row"><label>Length</label><input type="range" min="2" max="14" step="1" data-s="crosshairSize" value="${s.crosshairSize}"><output>${s.crosshairSize}</output></div>
-        <div class="row"><label>Centre dot</label><input type="checkbox" data-s="crosshairDot" ${s.crosshairDot ? 'checked' : ''}></div>
-        <h3>Controls</h3>
-        <table class="keys">${[['W A S D', 'Move'], ['Shift', 'Walk (quiet)'], ['C / Ctrl', 'Crouch'], ['Space', 'Jump'], ['Mouse 1', 'Fire'], ['Mouse 2', 'Scope / heavy stab'], ['R', 'Reload'], ['F', 'Inspect weapon'], ['1 2 3 / wheel', 'Switch weapon'], ['Q', 'Last weapon'], ['B', 'Loadout'], ['Tab', 'Scoreboard'], ['Esc', 'Pause']]
-          .map(([k, a]) => `<tr><td><kbd>${k}</kbd></td><td>${a}</td></tr>`).join('')}</table>
+        <div class="xh-edit"><div class="xh-rows"></div><div class="xh-prev"><canvas></canvas></div></div>
+        <h3>Key bindings <button class="small" data-binds-reset>Reset to defaults</button></h3>
+        <p class="note">Click a slot, then press a key or mouse button. Esc cancels, Backspace clears the slot.</p>
+        <table class="binds"></table>
         <h3>Data</h3>
         <div class="row"><label>Profile</label><button class="danger" data-reset>Reset inventory & credits</button></div>
       </section>`;
@@ -519,6 +524,77 @@ export class Menu {
       };
     }
     page.querySelector('[data-reset]').onclick = () => { if (confirm('Reset your inventory, credits and stats?')) { P.resetProfile(); this.go('settings'); } };
+    this.crosshairEditor(page);
+    this.bindEditor(page);
+  }
+
+  crosshairEditor(page) {
+    const s = this.settings;
+    const cfg = s.crosshair = crosshairFrom(s);
+    const rows = [
+      ['style', 'Style', 'select', [['dynamic', 'Dynamic (opens when moving/firing)'], ['static', 'Static']]],
+      ['length', 'Length', 'range', [1, 16, 1]], ['thickness', 'Thickness', 'range', [1, 6, 1]], ['gap', 'Gap', 'range', [-2, 12, 1]],
+      ['color', 'Colour', 'color'], ['alpha', 'Opacity', 'range', [0.2, 1, 0.05]],
+      ['outline', 'Outline', 'check'], ['outlineThickness', 'Outline thickness', 'range', [1, 3, 1]],
+      ['dot', 'Centre dot', 'check'], ['tStyle', 'T-style (no top bar)', 'check'],
+    ];
+    const box = page.querySelector('.xh-rows');
+    box.innerHTML = rows.map(([k, label, type, opt]) => `<div class="row"><label>${label}</label>${
+      type === 'select' ? `<select data-x="${k}">${opt.map(([v, l]) => `<option value="${v}" ${cfg[k] === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`
+      : type === 'check' ? `<input type="checkbox" data-x="${k}" ${cfg[k] ? 'checked' : ''}>`
+      : type === 'color' ? `<input type="color" data-x="${k}" value="${cfg[k]}">`
+      : `<input type="range" min="${opt[0]}" max="${opt[1]}" step="${opt[2]}" data-x="${k}" value="${cfg[k]}"><output>${cfg[k]}</output>`}</div>`).join('')
+      + '<div class="row"><label></label><button class="small" data-x-reset>Default crosshair</button></div>';
+    const canvas = page.querySelector('.xh-prev canvas');
+    const redraw = () => drawCrosshair(canvas, cfg, 0);
+    redraw();
+    for (const inp of box.querySelectorAll('[data-x]')) {
+      inp.oninput = inp.onchange = () => {
+        const k = inp.dataset.x;
+        cfg[k] = inp.type === 'checkbox' ? inp.checked : inp.type === 'range' ? +inp.value : inp.value;
+        if (inp.nextElementSibling?.tagName === 'OUTPUT') inp.nextElementSibling.textContent = inp.value;
+        s.save(); redraw();
+      };
+    }
+    box.querySelector('[data-x-reset]').onclick = () => { s.crosshair = { ...DEFAULT_CROSSHAIR }; s.save(); this.go('settings'); };
+  }
+
+  bindEditor(page) {
+    const s = this.settings;
+    const binds = bindsFrom(s);
+    const table = page.querySelector('.binds');
+    const render = () => {
+      table.innerHTML = ACTIONS.map(([a, label]) => `<tr><td>${label}</td>${[0, 1].map(i => `<td><button data-bind="${a}" data-slot="${i}">${keyLabel(binds[a][i])}</button></td>`).join('')}</tr>`).join('');
+    };
+    render();
+    const save = () => { s.binds = binds; s.save(); };
+    let stop = null;
+    table.onclick = (e) => {
+      const b = e.target.closest('[data-bind]'); if (!b) return;
+      stop?.();
+      b.classList.add('listen'); b.textContent = 'Press a key…';
+      const a = b.dataset.bind, i = +b.dataset.slot;
+      const set = (code) => {
+        // a code can only do one thing: take it off any other action first
+        if (code) for (const k of Object.keys(binds)) binds[k] = binds[k].map(c => (c === code ? null : c));
+        binds[a][i] = code; binds[a] = [binds[a][0] || null, binds[a][1] || null];
+        save(); stop(); render();
+      };
+      const key = (ev) => { ev.preventDefault(); ev.stopPropagation(); if (ev.code === 'Escape') { stop(); render(); } else if (ev.code === 'Backspace') set(null); else set(ev.code); };
+      const mouse = (ev) => { if (ev.target === b && ev.button === 0) return; ev.preventDefault(); set('Mouse' + ev.button); };
+      const wheel = (ev) => { ev.preventDefault(); set(ev.deltaY > 0 ? 'WheelDown' : 'WheelUp'); };
+      const ctx = (ev) => ev.preventDefault();
+      setTimeout(() => {
+        window.addEventListener('keydown', key, true); window.addEventListener('mousedown', mouse, true);
+        window.addEventListener('wheel', wheel, { capture: true, passive: false }); window.addEventListener('contextmenu', ctx, true);
+      }, 0);
+      stop = () => {
+        window.removeEventListener('keydown', key, true); window.removeEventListener('mousedown', mouse, true);
+        window.removeEventListener('wheel', wheel, true); window.removeEventListener('contextmenu', ctx, true);
+        stop = null;
+      };
+    };
+    page.querySelector('[data-binds-reset]').onclick = () => { delete s.binds; s.save(); this.go('settings'); };
   }
 
   // ------------------------------------------------------------- misc

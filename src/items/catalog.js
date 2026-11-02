@@ -1,5 +1,6 @@
 // Item catalogue: original skins, knife finishes, stickers and cases.
 import { KNIFE_TYPES } from '../shared/knives.js';
+import { WEAPONS } from '../weapons.js';
 
 export const RARITIES = [
   { id: 'standard', name: 'Standard', color: '#4f7cff', odds: 0.7920 },
@@ -19,7 +20,7 @@ export const CONDITIONS = [
 ];
 export function condition(f) { return CONDITIONS.find(c => f <= c.max) || CONDITIONS[4]; }
 
-export const WEAPON_NAMES = { ak47: 'AK-47', m4a1: 'M4A1', awp: 'AWP', glock: 'Glock-18', usp: 'USP', deagle: 'Desert Eagle' };
+export const WEAPON_NAMES = Object.fromEntries(Object.values(WEAPONS).filter(w => w.slot === 1 || w.slot === 2).map(w => [w.id, w.name]));
 
 // [weapon, name, rarity, finish params, floatRange?]
 const GUN_SKINS = [
@@ -111,6 +112,162 @@ const GUN_SKINS = [
   ['ak47', 'Collage', 'mythic', { type: 'stickerbomb', base: '#f0f0f0' }],
 ];
 
+// Finishes for the expanded arsenal, plus extra finishes for the original six.
+const MORE_SKINS = [
+  // ---- M1911
+  ['m1911', 'Parkerized', 'standard', { type: 'paint', base: '#3c3e3a' }],
+  ['m1911', 'Walnut Grain', 'standard', { type: 'woodgrain', light: '#a8703c', dark: '#4a2a14' }],
+  ['m1911', 'Gilt Crackle', 'superior', { type: 'kintsugi', base: '#16161a' }],
+  ['m1911', 'Pattern Steel', 'exotic', { type: 'damascus' }],
+  ['m1911', 'Brass Knuckle', 'mythic', { type: 'anodized', base: '#c89a3a', edge: '#5a3a10' }],
+  // ---- Five-seveN
+  ['fiveseven', 'Graphite', 'standard', { type: 'carbon', base: '#1a1b1e', sheen: '#3c414a' }],
+  ['fiveseven', 'Sand Grid', 'standard', { type: 'digital', colors: ['#c8b48a', '#9a8460', '#e0d2b0'] }],
+  ['fiveseven', 'Cobalt Anodize', 'superior', { type: 'anodized', base: '#1e4ab8', edge: '#0a1a4a' }],
+  ['fiveseven', 'Oil Slick', 'exotic', { type: 'hydro', colors: ['#1a0a3a', '#2a6ac8', '#3ae0a8', '#e8d03a', '#c83a8a'] }],
+  ['fiveseven', 'Overclock', 'mythic', { type: 'circuit', base: '#0a0e1a', line: '#3a8aff', glow: '#c8f0ff' }],
+  // ---- Skorpion
+  ['vz61', 'Olive Drab', 'standard', { type: 'paint', base: '#4a5236' }],
+  ['vz61', 'Brick Dust', 'standard', { type: 'camo', colors: ['#8a4a32', '#5a2e1e', '#b8805a'] }],
+  ['vz61', 'Wasp', 'superior', { type: 'tiger', base: '#e8c02a', stripe: '#141414', freq: 16 }],
+  ['vz61', 'Scorch Marks', 'exotic', { type: 'flames', base: '#1a1410' }],
+  ['vz61', 'Venom', 'mythic', { type: 'snake', base: '#1e6a2a', mark: '#d8f04a', dark: '#06140a' }],
+  // ---- .357 Revolver
+  ['revolver', 'Nickel', 'standard', { type: 'paint', base: '#a8acb2' }],
+  ['revolver', 'Ironwood', 'standard', { type: 'woodgrain', light: '#7a4a2a', dark: '#2a160a' }],
+  ['revolver', 'Engraved', 'superior', { type: 'damascus', light: '#d8c8a0', dark: '#6a5a3a', layers: 20 }],
+  ['revolver', 'Ruby Fade', 'exotic', { type: 'gradient', colors: ['#ffd0d8', '#e83a5a', '#8a0a2a', '#2a0410'] }, [0, 0.08]],
+  ['revolver', 'High Noon', 'mythic', { type: 'landscape', sky: ['#ffe0a0', '#ff9a4a', '#c84a2a'], sun: '#fff6d0', layers: ['#c87a4a', '#9a4a2a', '#6a2a1a', '#3a140a'] }],
+  // ---- MAC-10
+  ['mac10', 'Rust Bucket', 'standard', { type: 'camo', colors: ['#6a3a1e', '#9a5a2e', '#3a2414'] }],
+  ['mac10', 'Highlighter', 'standard', { type: 'paint', base: '#d8e03a', accent: '#1a1a1a' }],
+  ['mac10', 'Candy Swirl', 'superior', { type: 'hydro', colors: ['#ff8ac8', '#ffffff', '#8ad8ff'] }],
+  ['mac10', 'Glitch', 'exotic', { type: 'neon', base: '#08080c', colors: ['#ff2a6a', '#2affd0'] }],
+  ['mac10', 'Riot', 'mythic', { type: 'graffiti', base: '#1e1e1e', colors: ['#ff4a1a', '#ffe23a', '#3ad0ff', '#ffffff'], words: ['RIOT', 'NO RULES'] }],
+  // ---- MP5
+  ['mp5', 'Field Grey', 'standard', { type: 'paint', base: '#5a5e60' }],
+  ['mp5', 'Woodland', 'standard', { type: 'camo', colors: ['#3a4a2a', '#5a6a3a', '#2a2018', '#7a7a4a'] }],
+  ['mp5', 'Ice Floe', 'superior', { type: 'marble', base: '#e8f0f6', vein: '#5a8ab0', vein2: '#b0c8dc' }],
+  ['mp5', 'Tidepool', 'exotic', { type: 'waves', deep: '#062a3a', mid: '#1a8aa0', foam: '#e0fff8' }],
+  ['mp5', 'Hard Light', 'mythic', { type: 'lightning', base: '#0e0a1e', base2: '#2a0a3a', bolt: '#e8a0ff' }],
+  // ---- MP7
+  ['mp7', 'Charcoal', 'standard', { type: 'carbon', base: '#141416', sheen: '#2e3238' }],
+  ['mp7', 'Urban Fade', 'standard', { type: 'digital', colors: ['#7a7e84', '#4a4e54', '#a8acb2'] }],
+  ['mp7', 'Hornet', 'superior', { type: 'hex', base: '#141414', line: '#e8b81a', glow: '#ffe07a', size: 16 }],
+  ['mp7', 'Arc Flash', 'exotic', { type: 'lightning', base: '#0a1420', base2: '#0a2a3a', bolt: '#9af0ff' }],
+  ['mp7', 'Starfall', 'mythic', { type: 'galaxy', colors: ['#05050f', '#1a0a4a', '#8a3ae0', '#ffe0ff'] }],
+  // ---- UMP-45
+  ['ump45', 'Desert Tan', 'standard', { type: 'paint', base: '#a89068' }],
+  ['ump45', 'Gravel Pit', 'standard', { type: 'digital', colors: ['#6a645a', '#8a8478', '#4a463e'] }],
+  ['ump45', 'Oxide', 'superior', { type: 'lava', base: '#1a1410', hot: '#c85a1a', core: '#f0a03a' }],
+  ['ump45', 'Royal Marble', 'exotic', { type: 'marble', base: '#1a1430', vein: '#e8c86a', vein2: '#4a3a7a' }],
+  ['ump45', 'Shogun', 'mythic', { type: 'scales', base: '#a81a1a', edge: '#1a0a0a', size: 16 }],
+  // ---- Vector
+  ['vector', 'Arctic', 'standard', { type: 'camo', colors: ['#e8ecf0', '#b0b8c0', '#808890'] }],
+  ['vector', 'Blackout', 'standard', { type: 'paint', base: '#18191b' }],
+  ['vector', 'Laser Grid', 'superior', { type: 'circuit', base: '#100818', line: '#c83aff', glow: '#ffb0ff' }],
+  ['vector', 'Riptide', 'exotic', { type: 'hydro', colors: ['#0a1a3a', '#1a6ac8', '#3ae0ff', '#f0ffff'] }],
+  ['vector', 'Afterimage', 'mythic', { type: 'neon', base: '#06060a', colors: ['#3affe0', '#ff3ad0', '#fff03a'] }],
+  // ---- P90
+  ['p90', 'Dust Storm', 'standard', { type: 'camo', colors: ['#c8b088', '#a08860', '#e8d8b8'], scale: 3 }],
+  ['p90', 'Teal Line', 'standard', { type: 'paint', base: '#1e5a5a', accent: '#e8e0c8' }],
+  ['p90', 'Bumblebee', 'superior', { type: 'hex', base: '#1a1a1a', line: '#ffd21a', glow: '#fff08a', size: 22 }],
+  ['p90', 'Neon Rider', 'exotic', { type: 'livery', base: '#0a0a12', band: '#ff3aa8', band2: '#3ad0ff', number: 90 }],
+  ['p90', 'Dreamscape', 'mythic', { type: 'swirl', colors: ['#2a0a4a', '#8a3ac8', '#ff8ad8', '#fff0a8', '#3ae0ff'] }],
+  // ---- Galil
+  ['galil', 'Savanna', 'standard', { type: 'camo', colors: ['#b8a070', '#8a7448', '#d8c8a0', '#5a4a2a'] }],
+  ['galil', 'Iron Grey', 'standard', { type: 'paint', base: '#4a4c50', accent: '#c8c8c8' }],
+  ['galil', 'Leopard', 'superior', { type: 'spots', base: '#e0b878', spot: '#8a5a2a', ring: '#1a0e06' }],
+  ['galil', 'Copper Patina', 'exotic', { type: 'marble', base: '#3a8a7a', vein: '#c87a3a', vein2: '#a8e0d0' }],
+  ['galil', 'Firestarter', 'mythic', { type: 'flames', base: '#120c0a', colors: ['#ff3a1a', '#ffa01a', '#fff0a0'] }],
+  // ---- FAMAS
+  ['famas', 'Pine Needle', 'standard', { type: 'camo', colors: ['#2a3a24', '#4a5a34', '#1a2014'] }],
+  ['famas', 'Steel Blue', 'standard', { type: 'paint', base: '#2a4a6a' }],
+  ['famas', 'Circuit Rider', 'superior', { type: 'circuit', base: '#0a1410', line: '#3ac86a', glow: '#b0ffc8' }],
+  ['famas', 'Ripple', 'exotic', { type: 'waves', deep: '#0a1a2a', mid: '#3a6aa0', foam: '#e8f4ff' }],
+  ['famas', 'Grand Tour', 'mythic', { type: 'livery', base: '#f0ece0', band: '#1a4ac8', band2: '#e8203a', number: 25 }],
+  // ---- SCAR-H
+  ['scarh', 'Flat Dark Earth', 'standard', { type: 'paint', base: '#6a5a44' }],
+  ['scarh', 'Multiterrain', 'standard', { type: 'camo', colors: ['#8a8058', '#5a5236', '#b0a47a', '#3a3424'] }],
+  ['scarh', 'Hex Plate', 'superior', { type: 'hex', base: '#2a2c30', line: '#7a8088', glow: '#c8d0d8', size: 18 }],
+  ['scarh', 'Volcanic', 'exotic', { type: 'lava', base: '#141010', hot: '#ff4a14', core: '#ffe06a' }],
+  ['scarh', 'Gilded Age', 'mythic', { type: 'damascus', light: '#f0d070', dark: '#5a3a10', layers: 28 }],
+  // ---- SG 550
+  ['sg550', 'Alpine', 'standard', { type: 'camo', colors: ['#e8ecf0', '#5a6a5a', '#2a3a2a'] }],
+  ['sg550', 'Gunmetal Grey', 'standard', { type: 'paint', base: '#3e4246' }],
+  ['sg550', 'Contour Map', 'superior', { type: 'topo', base: '#1a2a1a', line: '#8ac86a' }],
+  ['sg550', 'Glass Cannon', 'exotic', { type: 'shards', colors: ['#0a1a2a', '#1a4a6a', '#3a8ac8', '#a8e0ff', '#ffffff'] }],
+  ['sg550', 'Crown Jewel', 'mythic', { type: 'kintsugi', base: '#1a0a3a', gold: '#f0c84a' }],
+  // ---- AUG
+  ['aug', 'Sage', 'standard', { type: 'paint', base: '#7a8a6a' }],
+  ['aug', 'Splinter', 'standard', { type: 'digital', colors: ['#5a6a4a', '#3a4a2a', '#8a9a6a', '#2a2a1a'] }],
+  ['aug', 'Ocean Anodize', 'superior', { type: 'anodized', base: '#1a8aa8', edge: '#0a2a4a' }],
+  ['aug', 'Northern Lights', 'exotic', { type: 'gradient', colors: ['#0a1a2a', '#1a6a5a', '#3ae0a0', '#c8a0ff'] }],
+  ['aug', 'Crystal Lattice', 'mythic', { type: 'shards', colors: ['#1a0a2a', '#4a1a6a', '#a03ac8', '#e8a0ff', '#ffffff'] }],
+  // ---- Scout
+  ['scout', 'Hunter Green', 'standard', { type: 'paint', base: '#2a4a2a' }],
+  ['scout', 'Birchwood', 'standard', { type: 'woodgrain', light: '#d8c0a0', dark: '#8a6a4a', rings: 30 }],
+  ['scout', 'Falcon', 'superior', { type: 'scales', base: '#c8b088', edge: '#3a2a1a', size: 12 }],
+  ['scout', 'Frostbite', 'exotic', { type: 'marble', base: '#f0f6ff', vein: '#3a6ac8', vein2: '#a8c8f0' }],
+  ['scout', 'Lone Wolf', 'mythic', { type: 'landscape', sky: ['#0a0a1a', '#1a1a4a', '#4a3a8a'], sun: '#f0f0ff', stars: true, layers: ['#2a2a4a', '#1a1a3a', '#0e0e24', '#06060e'] }],
+  // ---- SR-25
+  ['dmr', 'Tan Polymer', 'standard', { type: 'paint', base: '#a08a68' }],
+  ['dmr', 'Midnight', 'standard', { type: 'camo', colors: ['#1a1e2a', '#2a3040', '#0e1018'] }],
+  ['dmr', 'Damask', 'superior', { type: 'damascus', light: '#b8bcc4', dark: '#2a2c32' }],
+  ['dmr', 'Solar Flare', 'exotic', { type: 'swirl', colors: ['#2a0a00', '#c83a0a', '#ff9a1a', '#fff0a0'] }],
+  ['dmr', 'Monarch', 'mythic', { type: 'hydro', colors: ['#1a0a00', '#e86a0a', '#ffb01a', '#141414', '#ffffff'] }],
+  // ---- Double Barrel
+  ['dbarrel', 'Case Hardened', 'standard', { type: 'hydro', colors: ['#3a4a6a', '#8a6a3a', '#5a3a6a', '#a8a8a8'] }],
+  ['dbarrel', 'Old Oak', 'standard', { type: 'woodgrain', light: '#9a6a3a', dark: '#3a2010' }],
+  ['dbarrel', 'Buckshot', 'superior', { type: 'spots', base: '#2a2a2a', spot: '#6a6a6a', ring: '#0a0a0a' }],
+  ['dbarrel', 'Moonshine', 'exotic', { type: 'gradient', colors: ['#f0f0d0', '#c8a85a', '#6a4a1a', '#1a1006'] }],
+  ['dbarrel', 'Outlaw', 'mythic', { type: 'tattoo', bg: '#e8d8b8', motto: 'LAST CALL' }],
+  // ---- M870
+  ['pump', 'Black Synthetic', 'standard', { type: 'paint', base: '#1c1c1e' }],
+  ['pump', 'Marsh', 'standard', { type: 'camo', colors: ['#4a4a2a', '#6a6a3a', '#2a2a1a', '#8a7a4a'] }],
+  ['pump', 'Blaze', 'superior', { type: 'tiger', base: '#ff6a1a', stripe: '#1a0a04', freq: 10 }],
+  ['pump', 'Swamp Thing', 'exotic', { type: 'snake', base: '#3a5a1a', mark: '#a8c83a', dark: '#0a1404' }],
+  ['pump', 'Thunder Road', 'mythic', { type: 'livery', base: '#141414', band: '#e8203a', band2: '#f0f0f0', number: 87 }],
+  // ---- M1014
+  ['m1014', 'Urban', 'standard', { type: 'digital', colors: ['#5a5e64', '#3a3e44', '#8a8e94'] }],
+  ['m1014', 'Sandbar', 'standard', { type: 'paint', base: '#b8a07a' }],
+  ['m1014', 'Breaker', 'superior', { type: 'shards', colors: ['#1a1a1a', '#3a3a3a', '#6a6a6a', '#e8c03a'] }],
+  ['m1014', 'Molten Steel', 'exotic', { type: 'lava', base: '#1a1a1e', hot: '#ff7a1a', core: '#fff0b0' }],
+  ['m1014', 'Pop Shot', 'mythic', { type: 'comic', bg: '#ff8ad0', dots: '#3a1a8a', words: ['BOOM!', 'KA-POW!'] }],
+  // ---- M249
+  ['m249', 'Ranger', 'standard', { type: 'paint', base: '#4a5a3a' }],
+  ['m249', 'Barricade', 'standard', { type: 'digital', colors: ['#7a6a4a', '#5a4a32', '#a8987a'] }],
+  ['m249', 'Ammo Belt', 'superior', { type: 'carbon', base: '#2a2418', sheen: '#8a6a2a' }],
+  ['m249', 'Hail Storm', 'exotic', { type: 'lightning', base: '#1a1e24', base2: '#2a3a4a', bolt: '#f0f8ff' }],
+  ['m249', 'Siege Engine', 'mythic', { type: 'mecha', base: '#c8c4b8', c1: '#e8632b', c2: '#1a1a1a', code: '249' }],
+  // ---- PKM
+  ['pkm', 'Steppe', 'standard', { type: 'camo', colors: ['#9a8a5a', '#6a5a3a', '#c8b88a'] }],
+  ['pkm', 'Red Oak', 'standard', { type: 'woodgrain', light: '#a85a2a', dark: '#4a1a0a' }],
+  ['pkm', 'Tundra', 'superior', { type: 'digital', colors: ['#e0e4e8', '#9aa0a8', '#5a6068'] }],
+  ['pkm', 'Iron Curtain', 'exotic', { type: 'folded', base: '#8a8e94', dark: '#2a2c30' }],
+  ['pkm', 'Bear Claw', 'mythic', { type: 'ink', base: '#efe8d8', ink: '#141414', accent: '#a81a1a' }],
+  // ---- more for the original six
+  ['ak47', 'Steelwork', 'standard', { type: 'damascus' }],
+  ['ak47', 'Bloodwood', 'superior', { type: 'woodgrain', light: '#8a2a1a', dark: '#2a0806', rings: 18 }],
+  ['ak47', 'Gold Seam', 'exotic', { type: 'kintsugi', base: '#121214' }],
+  ['m4a1', 'Anodized Red', 'standard', { type: 'anodized', base: '#a81a1a', edge: '#3a0606' }],
+  ['m4a1', 'Ivory Marble', 'superior', { type: 'marble', base: '#f4f0e8', vein: '#4a4a52', vein2: '#c8c0b0' }],
+  ['m4a1', 'Petrol', 'exotic', { type: 'hydro', colors: ['#0a0a1a', '#3a1a8a', '#1aa8a8', '#e8d03a'] }],
+  ['awp', 'Viper Steel', 'standard', { type: 'damascus', light: '#a8b0a0', dark: '#2a3024' }],
+  ['awp', 'Heirloom', 'superior', { type: 'woodgrain', light: '#b07a42', dark: '#4a2812' }],
+  ['awp', 'Obsidian Vein', 'exotic', { type: 'marble', base: '#0e0e12', vein: '#c83aff', vein2: '#2a1a3a' }],
+  ['glock', 'Anodized Teal', 'standard', { type: 'anodized', base: '#1a8a8a', edge: '#0a3030' }],
+  ['glock', 'Mosaic', 'superior', { type: 'kintsugi', base: '#e8e0d0', gold: '#2a6ac8' }],
+  ['glock', 'Ripcurl', 'exotic', { type: 'hydro', colors: ['#ff6a3a', '#ffd23a', '#3ac8ff', '#1a1a4a'] }],
+  ['usp', 'Bone', 'standard', { type: 'marble', base: '#e8e0cc', vein: '#9a8a6a', vein2: '#c8bca0' }],
+  ['usp', 'Blued Steel', 'superior', { type: 'damascus', light: '#6a8ab8', dark: '#141e30' }],
+  ['usp', 'Purple Haze', 'exotic', { type: 'anodized', base: '#6a1ab8', edge: '#1a0a3a' }],
+  ['deagle', 'Ebony', 'standard', { type: 'woodgrain', light: '#3a2a1a', dark: '#0a0604' }],
+  ['deagle', 'Gold Crack', 'superior', { type: 'kintsugi', base: '#1a1a1a', gold: '#ffd04a' }],
+  ['deagle', 'Chrome Swirl', 'exotic', { type: 'hydro', colors: ['#e8ecf0', '#8a9098', '#2a2e34', '#c8d0d8'] }],
+];
+GUN_SKINS.push(...MORE_SKINS);
+
 const KNIFE_FINISHES = [
   ['Vanilla', null],
   ['Tempered Bloom', { type: 'tempered' }],
@@ -130,6 +287,10 @@ const KNIFE_FINISHES = [
   ['Koi Pond', { type: 'koi' }],
   ['Comic Pop', { type: 'comic', words: ['SLASH!', 'SNIKT!'] }],
   ['Wild Ink', { type: 'tattoo' }],
+  ['Damascus Steel', { type: 'damascus' }],
+  ['Black Marble', { type: 'marble', base: '#101014', vein: '#d8d8e0', vein2: '#2a2a34' }],
+  ['Gold Vein', { type: 'kintsugi', base: '#141416' }],
+  ['Hydro Dip', { type: 'hydro', colors: ['#1a0a3a', '#e8203a', '#ffd23a', '#3ad0ff'] }],
 ];
 
 // ---------------------------------------------------------------- stickers
@@ -249,7 +410,7 @@ export const CASES = {
     skins: [sk('awp', 'Pit Viper'), sk('deagle', 'Crimson Crackle'),
       sk('ak47', 'Prism Break'), sk('glock', 'Sunset Strip'), sk('glock', 'Wasteland Scrawl'), sk('deagle', 'Magma Flow'), sk('awp', 'Rooftop Tag'), sk('ak47', 'Molten Core'),
       sk('ak47', 'Redline Rally'), sk('glock', 'Tempered Bloom'), sk('awp', 'Cobalt Rally'), sk('deagle', 'Grand Prix'), sk('m4a1', 'Afterburner')],
-    knives: ['cleaver', 'karambit', 'kukri', 'bayonet'],
+    knives: ['survival', 'karambit', 'kukri', 'bayonet'],
   },
   canvas: {
     id: 'canvas', name: 'Canvas Case', price: 220, color: '#ff8ab8',
@@ -263,9 +424,24 @@ export const CASES = {
     skins: [sk('usp', 'Throw-Up'), sk('glock', 'Splash Zone'), sk('awp', 'Big Cat'),
       sk('m4a1', 'Wildstyle'), sk('deagle', 'Pop Burst'), sk('awp', 'Frame Zero'), sk('usp', 'Sticker Bomb'), sk('glock', 'Wasteland Scrawl'),
       sk('awp', 'Comic Strike'), sk('ak47', 'Collage'), sk('ak47', 'Redline Rally')],
-    knives: ['bowie', 'gut', 'push', 'cleaver', 'combat'],
+    knives: ['bowie', 'gut', 'push', 'navaja', 'combat'],
   },
+  workshop: {
+    id: 'workshop', name: 'Workshop Case', price: 190, color: '#a8703c',
+    skins: [sk('ak47', 'Steelwork'), sk('m4a1', 'Anodized Red'), sk('awp', 'Viper Steel'), sk('glock', 'Anodized Teal'), sk('usp', 'Bone'), sk('deagle', 'Ebony'),
+      sk('ak47', 'Bloodwood'), sk('m4a1', 'Ivory Marble'), sk('awp', 'Heirloom'), sk('glock', 'Mosaic'), sk('usp', 'Blued Steel'), sk('deagle', 'Gold Crack'),
+      sk('ak47', 'Gold Seam'), sk('m4a1', 'Petrol'), sk('awp', 'Obsidian Vein'), sk('glock', 'Ripcurl'), sk('usp', 'Purple Haze'), sk('deagle', 'Chrome Swirl')],
+    knives: ['bowie', 'stiletto', 'tanto', 'navaja'],
+  },
+  sidearm: { id: 'sidearm', name: 'Sidearm Case', price: 110, color: '#7a8a9a', skins: [], knives: ['flip', 'push', 'gut'] },
+  arsenal: { id: 'arsenal', name: 'Arsenal Case', price: 150, color: '#3ac86a', skins: [], knives: ['karambit', 'survival', 'combat'] },
+  frontline: { id: 'frontline', name: 'Frontline Case', price: 170, color: '#c8463a', skins: [], knives: ['bayonet', 'kukri', 'butterfly'] },
+  heavy: { id: 'heavy', name: 'Heavy Metal Case', price: 170, color: '#8a8e94', skins: [], knives: ['bowie', 'tanto', 'survival', 'gut'] },
 };
+// the arsenal cases hold every finish for their weapon groups
+const CASE_GROUPS = { sidearm: ['m1911', 'fiveseven', 'vz61', 'revolver'], arsenal: ['mac10', 'mp5', 'mp7', 'ump45', 'vector', 'p90'],
+  frontline: ['galil', 'famas', 'scarh', 'sg550', 'aug'], heavy: ['scout', 'dmr', 'dbarrel', 'pump', 'm1014', 'm249', 'pkm'] };
+for (const [cid, ws] of Object.entries(CASE_GROUPS)) CASES[cid].skins = MORE_SKINS.filter(([w]) => ws.includes(w)).map(([w, n]) => sk(w, n));
 // sanity: every listed skin must exist
 for (const c of Object.values(CASES)) for (const s of c.skins) if (!SKINS[s]) console.warn('Missing skin in case', c.id, s); // eslint-disable-line no-console
 

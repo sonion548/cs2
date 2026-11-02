@@ -12,6 +12,7 @@ import * as P from './items/profile.js';
 import * as R from './ranked.js';
 import { loadAssets } from './assets.js';
 import { net } from './net/client.js';
+import { GUN_IDS } from './weapons.js';
 
 const SETTINGS_KEY = 'vantage.settings';
 const defaults = { sensitivity: 2.0, volume: 0.6, fov: 74, crosshairColor: '#4dff6a', crosshairSize: 6, crosshairDot: false };
@@ -39,7 +40,7 @@ function launch(opts, onDone) {
   menu.hide();
   canvas.style.visibility = 'visible';
   const skins = {};
-  for (const slot of ['ak47', 'm4a1', 'awp', 'glock', 'usp', 'deagle', 'knife']) skins[slot] = P.equippedFor(slot);
+  for (const slot of [...GUN_IDS, 'knife']) skins[slot] = P.equippedFor(slot);
   settings.name = P.getProfile().name;
   game = new Game(canvas, { ...opts, skins }, settings, async (result) => {
     game = null;

@@ -1,10 +1,15 @@
-// DOM-based HUD: vitals, ammo, timer, score, kill feed, radar, scoreboard,
-// buy menu, scope overlay, hit markers and damage indicators.
-import { WEAPONS, PRIMARIES, SECONDARIES } from './weapons.js';
+// DOM-based HUD: vitals, money, ammo, timer and bomb state, score, kill feed,
+// radar, scoreboard, buy menu, scope overlay, hit markers, damage indicators,
+// flash whiteout, plant/defuse progress and the spectator panel.
+import { WEAPONS, GEAR, BUY_MENU, usableBy } from './weapons.js';
+import { buyBlock, priceFor } from './match/economy.js';
+import { crosshairFrom, drawCrosshair } from './crosshair.js';
+import { keyLabel } from './input.js';
 
 export const TEAM_NAME = { T: 'Attackers', CT: 'Defenders' };
 
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+const NADE_ICON = { he: 'HE', flash: 'FL', smoke: 'SM', molotov: 'MO', incendiary: 'IN', decoy: 'DC' };
 
 export class Hud {
   constructor(game) {
@@ -18,18 +23,23 @@ export class Hud {
       </div>
       <canvas class="radar" width="220" height="220"></canvas>
       <div class="killfeed"></div>
-      <div class="crosshair"><i class="l"></i><i class="r"></i><i class="u"></i><i class="d"></i><b></b></div>
+      <canvas class="xhair"></canvas>
       <div class="hitmarker"></div>
       <div class="dmg-ind"></div>
       <div class="center-msg"></div>
       <div class="sub-msg"></div>
+      <div class="notice"></div>
+      <div class="useprog hidden"><span></span><i><b></b></i></div>
+      <div class="money"><b></b><em></em></div>
       <div class="vitals">
         <div class="hp"><span class="ico">+</span><b></b></div>
-        <div class="ap"><span class="ico">◈</span><b></b></div>
+        <div class="ap"><span class="ico">◈</span><b></b><small class="helm"></small></div>
       </div>
-      <div class="ammo"><div class="wname"></div><div><b class="mag"></b><span class="res"></span></div></div>
+      <div class="kit"></div>
+      <div class="ammo"><div class="nades"></div><div class="wname"></div><div><b class="mag"></b><span class="res"></span></div></div>
       <div class="scope"><div class="scope-ring"></div></div>
       <div class="hurt"></div>
+      <div class="whiteout"></div>
       <div class="spec"></div>
       <div class="scoreboard hidden"></div>
       <div class="buy hidden"></div>
@@ -39,6 +49,7 @@ export class Hud {
           <button data-a="resume">Resume</button>
           <label>Sensitivity <input type="range" min="0.2" max="6" step="0.05" data-s="sensitivity"><span></span></label>
           <label>Volume <input type="range" min="0" max="1" step="0.01" data-s="volume"><span></span></label>
+          <p class="note">Key bindings and the crosshair editor are under Settings in the main menu.</p>
           <button data-a="quit" class="danger">${game.opts.ranked ? 'Abandon ranked match' : 'Leave match'}</button>
           ${game.opts.ranked ? '<p class="warn">Abandoning counts as a loss with a larger RP penalty and a queue cooldown.</p>' : ''}
         </div>
@@ -46,10 +57,11 @@ export class Hud {
     document.body.appendChild(root);
     this.$ = (s) => root.querySelector(s);
     this.radar = this.$('.radar').getContext('2d');
-    this.ch = this.$('.crosshair');
+    this.xh = this.$('.xhair');
     this.bloomV = 0;
-    this.msgTimer = 0;
-    this.buyOpen = false;
+    this.msgTimer = 0; this.noticeT = 0;
+    this.buyOpen = false; this.buyCat = null;
+    this.whiteT = 0; this.whiteDur = 1; this.whitePeak = 0;
     this.applyCrosshair();
     this.buildRadarBase();
 
@@ -71,12 +83,7 @@ export class Hud {
     }
   }
 
-  applyCrosshair() {
-    const s = this.g.settings;
-    this.ch.style.setProperty('--cc', s.crosshairColor || '#4dff6a');
-    this.ch.style.setProperty('--cs', (s.crosshairSize ?? 6) + 'px');
-    this.ch.querySelector('b').style.display = s.crosshairDot ? 'block' : 'none';
-  }
+  applyCrosshair() { this.xcfg = crosshairFrom(this.g.settings); this.lastSpread = -1; }
 
   buildRadarBase() {
     const lv = this.g.level, nav = lv.nav;
@@ -91,7 +98,7 @@ export class Hud {
     for (let z = 0; z < nav.H; z++) for (let i = 0; i < nav.W; i++) {
       const ch = nav.at(i, z);
       if (ch === '#') continue;
-      x.fillStyle = ch === 'A' || ch === 'B' || ch === '^' || ch === 's' ? '#6b5e47' : ch === 'u' ? '#3b4048' : '#59606a';
+      x.fillStyle = 'AB^s'.includes(ch) ? '#6b5e47' : ch === 'u' ? '#3b4048' : 'hD'.includes(ch) ? '#4a4f58' : '#59606a';
       if (ch === 'c' || ch === 'C') x.fillStyle = '#404650';
       x.fillRect(ox + i * nav.S * scale, oz + z * nav.S * scale, nav.S * scale + 0.5, nav.S * scale + 0.5);
     }
@@ -108,15 +115,24 @@ export class Hud {
     x.clearRect(0, 0, 220, 220);
     x.drawImage(this.radarBase, 0, 0);
     const me = g.player;
-    const dot = (c, col, r = 4) => { x.fillStyle = col; x.beginPath(); x.arc(ox + c.pos.x * s, oz + c.pos.z * s, r, 0, 7); x.fill(); };
+    const dot = (p, col, r = 4) => { x.fillStyle = col; x.beginPath(); x.arc(ox + p.x * s, oz + p.z * s, r, 0, 7); x.fill(); };
     for (const c of g.characters) {
       if (c === me) continue;
-      if (c.team === me.team) { if (c.alive) dot(c, '#59a8ff'); else { x.fillStyle = '#59a8ff'; x.fillText('×', ox + c.pos.x * s, oz + c.pos.z * s + 5); } }
-      else if (c.alive && (g.spotted[me.team].get(c) || 0) > g.time) dot(c, '#ff4d4d');
+      if (c.team === me.team) {
+        if (c.alive) { dot(c.pos, c.hasBomb ? '#ffb03a' : '#59a8ff'); }
+        else { x.fillStyle = '#59a8ff'; x.fillText('×', ox + c.pos.x * s, oz + c.pos.z * s + 5); }
+      } else if (c.alive && (g.spotted[me.team].get(c) || 0) > g.time) dot(c.pos, '#ff4d4d');
     }
-    if (me.alive) {
-      const px = ox + me.pos.x * s, pz = oz + me.pos.z * s;
-      x.save(); x.translate(px, pz); x.rotate(-me.yaw);
+    // the bomb: attackers always know where it is; defenders once it's planted or spotted
+    const b = g.bomb;
+    if (b && (b.state === 'dropped' || b.state === 'planted') && (me.team === 'T' || b.state === 'planted')) {
+      x.fillStyle = b.state === 'planted' && (g.time * 2 % 1) < 0.5 ? '#ff3a3a' : '#ffb03a';
+      x.fillRect(ox + b.pos.x * s - 4, oz + b.pos.z * s - 3, 8, 6);
+    }
+    const view = me.alive ? me : g.spec.target;
+    if (view) {
+      const px = ox + view.pos.x * s, pz = oz + view.pos.z * s;
+      x.save(); x.translate(px, pz); x.rotate(-view.yaw);
       x.fillStyle = '#fff'; x.beginPath(); x.moveTo(0, -7); x.lineTo(5, 5); x.lineTo(0, 2); x.lineTo(-5, 5); x.closePath(); x.fill();
       x.restore();
     }
@@ -126,41 +142,82 @@ export class Hud {
 
   update(dt) {
     const g = this.g, p = g.player;
-    this.$('.time').textContent = this.fmtTime(g.stateTimer);
-    this.$('.time').classList.toggle('freeze', g.state === 'freeze');
-    this.$('.round').textContent = `Round ${g.round} · first to ${g.winRounds}`;
+    const planted = g.bomb?.state === 'planted';
+    const time = this.$('.time');
+    time.textContent = planted ? '💣 ' + this.fmtTime(g.bomb.timer) : this.fmtTime(g.stateTimer);
+    time.classList.toggle('freeze', g.state === 'freeze');
+    time.classList.toggle('bomb', planted);
+    this.$('.round').textContent = g.state === 'freeze' && g.canBuy() ? `Buy time · press ${keyLabel(g.binds.buy[0])}` : `Round ${g.round} · first to ${g.winRounds}`;
     this.$('.team-score.t .sc').textContent = g.score.T;
     this.$('.team-score.ct .sc').textContent = g.score.CT;
     this.$('.team-score.t .alive').textContent = '●'.repeat(g.aliveCount('T'));
     this.$('.team-score.ct .alive').textContent = '●'.repeat(g.aliveCount('CT'));
-    const shown = p.alive ? p : g.spectating;
-    if (shown) {
+    const shown = p.alive ? p : g.spec.target;
+    if (shown && shown.weapon) {
       this.$('.hp b').textContent = Math.max(0, shown.health);
       this.$('.ap b').textContent = shown.armor;
+      this.$('.ap .helm').textContent = shown.armor > 0 && shown.helmet ? '+H' : '';
       this.$('.hp').classList.toggle('low', shown.health <= 25);
-      const w = shown.weapon;
-      this.$('.wname').textContent = w.def.name;
-      this.$('.mag').textContent = w.def.type === 'melee' ? '' : w.ammo;
-      this.$('.res').textContent = w.def.type === 'melee' ? '' : ' / ' + w.reserve;
-      this.$('.mag').classList.toggle('low', w.def.magSize > 0 && w.ammo <= Math.ceil(w.def.magSize * 0.2));
+      const w = shown.weapon, d = w.def;
+      this.$('.wname').textContent = d.name;
+      const gun = !!d.pattern;
+      this.$('.mag').textContent = gun ? w.ammo : d.type === 'grenade' ? shown.nades.filter(n => n === w.id).length : '';
+      this.$('.res').textContent = gun ? ' / ' + w.reserve : '';
+      this.$('.mag').classList.toggle('low', gun && w.ammo <= Math.ceil(d.magSize * 0.2));
+      this.$('.nades').innerHTML = shown.nades.map(n => `<i class="${shown.slot === 4 && shown.weapon.id === n ? 'on' : ''}">${NADE_ICON[n]}</i>`).join('') + (shown.hasBomb ? '<i class="bombi">C4</i>' : '');
+      this.$('.kit').textContent = shown.team === 'CT' && shown.hasKit ? 'KIT' : '';
     }
-    // dynamic crosshair gap from inaccuracy + bloom from firing
+    this.$('.money b').textContent = '$' + (p.money ?? 0);
+    // crosshair: gap opens with inaccuracy and firing
     this.bloomV *= Math.exp(-8 * dt);
-    if (p.alive) {
-      const gap = 3 + Math.min(40, p.inaccuracy() * 500 + this.bloomV);
-      this.ch.style.setProperty('--gap', gap.toFixed(1) + 'px');
+    const showX = p.alive && !p.scoped && p.weapon.def.type !== 'sniper';
+    this.xh.style.display = showX ? '' : 'none';
+    if (showX) {
+      const spread = Math.round(Math.min(40, p.inaccuracy() * 500 + this.bloomV));
+      if (spread !== this.lastSpread) { drawCrosshair(this.xh, this.xcfg, spread); this.lastSpread = spread; }
     }
-    this.ch.style.display = p.alive && !p.scoped && p.weapon.def.type !== 'sniper' ? '' : 'none';
+    // plant / defuse bar
+    const up = g.useProgress, bar = this.$('.useprog');
+    bar.classList.toggle('hidden', !up);
+    if (up) { bar.querySelector('span').textContent = up.kind === 'plant' ? 'Planting the bomb' : up.kit ? 'Defusing (kit)' : 'Defusing'; bar.querySelector('b').style.width = (up.pr * 100).toFixed(1) + '%'; }
+    // flashbang whiteout
+    if (this.whiteT > 0) {
+      this.whiteT = Math.max(0, this.whiteT - dt);
+      const k = this.whiteT / this.whiteDur;
+      this.$('.whiteout').style.opacity = (Math.min(1, this.whitePeak * 1.25) * Math.min(1, k * 1.6)).toFixed(3);
+    } else this.$('.whiteout').style.opacity = '0';
     const spec = this.$('.spec');
-    if (!p.alive && g.spectating) { spec.style.display = 'block'; spec.innerHTML = `Spectating <b>${g.spectating.name}</b> · <span>A / D to switch</span>`; }
-    else spec.style.display = 'none';
+    if (!p.alive && !g.deathCam) {
+      const t = g.spec.target, mode = g.spec.mode;
+      const label = mode === 'free' ? 'Free camera' : mode === 'third' ? 'Third person' : 'First person';
+      spec.style.display = 'block';
+      spec.innerHTML = `${mode !== 'free' && t ? `Spectating <b>${t.name}</b> · ` : ''}${label}<br><span>${keyLabel(g.binds.fire[0])} / ${keyLabel(g.binds.alt[0])} switch player · ${keyLabel(g.binds.jump[0])} change view${g.opts.ranked ? ' (free camera is off in ranked)' : ''}</span>`;
+    } else spec.style.display = 'none';
     if (this.msgTimer > 0) { this.msgTimer -= dt; if (this.msgTimer <= 0) { this.$('.center-msg').classList.remove('show'); this.$('.sub-msg').classList.remove('show'); } }
+    if (this.noticeT > 0) { this.noticeT -= dt; if (this.noticeT <= 0) this.$('.notice').classList.remove('show'); }
+    else {
+      // context hints
+      const hint = this.contextHint();
+      const n = this.$('.notice');
+      n.textContent = hint || ''; n.classList.toggle('show', !!hint); n.classList.add('soft');
+    }
     this.drawRadar();
     if (!this.$('.scoreboard').classList.contains('hidden')) this.renderScoreboard();
-    if (this.buyOpen && !g.canBuy()) this.toggleBuy(false);
+    if (this.buyOpen) { if (!g.canBuy()) this.toggleBuy(false); else if ((this.buyTick = (this.buyTick || 0) + dt) > 0.25) { this.buyTick = 0; this.renderBuy(); } }
   }
 
-  bloom() { this.bloomV += this.g.player.weapon.def.type === 'rifle' ? 4 : 7; }
+  contextHint() {
+    const g = this.g, p = g.player;
+    if (!p.alive || g.useProgress) return '';
+    const use = keyLabel(g.binds.use[0]);
+    if (p.hasBomb && g.bomb.siteAt(p.pos) && g.state === 'live') return `Hold ${use} to plant the bomb`;
+    if (p.team === 'CT' && g.bomb.state === 'planted' && p.pos.distanceTo(g.bomb.pos) < 2.2) return `Hold ${use} to defuse${p.hasKit ? '' : ' (a kit halves the time)'}`;
+    const d = g.drops.aimed(p);
+    if (d) return `${use} to pick up ${d.ws.def.name}`;
+    return '';
+  }
+
+  bloom() { this.bloomV += this.g.player.weapon.def.auto ? 4 : 7; }
 
   message(main, sub, dur = 3, cls = '') {
     const m = this.$('.center-msg'), s = this.$('.sub-msg');
@@ -168,10 +225,20 @@ export class Hud {
     m.className = 'center-msg show ' + cls; s.className = 'sub-msg show';
     this.msgTimer = dur;
   }
+  notice(text, dur = 2.2) { const n = this.$('.notice'); n.textContent = text; n.className = 'notice show'; this.noticeT = dur; }
+  moneyGain(n) {
+    const e = this.$('.money em');
+    e.textContent = (n >= 0 ? '+$' : '-$') + Math.abs(n);
+    e.classList.remove('pop'); void e.offsetWidth; e.classList.add('pop');
+  }
+  flash(strength, dur) { this.whitePeak = Math.max(this.whiteT > 0 ? this.whitePeak : 0, strength); this.whiteT = dur; this.whiteDur = dur; this.g.audio.ring?.(strength, dur); }
 
   roundStart() {
     this.$('.killfeed').innerHTML = '';
-    this.message(`Round ${this.g.round}`, `You are on the ${TEAM_NAME[this.g.playerTeam]} · press B to change loadout`, 3);
+    const g = this.g;
+    const job = g.playerTeam === 'T' ? 'plant the bomb on A or B' : 'stop the bomb plant, or defuse it';
+    this.message(`Round ${g.round}`, `${TEAM_NAME[g.playerTeam]}: ${job} · ${keyLabel(g.binds.buy[0])} to buy`, 3.5);
+    if (g.player.hasBomb) setTimeout(() => this.notice('You are carrying the bomb', 3), 1500);
   }
   goLive() { this.message('GO', '', 1, 'go'); }
   roundEnd(winner, reason, over) {
@@ -182,8 +249,9 @@ export class Hud {
 
   killfeed(killer, victim, w, hs) {
     const f = this.$('.killfeed');
-    const e = el('div', 'kf' + (killer === this.g.player || victim === this.g.player ? ' me' : ''));
-    e.innerHTML = `<span class="${killer.team}">${killer.name}</span><i>${w.name}${hs ? ' <em>⌖</em>' : ''}</i><span class="${victim.team}">${victim.name}</span>`;
+    const me = this.g.player;
+    const e = el('div', 'kf' + (killer === me || victim === me ? ' me' : ''));
+    e.innerHTML = `${killer && killer !== victim ? `<span class="${killer.team}">${killer.name}</span>` : ''}<i>${w.name}${hs ? ' <em>⌖</em>' : ''}</i><span class="${victim.team}">${victim.name}</span>`;
     f.prepend(e);
     while (f.children.length > 6) f.lastChild.remove();
     setTimeout(() => e.remove(), 7000);
@@ -205,49 +273,73 @@ export class Hud {
     const h = this.$('.hurt'); h.classList.remove('on'); void h.offsetWidth; h.classList.add('on');
   }
 
-  setScope(level) { this.$('.scope').style.display = level ? 'block' : 'none'; }
+  setScope(level, def) {
+    const s = this.$('.scope');
+    s.style.display = level ? 'block' : 'none';
+    s.classList.toggle('lite', !!def && def.type !== 'sniper');
+  }
 
   showScoreboard(v) { this.$('.scoreboard').classList.toggle('hidden', !v); if (v) this.renderScoreboard(); }
   renderScoreboard() {
     const g = this.g;
-    const row = (c) => `<tr class="${c === g.player ? 'me' : ''} ${c.alive ? '' : 'dead'}"><td>${c.name}</td><td>${c.stats.kills}</td><td>${c.stats.assists}</td><td>${c.stats.deaths}</td><td>${c.stats.kills ? Math.round(c.stats.hs / c.stats.kills * 100) : 0}%</td><td>${Math.round(c.stats.damage / Math.max(1, g.round - (g.state === 'post' ? 0 : 1) || 1))}</td></tr>`;
+    const row = (c) => `<tr class="${c === g.player ? 'me' : ''} ${c.alive ? '' : 'dead'}"><td>${c.hasBomb && c.team === g.playerTeam ? '💣 ' : ''}${c.name}</td><td>${c.team === g.playerTeam ? '$' + c.money : ''}</td><td>${c.stats.kills}</td><td>${c.stats.assists}</td><td>${c.stats.deaths}</td><td>${c.stats.kills ? Math.round(c.stats.hs / c.stats.kills * 100) : 0}%</td><td>${Math.round(c.stats.damage / Math.max(1, g.round - (g.state === 'post' ? 0 : 1) || 1))}</td></tr>`;
     const team = (t) => {
       const list = g.characters.filter(c => c.team === t).sort((a, b) => b.stats.kills - a.stats.kills);
-      return `<div class="sb-team ${t}"><h3>${TEAM_NAME[t]} <b>${g.score[t]}</b></h3><table><tr><th>Player</th><th>K</th><th>A</th><th>D</th><th>HS</th><th>ADR</th></tr>${list.map(row).join('')}</table></div>`;
+      return `<div class="sb-team ${t}"><h3>${TEAM_NAME[t]} <b>${g.score[t]}</b></h3><table><tr><th>Player</th><th>Money</th><th>K</th><th>A</th><th>D</th><th>HS</th><th>ADR</th></tr>${list.map(row).join('')}</table></div>`;
     };
     this.$('.scoreboard').innerHTML = team('CT') + team('T');
   }
 
+  // ---------------------------------------------------------------- buy menu
   toggleBuy(force) {
     const g = this.g;
     this.buyOpen = force ?? !this.buyOpen;
+    this.buyCat = null;
     const b = this.$('.buy');
     b.classList.toggle('hidden', !this.buyOpen);
     if (this.buyOpen) {
       document.exitPointerLock();
-      const team = g.playerTeam;
-      const prim = PRIMARIES.filter(id => !WEAPONS[id].team || WEAPONS[id].team === team);
-      const sec = SECONDARIES.filter(id => !WEAPONS[id].team || WEAPONS[id].team === team);
-      this.buyList = [...prim.map(id => ['p', id]), ...sec.map(id => ['s', id])];
-      b.innerHTML = `<h2>Loadout <small>(free during warm-up builds · economy comes with cases update)</small></h2>
-        <div class="buy-cols"><div><h4>Primary</h4>${prim.map((id, i) => `<button data-p="${id}" class="${g.loadout.primary === id ? 'sel' : ''}"><kbd>${i + 1}</kbd>${WEAPONS[id].name}</button>`).join('')}</div>
-        <div><h4>Pistol</h4>${sec.map((id, i) => `<button data-s="${id}" class="${g.loadout.secondary === id ? 'sel' : ''}"><kbd>${prim.length + i + 1}</kbd>${WEAPONS[id].name}</button>`).join('')}</div></div>
-        <p class="hint">Click or press the number. B / Esc to close.</p>`;
+      this.renderBuy();
       b.onclick = (e) => {
         const t = e.target.closest('button'); if (!t) return;
-        if (t.dataset.p) g.giveLoadout(t.dataset.p, g.loadout.secondary);
-        if (t.dataset.s) { g.giveLoadout(g.loadout.primary, t.dataset.s); g.switchWeapon(2); }
-        this.toggleBuy(true);
+        if (t.dataset.close) return this.toggleBuy(false);
+        if (t.dataset.cat != null) { this.buyCat = +t.dataset.cat; return this.renderBuy(); }
+        if (t.dataset.item) this.purchase(t.dataset.item);
       };
     } else if (!g.paused && g.running) g.canvas.requestPointerLock();
   }
+
+  purchase(id) {
+    const r = this.g.buy(this.g.player, id);
+    if (r.error) this.notice(r.error, 1.5);
+    this.renderBuy();
+  }
+
+  renderBuy() {
+    const g = this.g, p = g.player;
+    const cats = BUY_MENU.map(([name, ids]) => [name, ids.filter(id => usableBy(id, p.team))]);
+    const item = (id, i) => {
+      const d = WEAPONS[id] || GEAR[id];
+      const block = buyBlock(p, id);
+      const owned = (d.slot === 1 || d.slot === 2) && p.weapons[d.slot]?.id === id;
+      return `<button data-item="${id}" class="${block && !owned ? 'no' : ''} ${owned ? 'own' : ''}" title="${block || ''}"><kbd>${i + 1}</kbd><span>${d.name}</span><b>$${priceFor(p, id)}</b>${d.cls && d.cls !== 'grenade' ? `<small>${d.cls}</small>` : ''}</button>`;
+    };
+    this.$('.buy').innerHTML = `
+      <div class="buy-box">
+        <div class="buy-head"><h2>Buy</h2><div class="buy-money">$${p.money}</div><div class="buy-time">${g.state === 'freeze' ? 'Freeze time' : `${Math.max(0, Math.ceil(20 - g.roundTime))}s left`}</div><button data-close="1" class="x">Close</button></div>
+        <div class="buy-cats">${cats.map(([name], i) => `<button data-cat="${i}" class="${this.buyCat === i ? 'on' : ''}"><kbd>${i + 1}</kbd>${name}</button>`).join('')}</div>
+        <div class="buy-items">${this.buyCat == null ? '<p class="hint">Pick a category (number keys or click).</p>' : cats[this.buyCat][1].map(item).join('')}</div>
+        <p class="hint">Number keys: category, then item · ${keyLabel(g.binds.buy[0])} / Esc to close · buying a gun drops the one in that slot</p>
+      </div>`;
+    this.buyCats = cats;
+  }
+
   buyKey(code) {
     const i = +code.slice(5) - 1;
-    const it = this.buyList?.[i]; if (!it) return;
-    const g = this.g;
-    if (it[0] === 'p') g.giveLoadout(it[1], g.loadout.secondary);
-    else { g.giveLoadout(g.loadout.primary, it[1]); g.switchWeapon(2); }
-    this.toggleBuy(true);
+    if (i < 0) return;
+    if (this.buyCat == null) { if (this.buyCats?.[i]) { this.buyCat = i; this.renderBuy(); } return; }
+    const id = this.buyCats[this.buyCat]?.[1][i];
+    if (id) this.purchase(id); else if (i === 9) { this.buyCat = null; this.renderBuy(); }
   }
 
   showPause(v) { this.$('.pause').classList.toggle('hidden', !v); }

@@ -21,7 +21,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def load_map(name):
     src = open(os.path.join(ROOT, 'src', 'maps.js')).read()
     block = src[src.index(f'{name}:'):]
-    grid = re.findall(r"'([#.,ucC^sABTK]+)'", block[block.index('grid'):block.index(']')])
+    grid = re.findall(r"'([#.,ucC^sABTKhD]+)'", block[block.index('grid'):block.index(']')])
     cell = float(re.search(r'cell:\s*([\d.]+)', block).group(1))
     wh = float(re.search(r'wallHeight:\s*([\d.]+)', block).group(1))
     return grid, cell, wh
@@ -137,6 +137,8 @@ def build(name):
     H, W = len(grid), len(grid[0])
     at = lambda x, z: '#' if x < 0 or z < 0 or x >= W or z >= H else grid[z][x]
     walk = lambda x, z: at(x, z) != '#'
+    # open air (streets, sites, tunnels) as opposed to building interiors
+    street = lambda x, z: at(x, z) not in '#' + INTERIOR
     rnd = random.Random(1337)
     B = Builder()
 
@@ -197,11 +199,11 @@ def build(name):
         out = []
         for z in range(int(z0 / S), int(z1 / S)):
             for side, xs in (('w', int(x0 / S) - 1), ('e', int(x1 / S))):
-                if walk(xs, z):
+                if street(xs, z):
                     out.append(('x', x0 if side == 'w' else x1, z * S, (z + 1) * S, -1 if side == 'w' else 1))
         for x in range(int(x0 / S), int(x1 / S)):
             for side, zs in (('n', int(z0 / S) - 1), ('s', int(z1 / S))):
-                if walk(x, zs):
+                if street(x, zs):
                     out.append(('z', z0 if side == 'n' else z1, x * S, (x + 1) * S, -1 if side == 'n' else 1))
         return out
 
@@ -280,7 +282,7 @@ def build(name):
                 continue
             x0, z0 = x * S, z * S
             cx, cz = x0 + S / 2, z0 + S / 2
-            fm = 'sand' if c in ',T' else 'tiles' if c in 'AB^s' else 'concrete' if c == 'u' else 'paving'
+            fm = 'sand' if c in ',T' else 'tiles' if c in 'AB^s' else 'concrete' if c == 'u' else 'wood' if c in INTERIOR else 'paving'
             B.quad(fm, [(x0, 0, z0), (x0, 0, z0 + S), (x0 + S, 0, z0 + S), (x0 + S, 0, z0)])
             if c in 'cC':
                 cs, ch = 2.1, 2.2 if c == 'C' else 1.1
@@ -365,11 +367,143 @@ def build(name):
                     col = ['cloth_red', 'cloth_blue', 'lamp', 'cloth_red', 'cloth_blue'][k]
                     B.box(col, ax + (bx - ax) * t - 0.15, yy - 0.5, cz - 0.01, ax + (bx - ax) * t + 0.15, yy - 0.02, cz + 0.01)
 
-    dress(B, grid, S, walls, at, walk)
+    interiors(B, grid, S, WH, at, random.Random(77))
+    dress(B, grid, S, walls, at, street)
 
     tex_scale.update({'sand': 4.0, 'paving': 4.0, 'tiles': 4.0, 'concrete': 4.0, 'sandstone': 4.0, 'plaster': 4.0, 'terracotta': 2.0})
     B.finish(tex_scale)
     return B.colliders
+
+
+# ---------------------------------------------------------------- building interiors
+INTERIOR = 'hD'
+
+
+def interiors(B, grid, S, WH, at, rnd):
+    """Rooms you can walk into: roof mass from the ceiling up (which is also the
+    building's outside), walls toward the street with doorways (D cells) or
+    barred windows (h cells), beams, lamps, rugs and furniture."""
+    H, W = len(grid), len(grid[0])
+    ceil, t = 3.4, 0.3
+    for z in range(H):
+        for x in range(W):
+            c = at(x, z)
+            if c not in INTERIOR:
+                continue
+            x0, z0 = x * S, z * S
+            cx, cz = x0 + S / 2, z0 + S / 2
+            B.box('plaster', x0, ceil, z0, x0 + S, WH, z0 + S, collide='ceiling')
+            B.box('darkwood', x0, ceil - 0.22, cz - 0.12, x0 + S, ceil, cz + 0.12)
+            if (x + z) % 2 == 0:
+                B.box('iron', cx - 0.015, ceil - 0.6, cz - 0.015, cx + 0.015, ceil - 0.22, cz + 0.015)
+                B.box('lamp', cx - 0.13, ceil - 0.8, cz - 0.13, cx + 0.13, ceil - 0.6, cz + 0.13)
+            solid = []
+            for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                n = at(x + dx, z + dz)
+                if n in INTERIOR:
+                    continue
+                if n == '#':
+                    solid.append((dx, dz))
+                    # wainscot strip along solid walls
+                    edge_box(B, x0, z0, S, dx, dz, 'darkwood', 0.0, 0.0, S, 0.9, 0.04)
+                    continue
+                room_wall(B, x0, z0, S, dx, dz, c == 'D', ceil, t)
+                # cornice where the building meets the street
+                edge_box(B, x0, z0, S, dx, dz, 'trim', -0.1, WH - 0.35, S + 0.1, WH - 0.05, -0.14, outward=True)
+                # parapet around the roof on that side
+                edge_box(B, x0, z0, S, dx, dz, 'plaster', 0, WH, S, WH + 0.6, 0.25)
+                edge_box(B, x0, z0, S, dx, dz, 'trim', -0.05, WH + 0.6, S + 0.05, WH + 0.7, 0.3)
+            # furniture against a solid wall
+            if solid and rnd.random() < 0.55:
+                dx, dz = solid[0]
+                kind = rnd.random()
+                if kind < 0.4:      # shelves with jars
+                    edge_box(B, x0, z0, S, dx, dz, 'darkwood', 0.6, 0.0, S - 0.6, 1.9, 0.45, collide='prop')
+                    for k in range(3):
+                        edge_box(B, x0, z0, S, dx, dz, 'wood', 0.6, 0.55 + k * 0.6, S - 0.6, 0.6 + k * 0.6, 0.47)
+                        for j in range(4):
+                            u = 0.9 + j * 0.65 + rnd.random() * 0.2
+                            px, pz = edge_point(x0, z0, S, dx, dz, u, 0.25)
+                            B.lathe_y('terracotta', px, 0.6 + k * 0.6, pz, [(0, 0.08), (0.12, 0.11), (0.26, 0.07), (0.3, 0.05)], 10)
+                elif kind < 0.75:   # table with crates beside it
+                    px, pz = edge_point(x0, z0, S, dx, dz, S / 2, 0.9)
+                    B.box('wood', px - 0.8, 0.72, pz - 0.5, px + 0.8, 0.8, pz + 0.5, collide='prop')
+                    for ox in (-0.7, 0.7):
+                        for oz in (-0.4, 0.4):
+                            B.box('darkwood', px + ox - 0.04, 0, pz + oz - 0.04, px + ox + 0.04, 0.72, pz + oz + 0.04)
+                    B.box('crate', px + 0.9, 0, pz - 0.45, px + 1.75, 0.85, pz + 0.4, collide='prop')
+                else:               # sacks and a barrel
+                    for k in range(4):
+                        px, pz = edge_point(x0, z0, S, dx, dz, 0.7 + k * 0.75, 0.35)
+                        B.box('cloth_sand', px - 0.3, 0, pz - 0.22, px + 0.3, 0.45, pz + 0.22, rot=rnd.random() * 0.5)
+                    px, pz = edge_point(x0, z0, S, dx, dz, S - 0.6, 0.6)
+                    B.colliders.append([round(px - 0.42, 3), 0, round(pz - 0.42, 3), round(px + 0.42, 3), 1.2, round(pz + 0.42, 3), 'barrel'])
+                    B.cylinder('barrel', px, 0, pz, 0.42, 1.2, segs=18)
+            # roof clutter: vents, a stair hatch, a water tank now and then
+            r = rnd.random()
+            if r < 0.25:
+                B.box('iron', cx - 0.3, WH, cz - 0.3, cx + 0.3, WH + 0.5, cz + 0.3)
+                B.box('iron', cx - 0.38, WH + 0.5, cz - 0.38, cx + 0.38, WH + 0.56, cz + 0.38)
+            elif r < 0.4:
+                B.box('plaster', cx - 0.9, WH, cz - 0.7, cx + 0.9, WH + 1.9, cz + 0.7)
+                B.box('wood', cx - 0.45, WH, cz + 0.7, cx + 0.45, WH + 1.6, cz + 0.74)
+            elif r < 0.5:
+                B.lathe_y('barrel', cx, WH + 0.9, cz, [(0, 0.6), (1.1, 0.6), (1.25, 0.45), (1.3, 0.15)], 18)
+                for sx in (-0.45, 0.45):
+                    for sz in (-0.45, 0.45):
+                        B.box('iron', cx + sx - 0.04, WH, cz + sz - 0.04, cx + sx + 0.04, WH + 0.9, cz + sz + 0.04)
+            if rnd.random() < 0.5:
+                col = rnd.choice(['cloth_red', 'cloth_blue', 'cloth_sand'])
+                B.box(col, cx - 1.2, 0.0, cz - 0.8, cx + 1.2, 0.015, cz + 0.8)
+
+
+def edge_point(x0, z0, S, dx, dz, u, d):
+    """Point u along the cell edge facing (dx, dz), d metres in from it."""
+    if dx:
+        ex = x0 + S - d if dx > 0 else x0 + d
+        return ex, z0 + u
+    ez = z0 + S - d if dz > 0 else z0 + d
+    return x0 + u, ez
+
+
+def edge_box(B, x0, z0, S, dx, dz, mat, u0, y0, u1, y1, depth, collide=None, outward=False):
+    """Box hugging the cell edge facing (dx, dz): u along the edge, depth into the cell
+    (negative depth / outward=True pokes out past the edge)."""
+    d0, d1 = (0.0, depth) if depth > 0 else (depth, 0.0)
+    if dx:
+        a = x0 + S - d1 if dx > 0 else x0 + d0
+        b = x0 + S - d0 if dx > 0 else x0 + d1
+        B.box(mat, min(a, b), y0, z0 + u0, max(a, b), y1, z0 + u1, collide)
+    else:
+        a = z0 + S - d1 if dz > 0 else z0 + d0
+        b = z0 + S - d0 if dz > 0 else z0 + d1
+        B.box(mat, x0 + u0, y0, min(a, b), x0 + u1, y1, max(a, b), collide)
+
+
+def room_wall(B, x0, z0, S, dx, dz, door, ceil, t):
+    m = S / 2
+    if door:
+        hw, dh = 0.8, 2.4
+        edge_box(B, x0, z0, S, dx, dz, 'plaster', 0, 0, m - hw, ceil, t, collide='wall')
+        edge_box(B, x0, z0, S, dx, dz, 'plaster', m + hw, 0, S, ceil, t, collide='wall')
+        edge_box(B, x0, z0, S, dx, dz, 'plaster', m - hw, dh, m + hw, ceil, t, collide='wall')
+        # stone frame proud of both faces, and an open plank door swung inward
+        edge_box(B, x0, z0, S, dx, dz, 'trim', m - hw - 0.14, 0, m - hw, dh + 0.14, t + 0.06)
+        edge_box(B, x0, z0, S, dx, dz, 'trim', m + hw, 0, m + hw + 0.14, dh + 0.14, t + 0.06)
+        edge_box(B, x0, z0, S, dx, dz, 'trim', m - hw, dh, m + hw, dh + 0.14, t + 0.06)
+        edge_box(B, x0, z0, S, dx, dz, 'wood', m - hw - 0.02, 0.02, m - hw + 0.05, dh - 0.04, t + 1.4)
+    else:
+        ww, sill, head = 0.7, 1.1, 2.0
+        edge_box(B, x0, z0, S, dx, dz, 'plaster', 0, 0, S, sill, t, collide='wall')
+        edge_box(B, x0, z0, S, dx, dz, 'plaster', 0, sill, m - ww, ceil, t, collide='wall')
+        edge_box(B, x0, z0, S, dx, dz, 'plaster', m + ww, sill, S, ceil, t, collide='wall')
+        edge_box(B, x0, z0, S, dx, dz, 'plaster', m - ww, head, m + ww, ceil, t, collide='wall')
+        edge_box(B, x0, z0, S, dx, dz, 'trim', m - ww - 0.08, sill - 0.08, m + ww + 0.08, sill, t + 0.1)
+        edge_box(B, x0, z0, S, dx, dz, 'trim', m - ww - 0.08, head, m + ww + 0.08, head + 0.1, t + 0.06)
+        for k in range(4):
+            u = m - ww + 0.25 + k * 0.3
+            edge_box(B, x0, z0, S, dx, dz, 'iron', u - 0.015, sill, u + 0.015, head, t * 0.6)
+        edge_box(B, x0, z0, S, dx, dz, 'iron', m - ww, sill + 0.45, m + ww, sill + 0.48, t * 0.6)
 
 
 # ---------------------------------------------------------------- set dressing
@@ -467,6 +601,26 @@ def dress(B, grid, S, walls, at, walk):
                     pot(B, px, pz, s_)
                     B.colliders.append([round(px - 0.3 * s_, 3), 0, round(pz - 0.3 * s_, 3), round(px + 0.3 * s_, 3), round(0.85 * s_, 3), round(pz + 0.3 * s_, 3), 'pot'])
 
+    # ---- a sandbag wall on each bombsite (waist high, cover you can shoot over)
+    for L in 'AB':
+        cells = [(x, z) for z in range(H) for x in range(W) if at(x, z) == L
+                 and all(at(x + dx, z + dz) == L for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)))]
+        if not cells:
+            continue
+        x, z = cells[len(cells) // 2]
+        cx, cz = x * S + S / 2, z * S + S / 2
+        along_x = rnd.random() < 0.5
+        for row in range(3):
+            for k in range(5 - (row % 2)):
+                u = -1.6 + k * 0.8 + (0.4 if row % 2 else 0)
+                bx, bz = (cx + u, cz) if along_x else (cx, cz + u)
+                w, d = (0.38, 0.26) if along_x else (0.26, 0.38)
+                B.box('cloth_sand', bx - w, row * 0.32, bz - d, bx + w, row * 0.32 + 0.34, bz + d, rot=(rnd.random() - 0.5) * 0.12)
+        if along_x:
+            B.colliders.append([round(cx - 2.0, 3), 0, round(cz - 0.3, 3), round(cx + 2.0, 3), 1.0, round(cz + 0.3, 3), 'sandbags'])
+        else:
+            B.colliders.append([round(cx - 0.3, 3), 0, round(cz - 2.0, 3), round(cx + 0.3, 3), 1.0, round(cz + 2.0, 3), 'sandbags'])
+
     # ---- wooden balconies on some upper facades (above head height, visual only)
     for (x0, z0, x1, z1, h, border) in walls:
         if h < 6.5:
@@ -474,13 +628,13 @@ def dress(B, grid, S, walls, at, walk):
         for zc in range(int(z0 / S), int(z1 / S)):
             for side in (-1, 1):
                 xs = int(x0 / S) - 1 if side < 0 else int(x1 / S)
-                if walk(xs, zc) and rnd.random() < 0.12:
+                if walk(xs, zc) and rnd.random() < 0.12:  # walk = street here
                     f = x0 if side < 0 else x1
                     balcony(B, 'x', f, zc * S + S / 2, side)
         for xc in range(int(x0 / S), int(x1 / S)):
             for side in (-1, 1):
                 zs = int(z0 / S) - 1 if side < 0 else int(z1 / S)
-                if walk(xc, zs) and rnd.random() < 0.12:
+                if walk(xc, zs) and rnd.random() < 0.12:  # walk = street here
                     f = z0 if side < 0 else z1
                     balcony(B, 'z', f, xc * S + S / 2, side)
 

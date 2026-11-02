@@ -13,7 +13,7 @@ let remote = null; // server copy when signed in
 function loadLocal() {
   try {
     const p = JSON.parse(localStorage.getItem(KEY));
-    if (p && Array.isArray(p.items)) { const f = E.freshProfile(); return { ...f, ...p, stats: { ...f.stats, ...p.stats } }; }
+    if (p && Array.isArray(p.items)) { const f = E.freshProfile(); const out = { ...f, ...p, stats: { ...f.stats, ...p.stats } }; E.migrateProfile(out); return out; }
   } catch { /* storage unavailable or corrupt */ }
   return E.freshProfile();
 }

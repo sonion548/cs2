@@ -405,6 +405,76 @@ export const FINISH_TYPES = {
       set(o, c);
     });
   } },
+
+  // Pattern-welded steel: flowing layered bands that ripple around seed-placed knots.
+  damascus: { metal: 0.85, rough: 0.28, draw(ctx, W, H, p, seed) {
+    const a = C(p.light || '#c9ccd1'), b = C(p.dark || '#3a3d42'), layers = p.layers || 34;
+    pixels(ctx, W, H, (x, y, o) => {
+      const warp = fbm(x * 2.2, y * 2.2, seed, 4) * 2.6 + fbm(x * 7, y * 7, seed + 9, 3) * 0.35;
+      const t = smooth(-0.3, 0.3, Math.sin(y * layers + warp * 6));
+      const c = mixRgb(b, a, t);
+      const g = (valueNoise(x * 400, y * 90, seed + 3) - 0.5) * 18;
+      set(o, [c[0] + g, c[1] + g, c[2] + g]);
+    });
+  } },
+
+  // Polished stone: soft clouding with thin dark veins.
+  marble: { metal: 0.1, rough: 0.18, draw(ctx, W, H, p, seed) {
+    const base = C(p.base), vein = C(p.vein), v2 = C(p.vein2 || p.vein);
+    pixels(ctx, W, H, (x, y, o) => {
+      const n = fbm(x * 3, y * 3, seed, 5);
+      const v = Math.abs(Math.sin((x * 3 + y * 1.5 + n * 5) * Math.PI));
+      const vb = Math.abs(Math.sin((x * 7 - y * 4 + fbm(x * 6, y * 6, seed + 8, 4) * 6) * Math.PI));
+      let c = mixRgb(base, mixRgb(base, v2, 0.35), fbm(x * 1.5, y * 1.5, seed + 4, 4));
+      c = mixRgb(c, vein, Math.min(1, smooth(0.06, 0.0, v) * 0.9 + smooth(0.03, 0.0, vb) * 0.35));
+      set(o, c);
+    });
+  } },
+
+  // Lacquered wood: growth rings that bend around knots, open pores along the grain.
+  woodgrain: { metal: 0.0, rough: 0.42, draw(ctx, W, H, p, seed) {
+    const light = C(p.light), dark = C(p.dark), rings = p.rings || 22;
+    pixels(ctx, W, H, (x, y, o) => {
+      const w = fbm(x * 0.8, y * 4, seed, 4) * 1.8;
+      const ring = (((y * rings + w * 6 + Math.sin(x * 3 + seed) * 0.6) % 1) + 1) % 1;
+      const t = smooth(0.0, 0.55, ring) * smooth(1.0, 0.7, ring);
+      const c = mixRgb(dark, light, t * 0.85 + fbm(x * 30, y * 3, seed + 2, 2) * 0.15);
+      const pore = valueNoise(x * 260, y * 30, seed + 5) > 0.82 ? 0.8 : 1;
+      set(o, [c[0] * pore, c[1] * pore, c[2] * pore]);
+    });
+  } },
+
+  // Anodised aluminium: deep metallic colour, machining swirls, darker toward the edges.
+  anodized: { metal: 0.9, rough: 0.3, draw(ctx, W, H, p, seed) {
+    const a = C(p.base), b = C(p.edge || p.base);
+    pixels(ctx, W, H, (x, y, o) => {
+      const sw = Math.sin(Math.hypot((x % 0.25) - 0.125, (y % 0.25) - 0.125) * 260 + seed) * 0.5 + 0.5;
+      const c = mixRgb(a, b, smooth(0.2, 0.5, Math.abs(y - 0.5)));
+      const k = 0.9 + sw * 0.1 + (valueNoise(x * 500, y * 3, seed) - 0.5) * 0.08;
+      set(o, [c[0] * k, c[1] * k, c[2] * k]);
+    });
+  } },
+
+  // Cracked glaze with metal-filled seams.
+  kintsugi: { metal: 0.35, rough: 0.3, draw(ctx, W, H, p, seed) {
+    const base = C(p.base), gold = C(p.gold || '#e8b84a');
+    pixels(ctx, W, H, (x, y, o) => {
+      const v = voronoi(x * 5 + fbm(x * 4, y * 4, seed, 3) * 0.6, y * 5, seed);
+      const shade = 0.86 + v.id * 0.18;
+      set(o, mixRgb([base[0] * shade, base[1] * shade, base[2] * shade], gold, smooth(0.035, 0.0, v.d2 - v.d1)));
+    });
+  } },
+
+  // Hydro-dipped film: marbled bands of several colours dragged across the part.
+  hydro: { metal: 0.2, rough: 0.4, draw(ctx, W, H, p, seed) {
+    const cols = p.colors.map(C);
+    pixels(ctx, W, H, (x, y, o) => {
+      const wx = x + fbm(x * 2, y * 2, seed, 4) * 0.8, wy = y + fbm(x * 2 + 5, y * 2, seed + 3, 4) * 0.8;
+      const t = (Math.sin(wx * 9 + Math.sin(wy * 7) * 2) * 0.5 + 0.5) * (cols.length - 1);
+      const i = Math.min(cols.length - 2, Math.floor(t));
+      set(o, mixRgb(cols[i], cols[i + 1], smooth(0.35, 0.65, t - i)));
+    });
+  } },
 };
 
 Object.assign(FINISH_TYPES, ART_FINISHES);

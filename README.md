@@ -112,9 +112,40 @@ Known limits: the host's machine runs the match, so a modified client acting as 
 A dedicated authoritative game server would close that gap. There is no host migration (if the host
 leaves, the match ends), and offline items stay on the device that earned them.
 
+## Stage 5 (this build)
+
+- **Bombsite rounds**: one attacker carries the bomb; plant it on A or B (hold Use, 3.2 s), defenders defuse it
+  (10 s, 5 s with a kit) before the 40 s fuse runs out. The bomb drops on death and any attacker can pick it up.
+- **Match economy and buy phase**: 15 s freeze time plus 20 s of buying near your spawn. Money from kills (by weapon
+  class), round wins, a growing loss bonus, plants and defuses. Survivors keep their gear between rounds.
+- **Arsenal**: 28 guns across pistols, SMGs, rifles (two scoped), snipers, shotguns (pump with shell-by-shell
+  reloads, semi-auto, double barrel) and machine guns, each with its own role, price and learnable spray pattern.
+- **Grenades**: HE, flashbang, smoke (blocks vision for players and bots), molotov / incendiary (burning ground that
+  smoke puts out) and decoy. Hold Fire to throw, Alt-fire to lob, both for a medium throw.
+- **Weapons on the ground**: buying or dropping (G) leaves the old gun on the floor; walk over it or press Use to swap.
+- **Characters**: skinned soldiers on one skeleton. Arms reach the weapon's grip and foregrip with IK, rifles sit in
+  the shoulder with a bladed stance, plus walk cycle, crouch, aim pitch, reload, recoil and plant/defuse poses.
+  Dead bodies become ragdolls that settle against walls and floors, then disappear after a while.
+- **First-person**: arms are solved every frame, so they stay on the gun during inspects; bolt cycling, pump racking,
+  slide lock on an empty pistol, revolver cylinder, left hand fetching magazines, grenade wind-up and throw.
+- **Surface marks**: bullet holes, blood spatter on walls and floors behind hits, knife cuts, scorch marks.
+- **Bots** only know what they see (not through walls or smoke, not while flashed), hear (gunfire, footsteps,
+  grenades, the bomb) or get shot by. They buy by budget, plant, retake, defuse, fetch a dropped bomb and use utility.
+- **Spectating**: after death, follow teammates in first person (with their gun and arms) or third person, or fly a
+  free camera (off in ranked). Fire / Alt-fire switch player, Jump changes the view.
+- **Settings**: rebind every action (two slots each, keyboard or mouse) and edit the crosshair (style, length,
+  thickness, gap, colour, opacity, outline, dot, T-style) with a live preview.
+- **Dunehold** now has buildings you can walk into (an apartment hall, a market hall, side rooms off mid and a house
+  between B and the defender spawn), a second tunnel to B, sandbag cover on both sites and rooftop detail.
+- 140 new weapon finishes (six new finish styles: pattern-welded steel, marble, wood grain, anodised, gold seams and
+  hydro-dip) in five new cases. The cleaver is retired: any cleaver you own becomes a bowie with the same finish.
+
+Online: the host runs the bomb, money and grenades for everyone; dropped weapons are only visible on the machine that
+dropped them.
+
 ## Blender models
 
-Weapons, knives and the Dunehold map are modelled with Blender scripts in `blender/` (see
+Weapons, knives, characters and the Dunehold map are modelled with Blender scripts in `blender/` (see
 `blender/README.md`) and exported to `public/models/`. The game preloads them and keeps its
 procedural models as a fallback.
 

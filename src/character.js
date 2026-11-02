@@ -1,6 +1,6 @@
 // Shared state + movement physics for the player and bots.
 import * as THREE from 'three';
-import { WeaponState } from './weapons.js';
+import { WeaponState, DEFAULT_PISTOL } from './weapons.js';
 
 export const MOVE = {
   maxSpeed: 6.35, walkMul: 0.52, crouchMul: 0.34,
@@ -23,26 +23,65 @@ export class Character {
     this.onGround = true;
     this.stats = { kills: 0, deaths: 0, assists: 0, damage: 0, hs: 0, mvps: 0 };
     this.damageBy = new Map();
+    this.money = 0;
+    this.armor = 0; this.helmet = false; this.hasKit = false; this.hasBomb = false;
+    this.nades = [];
+    this.weapons = { 1: null, 2: null, 3: null, 4: null, 5: null };
+    this.slot = 2;
+    this.blindUntil = 0; this.blindPeak = 0;
     this.reset();
   }
 
+  // New life: health back, but gear is handled by resetGear / kept between rounds.
   reset() {
-    this.health = 100; this.armor = 100; this.helmet = true;
+    this.health = 100;
     this.alive = true;
     this.vel.set(0, 0, 0);
     this.damageBy.clear();
+    this.blindUntil = 0;
+  }
+
+  // Default kit after dying: team pistol and knife, no armour or grenades.
+  resetGear() {
+    this.armor = 0; this.helmet = false; this.hasKit = false;
+    this.nades = [];
+    this.weapons = { 1: null, 2: new WeaponState(DEFAULT_PISTOL[this.team]), 3: new WeaponState('knife'), 4: null, 5: null };
+    this.slot = 2;
   }
 
   giveLoadout(primary, secondary) {
-    this.weapons = { 1: primary ? new WeaponState(primary) : null, 2: new WeaponState(secondary), 3: new WeaponState('knife') };
+    this.weapons = { 1: primary ? new WeaponState(primary) : null, 2: new WeaponState(secondary), 3: new WeaponState('knife'), 4: null, 5: null };
     this.slot = primary ? 1 : 2;
     this.weapon.deploying = 0;
   }
 
-  get weapon() { return this.weapons[this.slot]; }
+  get weapon() { return this.weapons[this.slot] || this.weapons[3] || this.weapons[2]; }
+
+  // Best slot to fall back to (after throwing the last grenade, dropping a gun...)
+  bestSlot() { return this.weapons[1] ? 1 : this.weapons[2] ? 2 : 3; }
+
+  // Grenade slot: picks a type (or the next one when already holding a grenade).
+  selectNade(type) {
+    if (!this.nades.length) return false;
+    const types = [...new Set(this.nades)];
+    if (!type) {
+      const cur = this.slot === 4 ? this.weapons[4]?.id : null;
+      type = cur ? types[(types.indexOf(cur) + 1) % types.length] : types[0];
+    }
+    if (!this.nades.includes(type)) return false;
+    this.weapons[4] = new WeaponState(type);
+    return true;
+  }
 
   switchTo(slot) {
-    if (!this.weapons[slot] || slot === this.slot) return false;
+    if (slot === 4) {
+      if (!this.nades.length) return false;
+      if (!this.weapons[4] || this.slot === 4 || !this.nades.includes(this.weapons[4].id)) this.selectNade();
+    } else if (slot === 5) {
+      if (!this.hasBomb) return false;
+      this.weapons[5] ||= new WeaponState('c4');
+    }
+    if (!this.weapons[slot] || (slot === this.slot && slot !== 4)) return false;
     const w = this.weapon;
     if (w) { w.reloading = 0; }
     this.slot = slot;
@@ -133,9 +172,10 @@ export class Character {
   // Current inaccuracy (radians, cone half-angle) for the held weapon.
   inaccuracy() {
     const d = this.weapon.def;
-    if (d.type === 'melee') return 0;
+    if (!d.pattern) return 0;
     let s = d.baseSpread;
-    if (d.scope && !this.scoped) s += d.unscopedSpread;
+    if (d.scope && this.scoped && d.scopedSpread != null) s = d.scopedSpread;
+    if (d.scope && !this.scoped && d.unscopedSpread) s += d.unscopedSpread;
     const frac = Math.min(1, this.speed2D() / (MOVE.maxSpeed * d.moveSpeed));
     // standing still-ish (≤ ~34%) keeps nearly full accuracy, like counter-strafing
     s += d.moveSpread * Math.max(0, (frac - 0.34) / 0.66) ** 1.3;

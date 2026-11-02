@@ -4,7 +4,10 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { fbm, hexToRgb } from './noise.js';
 import { assets } from './assets.js';
-export { buildGun } from './gunmodels.js';
+import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { buildGun } from './gunmodels.js';
+import { Rig, poseRig, startRagdoll as ragdollStart, stepRagdoll as ragdollStep } from './rig.js';
+export { buildGun };
 
 // Woven fabric texture with optional camo tint, shared per palette.
 const fabricCache = new Map();
@@ -61,8 +64,9 @@ function limb(r0, r1, len, mat) {
   return g;
 }
 
-// Blender-built character (public/models/characters/<team>.glb). Its empties
-// are the same rig as the procedural one below, so bots animate it unchanged.
+// Blender-built character (public/models/characters/<team>.glb): a skinned
+// mesh on one skeleton, posed every frame by rig.js (walk, crouch, aim, arm IK
+// onto the weapon) and turned into a ragdoll when the character dies.
 function characterFromAsset(team, src) {
   const pal = PALETTE[team] || PALETTE.T;
   const T = team === 'T';
@@ -79,19 +83,20 @@ function characterFromAsset(team, src) {
     char_lens: new THREE.MeshStandardMaterial({ color: 0x0f1418, roughness: 0.1, metalness: 0.6 }),
     char_metal: new THREE.MeshStandardMaterial({ color: 0x55575c, roughness: 0.4, metalness: 0.8 }),
   };
-  const root = src.clone(true);
+  const root = cloneSkinned(src);
   root.traverse(o => {
     if (!o.isMesh) return;
     o.material = byName[(o.material?.name || '').replace(/\.\d+$/, '')] || byName.char_strap;
     o.castShadow = true; o.receiveShadow = true;
+    o.frustumCulled = false;   // skinned bounds don't follow the pose
   });
-  const n = (name) => root.getObjectByName(name);
-  const u = { body: n('body'), legL: n('legL'), legR: n('legR'), torso: n('torso'), head: n('head'), gunHolder: n('gunHolder'), armL: n('armL'), armR: n('armR') };
-  u.legL.userData.knee = n('kneeL'); u.legR.userData.knee = n('kneeR');
-  u.armL.userData.elbow = n('elbowL'); u.armR.userData.elbow = n('elbowR');
-  u.armR.rotation.set(0.75, 0, -0.1); u.armR.userData.elbow.rotation.x = 1.3;
-  u.armL.rotation.set(1.15, 0, 0.55); u.armL.userData.elbow.rotation.x = 0.65;
-  root.userData = u;
+  const rig = new Rig(root);
+  const gunHolder = new THREE.Group();
+  root.add(gunHolder);
+  const backBomb = buildGun('c4');
+  backBomb.scale.setScalar(0.85); backBomb.visible = false;
+  root.add(backBomb);
+  root.userData = { rig, gunHolder, backBomb, skinned: true };
   return root;
 }
 
@@ -186,6 +191,17 @@ export function buildCharacter(team) {
   return root;
 }
 
+// Materials for the first-person arms (sleeve fabric matches the team uniform).
+export function armMaterials(team) {
+  const pal = PALETTE[team] || PALETTE.T;
+  return {
+    sleeve: new THREE.MeshStandardMaterial({ map: fabric(pal.shirt, pal.camo), roughness: 0.9 }),
+    cuff: new THREE.MeshStandardMaterial({ color: 0x1d1d1b, roughness: 0.85 }),
+    glove: new THREE.MeshStandardMaterial({ color: pal.glove, roughness: 0.75 }),
+    knuckle: new THREE.MeshStandardMaterial({ color: 0x3a3a36, roughness: 0.6 }),
+  };
+}
+
 // First-person arms: sleeve + glove stretched from an off-screen shoulder to
 // anchor points on the weapon (grip / foregrip), in the gun's parent space.
 export function buildArms(team, gun) {
@@ -230,4 +246,46 @@ export function buildArms(team, gun) {
     left.name = 'left'; arms.add(left);
   }
   return arms;
+}
+
+// ---------------------------------------------------------------- posing
+export function poseCharacter(ch, dt) {
+  const m = ch.model, u = m.userData;
+  m.position.copy(ch.pos);
+  m.rotation.y = ch.yaw;
+  if (u.rig) { poseRig(ch, u.rig, dt); return; }
+  // rigid fallback model
+  const sp = ch.speed2D();
+  ch.walkPhase = (ch.walkPhase || 0) + dt * sp * 1.6;
+  const sw = Math.sin(ch.walkPhase) * Math.min(1, sp / 4) * 0.6;
+  u.legL.rotation.x = sw; u.legR.rotation.x = -sw;
+  u.legL.userData.knee.rotation.x = Math.max(0, -sw) * 0.8;
+  u.legR.userData.knee.rotation.x = Math.max(0, sw) * 0.8;
+  const c = ch.crouch;
+  u.torso.position.y = 0.9 - 0.42 * c;
+  u.legL.position.y = u.legR.position.y = 0.9 - 0.42 * c;
+  if (c > 0) {
+    u.legL.rotation.x += -0.9 * c; u.legR.rotation.x += -0.9 * c;
+    u.legL.userData.knee.rotation.x += 1.6 * c; u.legR.userData.knee.rotation.x += 1.6 * c;
+  }
+  u.torso.rotation.x = ch.pitch * 0.6;
+  u.head.rotation.x = ch.pitch * 0.4;
+}
+
+export function startRagdoll(ch, dir) {
+  const u = ch.model.userData;
+  if (u.rig) { if (u.gunHolder) u.gunHolder.visible = false; if (u.backBomb) u.backBomb.visible = false; ragdollStart(ch, u.rig, ch.game.level.world, dir); }
+  ch.deathAnim = 0;
+}
+
+export function stepRagdoll(ch, dt) {
+  const u = ch.model.userData;
+  if (u.rig) { ragdollStep(ch, u.rig, dt); return; }
+  if (ch.deathAnim < 1) {
+    ch.deathAnim = Math.min(1, ch.deathAnim + dt * 2.5);
+    const e = 1 - (1 - ch.deathAnim) ** 3;
+    u.body.rotation.x = e * (Math.PI / 2) * (ch.deathDir || 1);
+    u.body.position.y = 0.1 * e;
+  }
+  if ((ch.deadFor = (ch.deadFor || 0) + dt) > 12) { ch.despawned = true; ch.model.visible = false; }
 }

@@ -20,6 +20,7 @@ const PORT = +process.env.PORT || 8080;
 const DB_FILE = process.env.DB_FILE || path.join(ROOT, 'data', 'db.json');
 const db = openDb(DB_FILE);
 const D = db.data;
+for (const u of Object.values(D.users)) if (E.migrateProfile(u)) db.dirty();
 const MARKET_FEE = 0.1;
 
 // ================================================================ helpers

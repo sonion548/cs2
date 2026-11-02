@@ -406,3 +406,53 @@ img:not([src]) { visibility: hidden; }
 .loading b { font: 700 40px var(--cond); letter-spacing: 6px; }
 .loading span { color: var(--muted); font: 600 13px var(--cond); text-transform: uppercase; letter-spacing: 2px; }
 .loading i { width: 240px; height: 3px; background: var(--line2); } .loading em { display: block; height: 100%; background: var(--accent); }
+
+/* ---------------------------------------------------------------- match HUD additions */
+.xhair { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); image-rendering: pixelated; }
+.timer .time.bomb { color: var(--lose); animation: bombpulse 1s infinite; }
+@keyframes bombpulse { 50% { opacity: .55; } }
+.money { position: absolute; left: 14px; bottom: 74px; background: rgba(10,12,16,.7); padding: 4px 14px; font-size: 22px; color: #9fe08f; display: flex; gap: 10px; align-items: baseline; }
+.money em { font-style: normal; font-size: 16px; color: #c8f0a8; opacity: 0; }
+.money em.pop { animation: moneypop 1.6s ease-out; }
+@keyframes moneypop { 0% { opacity: 0; transform: translateY(6px); } 15% { opacity: 1; transform: none; } 80% { opacity: 1; } 100% { opacity: 0; } }
+.vitals .helm { font-size: 12px; color: var(--muted); }
+.kit { position: absolute; left: 248px; bottom: 22px; font-size: 13px; color: var(--ct); letter-spacing: 2px; }
+.ammo .nades { display: flex; gap: 4px; justify-content: flex-end; margin-bottom: 4px; min-height: 18px; }
+.ammo .nades i { font-style: normal; font-size: 11px; padding: 1px 5px; border: 1px solid #4a4f58; color: var(--muted); border-radius: 2px; }
+.ammo .nades i.on { color: var(--text); border-color: var(--accent); }
+.ammo .nades i.bombi { color: #ffb03a; border-color: #ffb03a; }
+.notice { position: absolute; bottom: 150px; width: 100%; text-align: center; font-size: 18px; opacity: 0; transition: opacity .2s; }
+.notice.show { opacity: 1; } .notice.soft { color: var(--muted); font-size: 15px; }
+.useprog { position: absolute; left: 50%; top: 62%; transform: translateX(-50%); width: 280px; text-align: center; font-size: 14px; letter-spacing: 1px; text-transform: uppercase; }
+.useprog i { display: block; height: 8px; margin-top: 6px; background: rgba(0,0,0,.6); border: 1px solid #3a3f48; }
+.useprog b { display: block; height: 100%; width: 0; background: var(--accent); }
+.useprog.hidden { display: none; }
+.whiteout { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+.scope.lite .scope-ring { width: 82vh; height: 82vh; box-shadow: 0 0 0 100vmax rgba(0,0,0,.92); }
+.spec { line-height: 1.5; }
+
+/* buy menu */
+.buy-box { width: min(920px, 94vw); background: #10151b; border: 1px solid #263039; border-radius: 8px; padding: 18px 22px; }
+.buy-head { display: flex; align-items: center; gap: 18px; margin-bottom: 12px; }
+.buy-head h2 { margin: 0; } .buy-money { font-size: 24px; color: #9fe08f; } .buy-time { color: var(--muted); font-size: 14px; flex: 1; }
+.buy-head .x { padding: 6px 14px; background: #1a2129; border: 1px solid #2c3540; border-radius: 4px; }
+.buy-cats { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.buy-cats button { padding: 8px 14px; background: #1a2129; border: 1px solid #2c3540; border-radius: 4px; font: 600 15px var(--cond); text-transform: uppercase; letter-spacing: 1px; display: flex; gap: 8px; align-items: center; }
+.buy-cats button.on { border-color: var(--accent); background: #2e2410; }
+.buy-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; min-height: 140px; }
+.buy-items button { display: grid; grid-template-columns: auto 1fr auto; gap: 2px 10px; align-items: center; padding: 10px 12px; background: #1a2129; border: 1px solid #2c3540; border-radius: 6px; text-align: left; font-size: 15px; }
+.buy-items button b { color: #9fe08f; font-weight: 600; }
+.buy-items button small { grid-column: 2 / 4; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+.buy-items button:hover { border-color: #4a5868; }
+.buy-items button.no { opacity: .45; }
+.buy-items button.own { border-color: var(--win); }
+.buy kbd { font: 600 12px var(--cond); color: var(--muted); border: 1px solid #3a4450; border-radius: 3px; padding: 0 5px; }
+
+/* settings: key bindings + crosshair editor */
+.binds { width: 100%; border-collapse: collapse; }
+.binds td { padding: 4px 8px; border-bottom: 1px solid #22282f; }
+.binds button { min-width: 110px; padding: 4px 10px; background: #1a2129; border: 1px solid #2c3540; border-radius: 4px; font: 600 14px var(--cond); }
+.binds button.listen { border-color: var(--accent); color: var(--accent); }
+.xh-edit { display: grid; grid-template-columns: 1fr 220px; gap: 18px; align-items: start; }
+.xh-prev { height: 160px; border-radius: 6px; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #6a7a8a, #c8b48a 55%, #3a3e44); }
+.xh-prev canvas { image-rendering: pixelated; transform: scale(2); }

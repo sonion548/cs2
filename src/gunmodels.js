@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { surface } from './textures.js';
 import { assets } from './assets.js';
+import { WEAPONS } from './weapons.js';
 
 // ---------------------------------------------------------------- materials
 let MAT = null;
@@ -481,14 +482,6 @@ const KNIVES = {
     const loop = new THREE.Mesh(new THREE.TorusGeometry(0.01, 0.003, 10, 20), M.cord); loop.position.set(-0.112, 0, 0); loop.userData.part = 'detail'; g.add(loop);
     return { g, tip: 0.195 };
   },
-  cleaver() {
-    const M = mats(), g = new THREE.Group();
-    g.add(blade([['M', 0.015, 0.02], ['L', 0.16, 0.024], ['Q', 0.18, 0.024, 0.18, 0.0], ['L', 0.175, -0.045], ['Q', 0.1, -0.05, 0.015, -0.04]], 0.006,
-      [[['M', 0.15, 0.01], ['A', 0.155, 0.01, 0.006, 0, Math.PI * 2]]]));
-    g.add(profile([['M', 0.015, 0.012], ['L', -0.1, 0.01], ['Q', -0.11, 0, -0.1, -0.012], ['L', 0.015, -0.012]], 0.022, M.wood, 'detail', { bevel: 0.007 }));
-    for (const x of [-0.07, -0.02]) g.add(cylZ(0.003, 0.024, x, 0, 0, M.brass));
-    return { g, tip: 0.18 };
-  },
 };
 
 export { KNIFE_TYPES } from './shared/knives.js';
@@ -498,7 +491,77 @@ function knife(type) {
   return finish(k.g, { muzzle: [k.tip, 0], grip: [-0.04, 0], knifeType: type, butterfly: !!k.butterfly, ring: !!k.ring });
 }
 
-const BUILDERS = { ak47, m4a1, awp, glock, usp, deagle };
+// ---------------------------------------------------------------- grenades and the bomb
+// Upright throwables (axis = Y) with a fuse, spoon and pull ring.
+const NADE_LOOK = {
+  he: { body: 0x4a5236, band: 0xc8a032, shape: 'frag' },
+  flash: { body: 0x8a9096, band: 0x2a2c30, shape: 'can', holes: true },
+  smoke: { body: 0x3e4a3a, band: 0xd8d8d0, shape: 'can' },
+  incendiary: { body: 0x7a2a1a, band: 0xe8c02a, shape: 'can' },
+  decoy: { body: 0x2a2c30, band: 0xe8632b, shape: 'can', short: true },
+  molotov: { body: 0x3a5a2a, band: 0xc8b08a, shape: 'bottle' },
+};
+function nade(type) {
+  const M = mats(), look = NADE_LOOK[type] || NADE_LOOK.he;
+  const g = new THREE.Group();
+  const paint = new THREE.MeshStandardMaterial({ color: look.body, roughness: 0.6, metalness: 0.25 });
+  const band = new THREE.MeshStandardMaterial({ color: look.band, roughness: 0.5, metalness: 0.2 });
+  const lathe = (pts, mat, part = 'detail') => mesh(new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), 24), mat, part);
+  let top = 0.05;
+  if (look.shape === 'frag') {
+    g.add(lathe([[0, -0.042], [0.02, -0.04], [0.03, -0.022], [0.033, 0], [0.03, 0.022], [0.02, 0.036], [0.013, 0.042], [0, 0.042]], paint, 'skin'));
+    for (let i = 0; i < 6; i++) { const r = new THREE.Mesh(new THREE.TorusGeometry(0.0315 - Math.abs(i - 2.5) * 0.002, 0.0012, 6, 24), paint); r.rotation.x = Math.PI / 2; r.position.y = -0.026 + i * 0.011; g.add(r); }
+    const b = new THREE.Mesh(new THREE.TorusGeometry(0.0135, 0.0018, 6, 20), band); b.rotation.x = Math.PI / 2; b.position.y = 0.04; g.add(b);
+    top = 0.044;
+  } else if (look.shape === 'bottle') {
+    const glass = new THREE.MeshStandardMaterial({ color: look.body, roughness: 0.08, metalness: 0.1, transparent: true, opacity: 0.85 });
+    g.add(lathe([[0, -0.07], [0.03, -0.07], [0.032, -0.06], [0.032, 0.02], [0.028, 0.035], [0.012, 0.055], [0.011, 0.085], [0, 0.085]], glass, 'detail'));
+    const fuel = new THREE.MeshStandardMaterial({ color: 0x8a5a1a, roughness: 0.2, transparent: true, opacity: 0.7 });
+    g.add(lathe([[0, -0.068], [0.029, -0.068], [0.029, 0.0], [0, 0.0]], fuel));
+    const rag = new THREE.Mesh(new THREE.ConeGeometry(0.014, 0.05, 8, 1, true), new THREE.MeshStandardMaterial({ color: look.band, roughness: 1, side: THREE.DoubleSide }));
+    rag.position.y = 0.1; rag.rotation.z = 0.3; g.add(rag);
+    g.userData.wick = rag;
+    return finish(g, { muzzle: [0, 0.12], grip: [0, -0.02] });
+  } else {
+    const h = look.short ? 0.075 : 0.1;
+    const body = mesh(new THREE.CylinderGeometry(0.023, 0.023, h, 24), paint, 'skin'); g.add(body);
+    const bnd = mesh(new THREE.CylinderGeometry(0.0235, 0.0235, 0.012, 24), band, 'detail'); bnd.position.y = h * 0.25; g.add(bnd);
+    if (look.holes) for (let i = 0; i < 8; i++) {
+      const a = i / 8 * Math.PI * 2;
+      const hl = mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.003, 8), M.darkSteel, 'metal');
+      hl.rotation.z = Math.PI / 2; hl.rotation.y = a; hl.position.set(Math.cos(a) * 0.023, -h * 0.2, Math.sin(a) * 0.023); g.add(hl);
+    }
+    top = h / 2;
+  }
+  // fuse, spoon and ring
+  const fuse = mesh(new THREE.CylinderGeometry(0.01, 0.011, 0.016, 16), M.steel, 'metal'); fuse.position.y = top + 0.008; g.add(fuse);
+  const spoon = rbox(0.007, 0.07, 0.014, -0.022, top - 0.022, 0, M.steel, 'metal', 0.002); spoon.rotation.z = -0.12; g.add(spoon);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.01, 0.0016, 6, 20), M.steel); ring.position.set(0.016, top + 0.012, 0); ring.rotation.y = Math.PI / 2; g.add(ring);
+  return finish(g, { muzzle: [0, top + 0.02], grip: [0, -0.02] });
+}
+
+function bomb() {
+  const M = mats();
+  const g = new THREE.Group();
+  const body = new THREE.MeshStandardMaterial({ color: 0x6a6448, roughness: 0.75 });
+  g.add(rbox(0.22, 0.06, 0.13, 0, 0, 0, body, 'skin', 0.006));
+  for (const z of [-0.035, 0.035]) g.add(rbox(0.226, 0.066, 0.014, 0, 0, z, M.rubber, 'detail', 0.002));
+  const pad = rbox(0.075, 0.012, 0.055, 0.03, 0.035, 0, M.polymer, 'detail', 0.003); g.add(pad);
+  const key = new THREE.MeshStandardMaterial({ color: 0x9a9a92, roughness: 0.5 });
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) g.add(rbox(0.012, 0.006, 0.01, 0.006 + i * 0.016, 0.043, -0.016 + j * 0.016, key, 'detail', 0.0015));
+  const screen = new THREE.MeshStandardMaterial({ color: 0x0e1a0e, emissive: 0x3aff6a, emissiveIntensity: 0.6, roughness: 0.3 });
+  g.add(rbox(0.06, 0.006, 0.024, -0.06, 0.034, 0, screen, 'detail', 0.002));
+  const wire = (col, z) => { const w = mesh(new THREE.TorusGeometry(0.035, 0.0025, 6, 16, Math.PI), new THREE.MeshStandardMaterial({ color: col, roughness: 0.6 }), 'detail'); w.position.set(-0.03, 0.03, z); g.add(w); };
+  wire(0xc83a2a, -0.05); wire(0x2a5ac8, -0.044); wire(0xe8c02a, 0.05);
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.006, 10, 8), new THREE.MeshStandardMaterial({ color: 0x400000, emissive: 0xff2020, emissiveIntensity: 0 }));
+  lamp.position.set(-0.095, 0.034, 0.04); g.add(lamp);
+  const out = finish(g, { muzzle: [0.11, 0], grip: [-0.07, -0.03], fore: [0.07, -0.03] });
+  out.userData.lamp = lamp;
+  return out;
+}
+
+const BUILDERS = { ak47, m4a1, awp, glock, usp, deagle, c4: bomb, he: () => nade('he'), flash: () => nade('flash'), smoke: () => nade('smoke'),
+  molotov: () => nade('molotov'), incendiary: () => nade('incendiary'), decoy: () => nade('decoy') };
 
 // Blender-built model → the same structure the procedural builders produce.
 // Material names from Blender decide each part's role and game material.
@@ -518,14 +581,17 @@ function fromAsset(key) {
       o.userData.part = name.startsWith('skin') ? 'skin' : name.startsWith('metal') ? 'metal' : 'detail';
       o.material = byMat[name] || M.paint;
       o.castShadow = true; o.receiveShadow = true;
-    } else if (['muzzle', 'grip', 'fore'].includes(o.name)) anchors[o.name] = [o.position.x, o.position.y];
+    } else {
+      const a = /^(muzzle|grip|fore)$/.exec(o.name);
+      if (a) anchors[a[1]] = [o.position.x, o.position.y];
+    }
   });
   // geometry is shared between clones; give skin meshes their own copy so UVs can be rewritten safely
   inner.traverse(o => { if (o.isMesh && o.userData.part === 'skin') o.geometry = o.geometry.clone(); });
   const type = key.startsWith('knife:') ? key.split(':')[1] : null;
   return finish(inner, {
     muzzle: anchors.muzzle || [0.5, 0], grip: anchors.grip || [0, 0], fore: type ? undefined : anchors.fore,
-    pistol: ['glock', 'usp', 'deagle'].includes(key), scope: key === 'awp',
+    pistol: WEAPONS[key]?.type === 'pistol', scope: !!WEAPONS[key]?.scope,
     knifeType: type || undefined, butterfly: type === 'butterfly', ring: type === 'karambit',
   });
 }

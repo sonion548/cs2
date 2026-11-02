@@ -2,10 +2,12 @@
 // Everything that uses them falls back to the procedural versions if a file is
 // missing or fails to load, so the game still runs without the assets.
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { GUN_IDS } from './weapons.js';
+import { KNIFE_TYPES } from './shared/knives.js';
 
 const BASE = (import.meta.env?.BASE_URL || '/') + 'models/';
-const WEAPONS = ['ak47', 'm4a1', 'awp', 'glock', 'usp', 'deagle'];
-const KNIVES = ['standard', 'bayonet', 'combat', 'karambit', 'butterfly', 'flip', 'gut', 'bowie', 'push', 'navaja', 'stiletto', 'kukri', 'tanto', 'survival', 'cleaver'];
+const WEAPONS = GUN_IDS;
+const KNIVES = Object.keys(KNIFE_TYPES);
 const MAPS = ['dunehold'];
 const CHARACTERS = ['t', 'ct'];
 

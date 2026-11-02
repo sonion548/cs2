@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { Bot } from '../bots.js';
 import { WEAPONS, WeaponState } from '../weapons.js';
 import { net } from './client.js';
+import { BOMB } from '../match/bomb.js';
 
 const SNAP_HZ = 20, INPUT_HZ = 30;
 const r2 = (v) => Math.round(v * 100) / 100;
@@ -88,15 +89,20 @@ export class NetMatch {
       if (this.inT <= 0) {
         this.inT = 1 / INPUT_HZ;
         const p = g.player;
-        this.send({ k: 'in', p: [r2(p.pos.x), r2(p.pos.y), r2(p.pos.z)], v: [r2(p.vel.x), r2(p.vel.y), r2(p.vel.z)], y: r2(p.yaw), pi: r2(p.pitch), c: r2(p.crouch), w: p.weapon?.id, s: p.scoped || 0 });
+        const use = g.down('use') || (p.slot === 5 && g.down('fire'));
+        this.send({ k: 'in', p: [r2(p.pos.x), r2(p.pos.y), r2(p.pos.z)], v: [r2(p.vel.x), r2(p.vel.y), r2(p.vel.z)], y: r2(p.yaw), pi: r2(p.pitch), c: r2(p.crouch), w: p.weapon?.id, s: p.scoped || 0, u: use ? 1 : 0 });
       }
     }
   }
 
   sendSnapshot() {
     const g = this.g;
-    const c = g.characters.map(ch => [ch.netId, r2(ch.pos.x), r2(ch.pos.y), r2(ch.pos.z), r2(ch.yaw), r2(ch.pitch), r2(ch.crouch), Math.max(0, ch.health | 0), ch.armor | 0, ch.alive ? 1 : 0, ch.weapon?.id || 'knife', ch.stats.kills, ch.stats.deaths, ch.stats.assists, ch.stats.damage | 0]);
-    const msg = { k: 'snap', st: g.state, tm: r2(g.stateTimer), sc: g.score, rd: g.round, c };
+    const c = g.characters.map(ch => [ch.netId, r2(ch.pos.x), r2(ch.pos.y), r2(ch.pos.z), r2(ch.yaw), r2(ch.pitch), r2(ch.crouch), Math.max(0, ch.health | 0), ch.armor | 0, ch.alive ? 1 : 0, ch.weapon?.id || 'knife', ch.stats.kills, ch.stats.deaths, ch.stats.assists, ch.stats.damage | 0,
+      ch.money | 0, (ch.hasBomb ? 1 : 0) | (ch.helmet ? 2 : 0) | (ch.hasKit ? 4 : 0)]);
+    const b = g.bomb;
+    const bomb = [b.state, r2(b.pos.x), r2(b.pos.y), r2(b.pos.z), r2(b.timer), b.plant?.ch.netId ?? null, b.plant ? r2(b.plant.t / BOMB.plantTime) : 0,
+      b.defuse?.ch.netId ?? null, b.defuse ? r2(b.defuse.t / b.defuse.dur) : 0, b.defuse?.ch.hasKit ? 1 : 0];
+    const msg = { k: 'snap', st: g.state, tm: r2(g.stateTimer), sc: g.score, rd: g.round, c, b: bomb };
     if (this.events.length) { msg.e = this.events; this.events = []; }
     this.send(msg);
   }
@@ -120,9 +126,17 @@ export class NetMatch {
       b.netTarget = { pos: new THREE.Vector3(...d.p), yaw: d.y, pitch: d.pi, crouch: d.c };
       b.vel.set(...d.v);
       b.scoped = d.s;
+      b.useHeld = !!d.u;
       if (d.w && b.weapon?.id !== d.w) b.setNetWeapon(d.w);
     } else if (d.k === 'loadout') {
       this.loadouts.set(from, { p: d.p, s: d.s });
+    } else if (d.k === 'buy' && b.alive) {
+      g.buy(b, d.id);
+    } else if (d.k === 'nade' && b.alive && !g.freeze) {
+      b.yaw = d.y; b.pitch = d.pi;
+      const i = b.nades.indexOf(d.t);
+      if (i >= 0) b.nades.splice(i, 1);
+      g.grenades.throw(b, d.t, Math.max(0.2, Math.min(1, +d.pw || 1)));
     } else if (d.k === 'shot' && b.alive && !g.freeze) {
       const def = WEAPONS[d.w]; if (!def || def.type === 'melee') return;
       const origin = new THREE.Vector3(...d.o), dir = new THREE.Vector3(...d.d).normalize();
@@ -144,27 +158,31 @@ export class NetMatch {
     if (d.k === 'snap') {
       g.state = d.st; g.stateTimer = d.tm; g.score = d.sc; g.round = d.rd;
       for (const row of d.c) this.applyRow(row);
+      if (d.b) this.applyBomb(d.b);
       if (d.e) for (const e of d.e) this.applyEvent(e);
       return;
     }
     if (d.k === 'ev') for (const e of d.e) this.applyEvent(e);
   }
 
-  applyRow([id, x, y, z, yaw, pitch, crouch, hp, armor, alive, w, k, dth, a, dmg]) {
+  applyRow([id, x, y, z, yaw, pitch, crouch, hp, armor, alive, w, k, dth, a, dmg, money, flags = 0]) {
     const g = this.g;
     let ch = this.byId.get(id);
     if (!ch) { this.send({ k: 'hello' }); return; }
     Object.assign(ch.stats, { kills: k, deaths: dth, assists: a, damage: dmg });
+    if (money != null) ch.money = money;
+    ch.hasBomb = !!(flags & 1); ch.helmet = !!(flags & 2); ch.hasKit = !!(flags & 4);
     if (ch === g.player) {
       const p = g.player;
       p.health = hp; p.armor = armor;
       if (p.alive && !alive) g.netDeath();
+      if (!p.hasBomb && p.slot === 5) { p.slot = 0; g.switchWeapon(p.bestSlot()); }
       return;
     }
     ch.netTarget = { pos: new THREE.Vector3(x, y, z), yaw, pitch, crouch };
     ch.health = hp; ch.armor = armor;
     if (ch.weapon?.id !== w) ch.setNetWeapon(w);
-    if (ch.alive && !alive) { ch.alive = false; ch.deathAnim = 0; ch.deathDir = Math.random() < 0.5 ? 1 : -1; }
+    if (ch.alive && !alive) { ch.alive = false; ch.deathAnim = 0; ch.deathDir = Math.random() < 0.5 ? 1 : -1; ch.onDeath?.(null); }
     else if (!ch.alive && alive) { ch.spawn(new THREE.Vector3(x, y, z), yaw); ch.setNetWeapon(w); }
   }
 
@@ -180,9 +198,9 @@ export class NetMatch {
       g.muzzleFlash(ch);
     } else if (type === 'kill') {
       const [, kid, vid, w, hs] = e;
-      const killer = this.byId.get(kid), victim = this.byId.get(vid);
-      if (!killer || !victim) return;
-      g.hud.killfeed(killer, victim, WEAPONS[w] || WEAPONS.knife, !!hs);
+      const killer = kid == null ? null : this.byId.get(kid), victim = this.byId.get(vid);
+      if (!victim || (kid != null && !killer)) return;
+      g.hud.killfeed(killer, victim, WEAPONS[w] || { name: 'Bomb' }, !!hs);
       if (victim === g.player) g.lastKiller = killer;
       if (killer === g.player) g.hud.hitmarker(!!hs, true);
     } else if (type === 'hit') {
@@ -199,6 +217,17 @@ export class NetMatch {
       if (phase === 'start') { g.round = a; g.clearEffects(); g.hud.roundStart(); }
       else if (phase === 'live') g.hud.goLive();
       else if (phase === 'end') { g.hud.roundEnd(a, b, !!over); g.audio.ui(a === g.playerTeam ? 'win' : 'lose'); if (over) g.matchOver = a; }
+    } else if (type === 'nadethrow') {
+      const [, t, px, py, pz, vx, vy, vz] = e;
+      g.grenades.throwVisual(t, new THREE.Vector3(px, py, pz), new THREE.Vector3(vx, vy, vz));
+    } else if (type === 'nadefx') {
+      const [, t, x, y, z] = e;
+      g.grenades.replay(t, new THREE.Vector3(x, y, z));
+    } else if (type === 'bomb') {
+      const [, what, a, b2, c, d2] = e;
+      if (what === 'plant') g.hud.message('Bomb planted', `Site ${a}`, 3, g.playerTeam === 'T' ? 'win' : 'lose');
+      else if (what === 'exploded') g.bomb.explodeVisual();
+      else if (what === 'defused') g.bomb.state = 'defused';
     } else if (type === 'over') {
       g.matchOver = e[1];
       setTimeout(() => g.finishNet(), 5000);
@@ -209,6 +238,17 @@ export class NetMatch {
   shot(origin, dir, weaponId) { this.send({ k: 'shot', o: [r2(origin.x), r2(origin.y), r2(origin.z)], d: [+dir.x.toFixed(4), +dir.y.toFixed(4), +dir.z.toFixed(4)], w: weaponId }); }
   melee(heavy) { const p = this.g.player; this.send({ k: 'melee', h: heavy ? 1 : 0, y: r2(p.yaw), pi: r2(p.pitch) }); }
   loadout(p, s) { this.send({ k: 'loadout', p, s }); }
+  buy(id) { this.send({ k: 'buy', id }); }
+
+  // Client: mirror the host's bomb (mesh, timer, and our own plant/defuse progress).
+  applyBomb([st, x, y, z, timer, pid, pp, did, dp, kit]) {
+    const g = this.g, b = g.bomb;
+    if (st === 'planted' || st === 'dropped') {
+      b.pos.set(x, y, z); b.mesh.position.copy(b.pos); b.mesh.visible = true;
+    } else if (st !== 'exploded') b.mesh.visible = false;
+    b.state = st; b.timer = timer;
+    g.netUse = pid === this.me ? { kind: 'plant', pr: pp } : did === this.me ? { kind: 'defuse', pr: dp, kit: !!kit } : null;
+  }
 
   // Host: result for the server.
   report() {
