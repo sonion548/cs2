@@ -88,6 +88,27 @@ const GUN_SKINS = [
   ['deagle', 'Magma Flow', 'exotic', { type: 'lava', base: '#141010' }],
   ['deagle', 'Crimson Crackle', 'superior', { type: 'shards', colors: ['#2a0a0e', '#6a0e1a', '#c41e2a', '#ff5a4a'] }],
   ['deagle', 'Grand Prix', 'mythic', { type: 'livery', base: '#141414', band: '#ffcc1a', band2: '#e0e0e0', number: 50 }],
+  // ---- illustrated: original characters, artwork, street art
+  ['ak47', 'Sakura Rush', 'mythic', { type: 'anime', bg: 'sakura', hair: '#ff8ab8', eyes: '#3ac87a', outfit: '#f4f4f8', collar: 'sailor', collarColor: '#1a2a5a', accent: '#e8203a', style: 'twintail', acc: 'ribbon', expression: 'smile', tag: 'HANA', at: 0.42 }],
+  ['m4a1', 'Neon Idol', 'mythic', { type: 'anime', bg: 'neon', hair: '#5ae0ff', eyes: '#ff5ab0', outfit: '#1a1430', collar: 'jacket', accent: '#ff5ab0', style: 'long', acc: 'headphones', expression: 'wink', tag: 'MIRAI', tagColor: '#5ae0ff', at: 0.38 }],
+  ['awp', 'Moonlit Fox', 'mythic', { type: 'anime', bg: 'sunset', hair: '#e8e8f4', eyes: '#ffb03a', outfit: '#6a1a2a', collar: 'jacket', style: 'long', acc: 'ears', expression: 'neutral', tag: 'TSUKI', at: 0.36 }],
+  ['glock', 'Bubblegum', 'exotic', { type: 'anime', bg: 'speed', hair: '#b89aff', eyes: '#ff6aa8', outfit: '#ff8ac0', collar: 'hoodie', style: 'bob', acc: 'ribbon', accent: '#ffe23a', expression: 'wink', tag: 'POP', at: 0.45 }],
+  ['usp', 'Oni Princess', 'mythic', { type: 'anime', bg: 'sunset', hair: '#1a1622', eyes: '#e8203a', outfit: '#2a0e1a', collar: 'jacket', style: 'long', acc: 'horns', expression: 'fierce', tag: 'AKANE', tagColor: '#ff5a5a', at: 0.4 }],
+  ['deagle', 'Root Access', 'exotic', { type: 'anime', bg: 'neon', hair: '#3ae08a', eyes: '#3ad0ff', outfit: '#20242c', collar: 'hoodie', style: 'bob', acc: 'headphones', accent: '#3ae08a', expression: 'neutral', tag: 'ROOT', tagColor: '#3ae08a', at: 0.45 }],
+  ['ak47', 'Koi Garden', 'exotic', { type: 'koi', water1: '#1a6a7a', water2: '#082a3a', spot: '#e8452a' }],
+  ['glock', 'Lagoon', 'superior', { type: 'koi', water1: '#2a8a6a', water2: '#0a3a2a', spot: '#ffb03a' }],
+  ['ak47', 'Distant Peaks', 'superior', { type: 'landscape', sky: ['#ffcf8a', '#ff8a6a', '#7a4a8a'], sun: '#fff2c0', layers: ['#a85a7a', '#7a3a6a', '#4a2050', '#24102e'] }],
+  ['awp', 'Night Ridge', 'exotic', { type: 'landscape', sky: ['#0a0a2a', '#1a2a5a', '#3a5a8a'], sun: '#f0f0d0', stars: true, layers: ['#2a3a5a', '#1a2840', '#101a2a', '#060a14'] }],
+  ['m4a1', 'Wildstyle', 'exotic', { type: 'wildstyle', word: 'VANTAGE', wall: '#7a4a3a', cloud: '#3ad0ff', c1: '#ffe23a', c2: '#ff3a6a' }],
+  ['usp', 'Throw-Up', 'superior', { type: 'wildstyle', word: 'HOLD', wall: '#5a5a5a', cloud: '#a03aff', c1: '#3affc8', c2: '#2a6aff' }],
+  ['awp', 'Comic Strike', 'mythic', { type: 'comic', bg: '#ffe14a', dots: '#ff4a3a', words: ['BLAM!', 'ZAP!'] }],
+  ['deagle', 'Pop Burst', 'exotic', { type: 'comic', bg: '#7ad0ff', dots: '#2a5ac8', words: ['POW!', 'BANG!'] }],
+  ['deagle', 'Flash Sheet', 'superior', { type: 'tattoo', bg: '#efe3c8', motto: 'NO RETREAT' }],
+  ['m4a1', 'Old Ink', 'exotic', { type: 'tattoo', bg: '#e8dcc0', motto: 'HOLD FAST', red: '#a81a22', green: '#1e5a3a' }],
+  ['glock', 'Unit 07', 'superior', { type: 'mecha', base: '#e8e6e0', c1: '#2a5ac8', c2: '#e8203a', code: '07' }],
+  ['awp', 'Frame Zero', 'exotic', { type: 'mecha', base: '#3a3e44', c1: '#ff8a1a', c2: '#ffcc1a', code: '00' }],
+  ['usp', 'Sticker Bomb', 'exotic', { type: 'stickerbomb', base: '#1a1a1a' }],
+  ['ak47', 'Collage', 'mythic', { type: 'stickerbomb', base: '#f0f0f0' }],
 ];
 
 const KNIFE_FINISHES = [
@@ -106,6 +127,9 @@ const KNIFE_FINISHES = [
   ['Big Cat', { type: 'spots', base: '#d8b070', spot: '#9a6a30', ring: '#1a120a' }],
   ['Molten Core', { type: 'lava', base: '#1d1715' }],
   ['Event Horizon', { type: 'galaxy' }],
+  ['Koi Pond', { type: 'koi' }],
+  ['Comic Pop', { type: 'comic', words: ['SLASH!', 'SNIKT!'] }],
+  ['Wild Ink', { type: 'tattoo' }],
 ];
 
 // ---------------------------------------------------------------- stickers
@@ -226,6 +250,20 @@ export const CASES = {
       sk('ak47', 'Prism Break'), sk('glock', 'Sunset Strip'), sk('glock', 'Wasteland Scrawl'), sk('deagle', 'Magma Flow'), sk('awp', 'Rooftop Tag'), sk('ak47', 'Molten Core'),
       sk('ak47', 'Redline Rally'), sk('glock', 'Tempered Bloom'), sk('awp', 'Cobalt Rally'), sk('deagle', 'Grand Prix'), sk('m4a1', 'Afterburner')],
     knives: ['cleaver', 'karambit', 'kukri', 'bayonet'],
+  },
+  canvas: {
+    id: 'canvas', name: 'Canvas Case', price: 220, color: '#ff8ab8',
+    skins: [sk('glock', 'Lagoon'), sk('ak47', 'Distant Peaks'), sk('deagle', 'Flash Sheet'), sk('glock', 'Unit 07'),
+      sk('glock', 'Bubblegum'), sk('deagle', 'Root Access'), sk('ak47', 'Koi Garden'), sk('awp', 'Night Ridge'), sk('m4a1', 'Old Ink'),
+      sk('ak47', 'Sakura Rush'), sk('m4a1', 'Neon Idol'), sk('awp', 'Moonlit Fox'), sk('usp', 'Oni Princess')],
+    knives: ['butterfly', 'karambit', 'flip', 'tanto'],
+  },
+  street: {
+    id: 'street', name: 'Street Case', price: 200, color: '#ffe23a',
+    skins: [sk('usp', 'Throw-Up'), sk('glock', 'Splash Zone'), sk('awp', 'Big Cat'),
+      sk('m4a1', 'Wildstyle'), sk('deagle', 'Pop Burst'), sk('awp', 'Frame Zero'), sk('usp', 'Sticker Bomb'), sk('glock', 'Wasteland Scrawl'),
+      sk('awp', 'Comic Strike'), sk('ak47', 'Collage'), sk('ak47', 'Redline Rally')],
+    knives: ['bowie', 'gut', 'push', 'cleaver', 'combat'],
   },
 };
 // sanity: every listed skin must exist

@@ -2,6 +2,7 @@
 // of parameters plus the item's pattern seed (0–999), which shifts, rotates
 // or recolours the pattern so no two seeds look exactly alike.
 import { fbm, voronoi, valueNoise, rng, hexToRgb, mixRgb, mix, smooth, clamp01 } from '../noise.js';
+import { ART_FINISHES } from './finishes_art.js';
 
 // Per-pixel helper: fn(x, y, out) with x ∈ [0, 2), y ∈ [0, 1).
 function pixels(ctx, W, H, fn) {
@@ -404,6 +405,8 @@ export const FINISH_TYPES = {
     });
   } },
 };
+
+Object.assign(FINISH_TYPES, ART_FINISHES);
 
 // Paints the finish for `def` at the given size. Returns { canvas, metal, rough }.
 export function paintFinish(def, seed, W = 1024, H = 512) {

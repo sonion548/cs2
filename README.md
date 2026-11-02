@@ -40,10 +40,26 @@ Open the printed URL and click **Start match**.
 - Credits and case drops earned from matches; equipped skins show in first person and on bots
 - New client menu (Play, Inventory, Cases, Career, Settings)
 
+## Stage 3 (this build)
+
+- Ranked ladders for Competitive 5v5 and Wingman 2v2: 9 tiers and 29 divisions
+  (Iron → Bronze → Silver → Gold → Platinum → Diamond → Obsidian → Vanguard → Apex)
+- Hidden MMR with an uncertainty value, 5 placement matches (capped at Platinum IV) and RP that
+  pulls toward your MMR. Higher tiers gain less and lose more, and win streaks give bonus RP.
+- Promotion series (best of 3 into Diamond and Obsidian, best of 5 into Vanguard and Apex). Apex is
+  limited to the top 100 on the leaderboard.
+- Demotion shields, decay for Diamond and above after a week away, and abandon penalties with growing cooldowns
+- Bot skill (reaction time, aim, spray control, tactics) follows your hidden rating
+- Ranked page with emblems, RP bar, series tracker, stats, rank distribution and a leaderboard
+  against a simulated player base
+- 20 new illustrated skins and 3 knife finishes: original anime-style characters, landscapes, koi,
+  wildstyle graffiti, comic pop-art, tattoo flash, mecha livery and sticker bombs, in the new
+  Canvas Case and Street Case
+
 ## Roadmap
 
 1. ~~Core gameplay~~
 2. ~~Economy, cases, original skins, wear (float) values, stickers, inventory with 3D inspect~~
-3. Ranked system with tiers and subranks, plus bots that scale to your rank
+3. ~~Ranked system with tiers and subranks, plus bots that scale to your rank~~
 4. Backend: accounts, party queue, matchmaking, market with sales history, trading
 5. More maps and small-scale versions of each map

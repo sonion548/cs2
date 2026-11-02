@@ -140,8 +140,8 @@ export function buildLevel(map, scene) {
     tiles: surf('tiles', 1, { ns: 1.1, rough: 0.7 }),
     concrete: surf('concrete', 1, { ns: 1 }),
     crate: surf('crate', 1, { ns: 1.3, rough: 0.85 }),
-    metal: surf('metal', 1, { rough: 0.5, metal: 0.5 }),
-    barrel: surf('metal', 3, { rough: 0.55, metal: 0.4, color: 0x5f8a58 }),
+    metal: surf('metal', 1, { rough: 0.55, metal: 0.15 }),
+    barrel: surf('metal', 3, { rough: 0.6, metal: 0.1, color: 0x7aa070 }),
   };
 
 

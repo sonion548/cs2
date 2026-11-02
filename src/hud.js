@@ -39,7 +39,8 @@ export class Hud {
           <button data-a="resume">Resume</button>
           <label>Sensitivity <input type="range" min="0.2" max="6" step="0.05" data-s="sensitivity"><span></span></label>
           <label>Volume <input type="range" min="0" max="1" step="0.01" data-s="volume"><span></span></label>
-          <button data-a="quit" class="danger">Leave match</button>
+          <button data-a="quit" class="danger">${game.opts.ranked ? 'Abandon ranked match' : 'Leave match'}</button>
+          ${game.opts.ranked ? '<p class="warn">Abandoning counts as a loss with a larger RP penalty and a queue cooldown.</p>' : ''}
         </div>
       </div>`;
     document.body.appendChild(root);

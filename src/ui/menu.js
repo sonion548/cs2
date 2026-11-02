@@ -6,6 +6,7 @@ import { KNIFE_TYPES, buildGun } from '../gunmodels.js';
 import { stickerCanvas } from '../items/stickers.js';
 import { STICKER_SLOTS } from '../items/render.js';
 import { MAPS } from '../maps.js';
+import * as R from '../ranked.js';
 import { audio } from '../audio.js';
 
 const h = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -49,7 +50,7 @@ export class Menu {
   constructor(root, settings, onPlay) {
     this.root = root; this.settings = settings; this.onPlay = onPlay;
     this.tab = 'play';
-    this.state = { mode: '5v5', diff: 2, side: 'random', map: 'dunehold' };
+    this.state = { queue: 'casual', mode: '5v5', ladder: '5v5', diff: 2, side: 'random', map: 'dunehold' };
     this.invFilter = 'all'; this.invSort = 'newest';
     this.viewers = [];
     P.onChange(() => this.updateBar());
@@ -61,7 +62,7 @@ export class Menu {
       <div class="client">
         <header class="bar">
           <div class="mark"><i></i>VANTAGE</div>
-          <nav>${['play', 'inventory', 'cases', 'career', 'settings'].map(t => `<button data-tab="${t}">${t}</button>`).join('')}</nav>
+          <nav>${['play', 'ranked', 'inventory', 'cases', 'career', 'settings'].map(t => `<button data-tab="${t}">${t}</button>`).join('')}</nav>
           <div class="who"><span class="lvl"></span><span class="credits"></span><span class="pname"></span></div>
         </header>
         <main class="page"></main>
@@ -111,12 +112,19 @@ export class Menu {
         }).join('')}</div>
       </section>
       <aside class="queue">
+        <div class="tog qtype">${[['casual', 'Casual'], ['ranked', 'Ranked']].map(([v, l]) => `<button data-queue="${v}" class="${s.queue === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+        ${s.queue === 'casual' ? `
         <h3>Matchmaking <small>vs bots</small></h3>
         <div class="modes">${MODES.map(m => `<button class="mode ${s.mode === m.id ? 'on' : ''}" data-mode="${m.id}"><b>${m.id}</b><span>${m.label}<small>${m.note}</small></span></button>`).join('')}</div>
         <div class="field"><label>Opponents</label><div class="steps">${DIFFS.map((d, i) => `<button data-diff="${i}" class="${i <= s.diff ? 'fill' : ''} ${i === s.diff ? 'on' : ''}" title="${d[0]}"></button>`).join('')}<em>${DIFFS[s.diff][0]}</em></div></div>
-        <div class="field"><label>Side</label><div class="tog">${[['T', 'Attack'], ['CT', 'Defend'], ['random', 'Any']].map(([v, l]) => `<button data-side="${v}" class="${s.side === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+        <div class="field"><label>Side</label><div class="tog">${[['T', 'Attack'], ['CT', 'Defend'], ['random', 'Any']].map(([v, l]) => `<button data-side="${v}" class="${s.side === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>` : `
+        <h3>Ranked <small>vs bots</small></h3>
+        <div class="modes">${Object.entries(R.LADDERS).map(([id, l]) => { const L = R.ladder(id); return `<button class="mode rk ${s.ladder === id ? 'on' : ''}" data-ladder="${id}"><img src="${R.rankEmblem(L.rank, 64)}" alt=""><span>${l.label}<small>${L.rank == null ? `Placements ${L.placements}/5` : `${R.rankName(L.rank)} · ${L.rp} RP`}</small></span></button>`; }).join('')}
+          <button class="mode rk" disabled><b>PvP</b><span>Ranked vs players<small>Needs online servers (stage 4)</small></span></button></div>
+        <div class="field"><label>Opponents</label><p class="note">Bots are matched to your hidden rating: currently around <b>${R.rankName(R.mmrToRankIndex(R.ladder(s.ladder).mmr))}</b> strength. Sides are assigned randomly.</p></div>
+        <div class="field"><label>Party</label><p class="note">Queueing with friends arrives with online play (stage 4).</p></div>`}
         <div class="field map"><label>Map</label><div class="mapcard"><canvas width="88" height="66"></canvas><div><b>${h(map.name)}</b><small>${h(map.description)}</small></div></div></div>
-        <button class="go">Find match</button>
+        <button class="go">${s.queue === 'ranked' ? 'Find ranked match' : 'Find match'}</button>
       </aside>`;
     // map mini radar
     const mc = page.querySelector('.mapcard canvas').getContext('2d');
@@ -145,7 +153,17 @@ export class Menu {
       if (t.dataset.mode) s.mode = t.dataset.mode;
       if (t.dataset.diff) s.diff = +t.dataset.diff;
       if (t.dataset.side) s.side = t.dataset.side;
-      if (t.classList.contains('go')) { const m = MODES.find(m => m.id === s.mode); return this.onPlay({ map: s.map, teamSize: m.size, winRounds: m.win, skill: DIFFS[s.diff][1], side: s.side }); }
+      if (t.dataset.queue) s.queue = t.dataset.queue;
+      if (t.dataset.ladder) s.ladder = t.dataset.ladder;
+      if (t.classList.contains('go')) {
+        if (s.queue === 'ranked') {
+          const q = R.canQueue(s.ladder);
+          if (!q.ok) return this.toast(q.reason);
+          return this.onPlay({ map: s.map, ranked: s.ladder });
+        }
+        const m = MODES.find(m => m.id === s.mode);
+        return this.onPlay({ map: s.map, teamSize: m.size, winRounds: m.win, skill: DIFFS[s.diff][1], side: s.side });
+      }
       this.go('play');
     };
   }
@@ -468,6 +486,70 @@ export class Menu {
     this.root.appendChild(t); setTimeout(() => t.remove(), 2600);
   }
 
+  rankedSummary(k) {
+    const evText = { placed: (e) => `Placed at ${R.rankName(e.rank)}`, promoted: (e) => `Promoted to ${R.rankName(e.rank)}`, demoted: (e) => `Demoted to ${R.rankName(e.rank)}`,
+      seriesStart: (e) => `Promotion series started: best of ${e.series.max}`, series: (e) => `Series ${e.series.wins}–${e.series.losses} (best of ${e.series.max})`,
+      seriesFailed: () => 'Promotion series failed', shielded: (e) => `Demotion shield used (${e.left} left)`, apexLocked: () => 'Apex is limited to the top 100 on the leaderboard' };
+    const rp = k.rpDelta;
+    return `<div class="rk-sum">
+      <img src="${R.rankEmblem(k.after.rank, 96)}" alt="">
+      <div><b>${R.rankName(k.after.rank)}</b>
+        ${k.placement && k.after.rank == null ? `<small>Placement ${k.placement.done} of ${k.placement.of}</small>` : `<small>${k.after.rp} RP ${rp != null ? `<em class="${rp >= 0 ? 'up' : 'down'}">${rp >= 0 ? '+' : ''}${rp}</em>` : ''}</small>`}
+        ${k.after.rank != null ? `<div class="rpbar"><i style="width:${Math.min(100, k.after.rp)}%"></i></div>` : ''}
+        ${k.events.map(e => `<p class="ev ${e.type}">${evText[e.type]?.(e) || ''}</p>`).join('')}
+        ${k.abandoned ? '<p class="ev demoted">Match abandoned: extra RP loss and queue cooldown applied</p>' : ''}
+      </div></div>`;
+  }
+
+  // ------------------------------------------------------------- ranked
+  render_ranked(page) {
+    const id = this.state.ladder;
+    const L = R.ladder(id);
+    const pos = R.leaderboardPosition(L.mmr);
+    const dist = R.distribution();
+    const pop = R.getPopulation();
+    const myTier = L.rank == null ? -1 : R.RANKS[L.rank].tier;
+    const games = L.wins + L.losses;
+    page.innerHTML = `
+      <section class="rk-main">
+        <div class="tog ltabs">${Object.entries(R.LADDERS).map(([k, l]) => `<button data-l="${k}" class="${k === id ? 'on' : ''}">${l.label}</button>`).join('')}</div>
+        <div class="rk-hero">
+          <img src="${R.rankEmblem(L.rank, 160)}" alt="">
+          <div>
+            <small>${R.LADDERS[id].label}</small>
+            <h2>${R.rankName(L.rank)}</h2>
+            ${L.rank == null ? `<p class="note">Play ${5 - L.placements} more placement match${5 - L.placements === 1 ? '' : 'es'} to receive a rank. Placements top out at Platinum IV; the rest has to be earned.</p>` : `
+              <div class="rpbar lg"><i style="width:${Math.min(100, L.rp)}%"></i></div>
+              <p class="rpline">${L.rp} / 100 RP${L.shield ? ` · <span class="shield">Demotion shield: ${L.shield}</span>` : ''}</p>
+              ${L.series ? `<div class="series">Promotion series ${L.series.wins}–${L.series.losses} · best of ${L.series.max} <span>${Array.from({ length: L.series.max }, (_, i) => `<i class="${i < L.series.wins ? 'w' : i < L.series.wins + L.series.losses ? 'l' : ''}"></i>`).join('')}</span></div>` : ''}`}
+          </div>
+        </div>
+        <div class="stats">
+          ${[['Wins', L.wins], ['Losses', L.losses], ['Win rate', games ? Math.round(L.wins / games * 100) + '%' : '—'], ['Streak', L.streak > 0 ? `W${L.streak}` : L.streak < 0 ? `L${-L.streak}` : '—'], ['Peak', L.peak == null ? '—' : R.rankName(L.peak)], ['Ladder position', L.rank == null ? '—' : `#${pos.position.toLocaleString()}`], ['Top', L.rank == null ? '—' : `${Math.max(0.1, (1 - pos.percentile) * 100).toFixed(1)}%`], ['Rating confidence', `${Math.round((1 - (L.rd - 60) / 290) * 100)}%`]]
+            .map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('')}
+        </div>
+        <h3>How ranked works</h3>
+        <ul class="rules">
+          <li>You have a hidden rating (MMR) and a visible rank with 100 RP per division. Wins add RP and losses remove it. If your MMR is above your rank, you gain more and lose less until they line up.</li>
+          <li>Higher tiers give less RP for a win and take more for a loss. Win streaks of three or more give bonus RP, and playing well cushions a loss.</li>
+          <li>Entering Diamond or Obsidian needs a best-of-3 promotion series. Vanguard and Apex need best-of-5. Apex only holds the top 100 players on the ladder.</li>
+          <li>After a promotion into a new tier you get a 3-loss demotion shield. Diamond and above lose RP after 7 days without playing.</li>
+          <li>Bots scale with your MMR: reaction time, aim, spray control, crosshair placement and tactics all improve as you climb.</li>
+          <li>Abandoning a match counts as a loss with a 1.6× RP penalty and a queue cooldown that grows each time.</li>
+        </ul>
+        <h3>Recent ranked matches</h3>
+        <table class="hist">${L.history.slice(0, 15).map(m => `<tr><td>${new Date(m.t).toLocaleDateString()}</td><td class="${m.won ? 'up' : 'down'}">${m.abandoned ? 'Abandon' : m.won ? 'Win' : 'Loss'}</td><td>${m.k} / ${m.d}</td><td>${m.placement ? 'Placement' : (m.rp >= 0 ? '+' : '') + m.rp + ' RP'}</td><td>${R.rankName(m.rank)}</td></tr>`).join('') || '<tr><td>No ranked matches yet.</td></tr>'}</table>
+      </section>
+      <aside class="rk-side">
+        <h3>Distribution</h3>
+        <div class="dist">${R.TIERS.map((t, i) => `<div class="${i === myTier ? 'me' : ''}"><img src="${R.rankEmblem(R.RANKS.findIndex(r => r.tier === i && r.sub === 1), 40)}" alt=""><span>${t.name}</span><i style="width:${(dist[i] * 260).toFixed(1)}%;background:${t.color}"></i><em>${(dist[i] * 100).toFixed(1)}%</em></div>`).join('')}</div>
+        <h3>Leaderboard</h3>
+        <table class="lb">${pop.slice(0, 25).map((p, i) => `<tr><td>${i + 1}</td><td><img src="${R.rankEmblem(p.rank, 24)}" alt="">${h(p.name)}</td><td>${Math.round(p.mmr)}</td></tr>`).join('')}
+          ${L.rank != null ? `<tr class="me"><td>${pos.position}</td><td><img src="${R.rankEmblem(L.rank, 24)}" alt="">${h(P.getProfile().name)}</td><td>${Math.round(L.mmr)}</td></tr>` : ''}</table>
+      </aside>`;
+    page.onclick = (e) => { const b = e.target.closest('[data-l]'); if (b) { this.state.ladder = b.dataset.l; this.go('ranked'); } };
+  }
+
   showResult(r) {
     const layer = this.$('.modal-layer');
     const rows = r.players.filter(p => p.team === r.team).sort((a, b) => b.kills - a.kills)
@@ -477,6 +559,7 @@ export class Menu {
         <div class="rar"><i></i>${r.won ? 'Victory' : 'Defeat'}</div>
         <h2>${r.score[r.team]} <span>–</span> ${r.score[r.team === 'T' ? 'CT' : 'T']}</h2>
         <table>${'<tr><th>Player</th><th>K</th><th>A</th><th>D</th></tr>' + rows}</table>
+        ${r.ranked ? this.rankedSummary(r.ranked) : ''}
         <h4>Rewards</h4>
         <p class="reward">+${CR(r.reward.credits)} credits${r.reward.drops.map(d => ` · <b>${h(itemDef(d).name)}</b>`).join('')}</p>
         <div class="acts"><button class="pri" data-act="close">Continue</button></div>

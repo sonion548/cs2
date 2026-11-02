@@ -55,7 +55,9 @@ export class Game {
     const n = opts.teamSize;
     for (let i = 0; i < n * 2 - 1; i++) {
       const team = i < n - 1 ? this.playerTeam : (this.playerTeam === 'T' ? 'CT' : 'T');
-      const b = new Bot(team, names[i % names.length], opts.skill, this);
+      // ranked matches pass per-side skill generators scaled to the player's rating
+      const skill = opts.skillFor ? opts.skillFor(team === this.playerTeam) : opts.skill;
+      const b = new Bot(team, names[i % names.length], skill, this);
       this.bots.push(b); this.characters.push(b);
       this.scene.add(b.model);
     }
@@ -671,7 +673,12 @@ export class Game {
     this.onExit(result);
   }
 
-  quit() { this.running = false; this.dispose(); this.onExit(null); }
+  quit() {
+    this.running = false; this.dispose();
+    // leaving a ranked match counts as an abandon (loss + queue cooldown)
+    if (this.opts.ranked) this.onExit({ abandoned: true, won: false, team: this.playerTeam, score: { ...this.score }, stats: { ...this.player.stats }, rounds: this.round, players: [], weaponKills: {} });
+    else this.onExit(null);
+  }
 
   dispose() {
     document.removeEventListener('keydown', this.h.keydown);
