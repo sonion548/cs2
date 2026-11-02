@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Box, World } from './physics.js';
 import { surface, letterTexture, rng } from './textures.js';
+import { assets } from './assets.js';
 
 // BoxGeometry whose UVs are scaled to world units so textures don't stretch.
 function worldBox(w, h, d, x, y, z, texScale = 4) {
@@ -142,6 +143,14 @@ export function buildLevel(map, scene) {
     crate: surf('crate', 1, { ns: 1.3, rough: 0.85 }),
     metal: surf('metal', 1, { rough: 0.55, metal: 0.15 }),
     barrel: surf('metal', 3, { rough: 0.6, metal: 0.1, color: 0x7aa070 }),
+    stone: surf('sandstone', 2, { ns: 1.6, color: 0xe8dccb }),
+    wood: surf('crate', 2, { ns: 1.2, rough: 0.8, color: 0xd8b48a }),
+    darkwood: surf('crate', 3, { ns: 1.2, rough: 0.85, color: 0x6a4a32 }),
+    iron: new THREE.MeshStandardMaterial({ color: 0x2a2b2d, roughness: 0.55, metalness: 0.6 }),
+    glass: new THREE.MeshStandardMaterial({ color: 0x0c1014, roughness: 0.15, metalness: 0.4 }),
+    lamp: new THREE.MeshStandardMaterial({ color: 0xffd9a0, emissive: 0xffa040, emissiveIntensity: 1.6 }),
+    cloth_red: new THREE.MeshStandardMaterial({ color: 0x9a2a1e, roughness: 0.95, side: THREE.DoubleSide }),
+    cloth_blue: new THREE.MeshStandardMaterial({ color: 0x24406e, roughness: 0.95, side: THREE.DoubleSide }),
   };
 
 
@@ -160,11 +169,29 @@ export function buildLevel(map, scene) {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(5, 5),
       new THREE.MeshStandardMaterial({ map: letterTexture(L), transparent: true, depthWrite: false, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -2 }));
     m.rotation.x = -Math.PI / 2; m.position.set(c.x, 0.02, c.z);
-    m.receiveShadow = true;
+    m.receiveShadow = true; m.userData.keep = true;
     group.add(m);
     sites[L].center = c;
   }
   scene.add(group);
+
+  // Blender-built map: swap in its detailed meshes and its exported colliders
+  // (same layout as the grid, so nav/spawns/sites above still apply).
+  const key = (map.id || map.name || '').toLowerCase();
+  if (assets.maps[key] && assets.colliders[key]) {
+    for (const ch of [...group.children]) if (!ch.userData.keep) { group.remove(ch); ch.geometry?.dispose(); }
+    const model = assets.maps[key].clone(true);
+    model.traverse(o => {
+      if (!o.isMesh) return;
+      const name = (o.material?.name || '').replace(/\.\d+$/, '');
+      o.material = mats[name] || mats.sandstone;
+      o.castShadow = !['sand', 'paving', 'tiles', 'concrete', 'glass', 'lamp'].includes(name);
+      o.receiveShadow = true;
+    });
+    group.add(model);
+    world.boxes.length = 0;
+    for (const [x0, y0, z0, x1, y1, z1, tag] of assets.colliders[key]) world.add(new Box(x0, y0, z0, x1, y1, z1, tag));
+  }
 
   // Navigation grid: one node per walkable cell.
   const nav = {

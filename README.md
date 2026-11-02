@@ -98,6 +98,12 @@ Known limits: the host's machine runs the match, so a modified client acting as 
 A dedicated authoritative game server would close that gap. There is no host migration (if the host
 leaves, the match ends), and offline items stay on the device that earned them.
 
+## Blender models
+
+Weapons, knives and the Dunehold map are modelled with Blender scripts in `blender/` (see
+`blender/README.md`) and exported to `public/models/`. The game preloads them and keeps its
+procedural models as a fallback.
+
 ## Roadmap
 
 1. ~~Core gameplay~~

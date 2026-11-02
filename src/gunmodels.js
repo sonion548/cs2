@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { surface } from './textures.js';
+import { assets } from './assets.js';
 
 // ---------------------------------------------------------------- materials
 let MAT = null;
@@ -499,7 +500,39 @@ function knife(type) {
 
 const BUILDERS = { ak47, m4a1, awp, glock, usp, deagle };
 
+// Blender-built model → the same structure the procedural builders produce.
+// Material names from Blender decide each part's role and game material.
+function fromAsset(key) {
+  const src = assets.weapons[key];
+  const M = mats();
+  const inner = src.clone(true);
+  const anchors = {};
+  const byMat = {
+    skin_paint: M.paint, skin_wood: M.wood, skin_polymer: M.polymer, skin_tan: new THREE.MeshStandardMaterial({ color: 0x5a6343, roughness: 0.7, metalness: 0.15 }), skin_blade: M.blade,
+    metal_steel: M.steel, metal_dark: M.darkSteel, detail_rubber: M.rubber, detail_polymer: M.polymer, detail_lens: M.lens,
+    detail_brass: M.brass, detail_cord: M.cord, detail_horn: M.horn, detail_wood: M.wood,
+  };
+  inner.traverse(o => {
+    if (o.isMesh) {
+      const name = (o.material?.name || '').replace(/\.\d+$/, '');
+      o.userData.part = name.startsWith('skin') ? 'skin' : name.startsWith('metal') ? 'metal' : 'detail';
+      o.material = byMat[name] || M.paint;
+      o.castShadow = true; o.receiveShadow = true;
+    } else if (['muzzle', 'grip', 'fore'].includes(o.name)) anchors[o.name] = [o.position.x, o.position.y];
+  });
+  // geometry is shared between clones; give skin meshes their own copy so UVs can be rewritten safely
+  inner.traverse(o => { if (o.isMesh && o.userData.part === 'skin') o.geometry = o.geometry.clone(); });
+  const type = key.startsWith('knife:') ? key.split(':')[1] : null;
+  return finish(inner, {
+    muzzle: anchors.muzzle || [0.5, 0], grip: anchors.grip || [0, 0], fore: type ? undefined : anchors.fore,
+    pistol: ['glock', 'usp', 'deagle'].includes(key), scope: key === 'awp',
+    knifeType: type || undefined, butterfly: type === 'butterfly', ring: type === 'karambit',
+  });
+}
+
 export function buildGun(id) {
+  const key = id.startsWith('knife') ? `knife:${id.split(':')[1] || 'standard'}` : id;
+  if (assets.weapons[key]) return fromAsset(key);
   if (id.startsWith('knife')) return knife(id.split(':')[1] || 'standard');
   return (BUILDERS[id] || ak47)();
 }

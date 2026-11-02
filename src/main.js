@@ -10,6 +10,7 @@ import { audio } from './audio.js';
 import { Menu } from './ui/menu.js';
 import * as P from './items/profile.js';
 import * as R from './ranked.js';
+import { loadAssets } from './assets.js';
 import { net } from './net/client.js';
 
 const SETTINGS_KEY = 'vantage.settings';
@@ -107,6 +108,10 @@ function showServerResult(res) {
 if (net.token()) net.connect().then(() => net.resume()).catch(() => menu.refresh());
 
 canvas.style.visibility = 'hidden';
+// load the Blender-built weapons and maps before showing the menu
+root.style.display = 'block';
+root.innerHTML = '<div class="loading"><b>VANTAGE</b><span>Loading models</span><i><em style="width:0%"></em></i></div>';
+await loadAssets((f) => { const e = root.querySelector('.loading em'); if (e) e.style.width = Math.round(f * 100) + '%'; });
 menu.show();
 window.__menu = menu;
 window.__profile = P; // handy for debugging from the console

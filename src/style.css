@@ -401,3 +401,8 @@ img:not([src]) { visibility: hidden; }
 @media (max-width: 860px) { .tcols, .mk-item { grid-template-columns: 1fr; } .drawer { width: 100%; } }
 .who .lvl, .who .credits, .who .pname, .friends-btn { white-space: nowrap; }
 @media (max-width: 1240px) { .bar nav button { padding: 0 10px; letter-spacing: 1px; } .who { gap: 12px; } .who .lvl b { width: 36px; } }
+
+.loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: var(--bg); }
+.loading b { font: 700 40px var(--cond); letter-spacing: 6px; }
+.loading span { color: var(--muted); font: 600 13px var(--cond); text-transform: uppercase; letter-spacing: 2px; }
+.loading i { width: 240px; height: 3px; background: var(--line2); } .loading em { display: block; height: 100%; background: var(--accent); }
