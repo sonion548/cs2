@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { fbm, hexToRgb } from './noise.js';
+import { assets } from './assets.js';
 export { buildGun } from './gunmodels.js';
 
 // Woven fabric texture with optional camo tint, shared per palette.
@@ -60,8 +61,44 @@ function limb(r0, r1, len, mat) {
   return g;
 }
 
+// Blender-built character (public/models/characters/<team>.glb). Its empties
+// are the same rig as the procedural one below, so bots animate it unchanged.
+function characterFromAsset(team, src) {
+  const pal = PALETTE[team] || PALETTE.T;
+  const T = team === 'T';
+  const byName = {
+    char_shirt: new THREE.MeshStandardMaterial({ map: fabric(pal.shirt, pal.camo), roughness: 0.92 }),
+    char_pants: new THREE.MeshStandardMaterial({ map: fabric(pal.pants, T ? pal.camo : null), roughness: 0.92 }),
+    char_vest: new THREE.MeshStandardMaterial({ map: fabric(pal.vest), roughness: 0.8 }),
+    char_head: new THREE.MeshStandardMaterial({ map: fabric(pal.head), roughness: 0.85 }),
+    char_skin: new THREE.MeshStandardMaterial({ color: pal.skin, roughness: 0.6 }),
+    char_helmet: new THREE.MeshStandardMaterial({ color: T ? 0x4d4636 : 0x262d3b, roughness: 0.55, metalness: 0.1 }),
+    char_boots: new THREE.MeshStandardMaterial({ color: 0x1d1a16, roughness: 0.75 }),
+    char_glove: new THREE.MeshStandardMaterial({ color: pal.glove, roughness: 0.8 }),
+    char_strap: new THREE.MeshStandardMaterial({ color: 0x22201c, roughness: 0.9 }),
+    char_lens: new THREE.MeshStandardMaterial({ color: 0x0f1418, roughness: 0.1, metalness: 0.6 }),
+    char_metal: new THREE.MeshStandardMaterial({ color: 0x55575c, roughness: 0.4, metalness: 0.8 }),
+  };
+  const root = src.clone(true);
+  root.traverse(o => {
+    if (!o.isMesh) return;
+    o.material = byName[(o.material?.name || '').replace(/\.\d+$/, '')] || byName.char_strap;
+    o.castShadow = true; o.receiveShadow = true;
+  });
+  const n = (name) => root.getObjectByName(name);
+  const u = { body: n('body'), legL: n('legL'), legR: n('legR'), torso: n('torso'), head: n('head'), gunHolder: n('gunHolder'), armL: n('armL'), armR: n('armR') };
+  u.legL.userData.knee = n('kneeL'); u.legR.userData.knee = n('kneeR');
+  u.armL.userData.elbow = n('elbowL'); u.armR.userData.elbow = n('elbowR');
+  u.armR.rotation.set(-0.75, 0, -0.1); u.armR.userData.elbow.rotation.x = -1.3;
+  u.armL.rotation.set(-1.15, 0, 0.55); u.armL.userData.elbow.rotation.x = -0.65;
+  root.userData = u;
+  return root;
+}
+
 // Third-person character. Origin at feet, facing -Z.
 export function buildCharacter(team) {
+  const src = assets.characters[team === 'CT' ? 'ct' : 't'];
+  if (src) return characterFromAsset(team, src);
   const pal = PALETTE[team] || PALETTE.T;
   const T = team === 'T';
   const shirt = new THREE.MeshStandardMaterial({ map: fabric(pal.shirt, pal.camo), roughness: 0.92 });

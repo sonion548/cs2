@@ -81,6 +81,23 @@ class Builder:
             bm.faces.new((ring0[i], ring0[j], ring1[j], ring1[i]))
         bm.faces.new(ring0[::-1]); bm.faces.new(ring1)
 
+    def lathe_y(self, mat, cx, y0, cz, prof, segs=16):
+        """Round part around a vertical axis; prof = [(dy, r), ...] bottom to top."""
+        bm = self.bm(mat)
+        rings = []
+        for dy, r in prof:
+            r = max(r, 0.003)
+            rings.append([bm.verts.new(self.g2b(cx + math.cos(i / segs * math.pi * 2) * r, y0 + dy, cz + math.sin(i / segs * math.pi * 2) * r))
+                          for i in range(segs)])
+        for a, b in zip(rings, rings[1:]):
+            for i in range(segs):
+                j = (i + 1) % segs
+                bm.faces.new((a[i], a[j], b[j], b[i]))
+        bm.faces.new(rings[0][::-1]); bm.faces.new(rings[-1])
+
+    def dome(self, mat, cx, y0, cz, r, h, segs=24, rings=8):
+        self.lathe_y(mat, cx, y0, cz, [(math.sin(k / rings * math.pi / 2) * h, math.cos(k / rings * math.pi / 2) * r) for k in range(rings + 1)], segs)
+
     def quad(self, mat, pts):
         bm = self.bm(mat)
         bm.faces.new([bm.verts.new(self.g2b(*p)) for p in pts])
@@ -348,9 +365,241 @@ def build(name):
                     col = ['cloth_red', 'cloth_blue', 'lamp', 'cloth_red', 'cloth_blue'][k]
                     B.box(col, ax + (bx - ax) * t - 0.15, yy - 0.5, cz - 0.01, ax + (bx - ax) * t + 0.15, yy - 0.02, cz + 0.01)
 
-    tex_scale.update({'sand': 4.0, 'paving': 4.0, 'tiles': 4.0, 'concrete': 4.0, 'sandstone': 4.0, 'plaster': 4.0})
+    dress(B, grid, S, walls, at, walk)
+
+    tex_scale.update({'sand': 4.0, 'paving': 4.0, 'tiles': 4.0, 'concrete': 4.0, 'sandstone': 4.0, 'plaster': 4.0, 'terracotta': 2.0})
     B.finish(tex_scale)
     return B.colliders
+
+
+# ---------------------------------------------------------------- set dressing
+def dress(B, grid, S, walls, at, walk):
+    """Rooftops, towers, balconies, palms, stalls and pots. Uses its own
+    random stream so the base layout above stays exactly the same."""
+    rnd = random.Random(2024)
+    H, W = len(grid), len(grid[0])
+
+    def facing(x, z):
+        """Directions (dx, dz) from cell x,z towards a neighbouring wall."""
+        return [(dx, dz) for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)) if at(x + dx, z + dz) == '#']
+
+    # ---- rooftops on interior blocks: parapets plus a dome, roof room or water tank per 3x3 cells
+    for (x0, z0, x1, z1, h, border) in walls:
+        if border:
+            continue
+        top = h + 0.12
+        for (ax0, az0, ax1, az1) in ((x0, z0, x1, z0 + 0.25), (x0, z1 - 0.25, x1, z1), (x0, z0, x0 + 0.25, z1), (x1 - 0.25, z0, x1, z1)):
+            B.box('plaster', ax0, top, az0, ax1, top + 0.55, az1)
+            B.box('trim', ax0 - 0.04, top + 0.55, az0 - 0.04, ax1 + 0.04, top + 0.65, az1 + 0.04)
+        nx, nz = max(1, round((x1 - x0) / (S * 3))), max(1, round((z1 - z0) / (S * 3)))
+        for i in range(nx):
+            for k in range(nz):
+                cx = x0 + (i + 0.5) * (x1 - x0) / nx
+                cz = z0 + (k + 0.5) * (z1 - z0) / nz
+                span = min((x1 - x0) / nx, (z1 - z0) / nz)
+                r = rnd.random()
+                if r < 0.35 and span >= S:
+                    # drum + onion-ish dome + finial
+                    R = span * 0.32
+                    B.lathe_y('plaster', cx, top, cz, [(0, R * 1.08), (0.35, R * 1.08), (0.35, R), (1.1, R)], 24)
+                    B.lathe_y('trim', cx, top + 1.1, cz, [(0, R * 1.06), (0.14, R * 1.06)], 24)
+                    B.dome('tiles' if rnd.random() < 0.5 else 'plaster', cx, top + 1.24, cz, R, R * 1.05)
+                    B.lathe_y('iron', cx, top + 1.24 + R * 1.05, cz, [(0, 0.06), (0.15, 0.1), (0.3, 0.03), (0.75, 0.015)], 8)
+                    for a in range(8):
+                        an = a / 8 * math.pi * 2
+                        wx, wz = cx + math.cos(an) * R * 0.99, cz + math.sin(an) * R * 0.99
+                        B.box('glass', wx - 0.12, top + 0.5, wz - 0.12, wx + 0.12, top + 0.95, wz + 0.12, rot=-an)
+                elif r < 0.6:
+                    # small rooftop room with a door and its own cornice
+                    w, d = min(span * 0.5, 3.0), min(span * 0.42, 2.4)
+                    B.box('plaster', cx - w / 2, top, cz - d / 2, cx + w / 2, top + 2.3, cz + d / 2)
+                    B.box('trim', cx - w / 2 - 0.08, top + 2.3, cz - d / 2 - 0.08, cx + w / 2 + 0.08, top + 2.45, cz + d / 2 + 0.08)
+                    B.box('wood', cx - 0.45, top, cz + d / 2, cx + 0.45, top + 1.9, cz + d / 2 + 0.04)
+                    B.box('iron', cx - 0.45, top + 1.0, cz + d / 2 + 0.04, cx + 0.45, top + 1.06, cz + d / 2 + 0.06)
+                else:
+                    # water tank on a steel stand, with a pipe down to the roof
+                    for sx in (-0.55, 0.55):
+                        for sz in (-0.55, 0.55):
+                            B.box('iron', cx + sx - 0.05, top, cz + sz - 0.05, cx + sx + 0.05, top + 1.3, cz + sz + 0.05)
+                    B.box('iron', cx - 0.7, top + 1.25, cz - 0.7, cx + 0.7, top + 1.35, cz + 0.7)
+                    B.lathe_y('barrel', cx, top + 1.35, cz, [(0, 0.75), (1.4, 0.75), (1.55, 0.6), (1.6, 0.2)], 20)
+                    for yy in (0.4, 1.0):
+                        B.lathe_y('iron', cx, top + 1.35 + yy, cz, [(0, 0.77), (0.06, 0.77)], 20)
+                    B.box('iron', cx + 0.7, top, cz - 0.04, cx + 0.78, top + 1.6, cz + 0.04)
+
+    # ---- watchtowers on the outer wall, every few cells along its inner edge
+    border_h = max(h for *_, h, b in walls if b)
+    for x in range(2, W - 2, 7):
+        for z in (0, H - 1):
+            tz0 = z * S if z == 0 else z * S
+            tower(B, x * S + S / 2, tz0 + S / 2, border_h, rnd)
+    for z in range(4, H - 2, 8):
+        for x in (0, W - 1):
+            tower(B, x * S + S / 2, z * S + S / 2, border_h, rnd)
+
+    # ---- street props on walkable cells
+    for z in range(H):
+        for x in range(W):
+            c = at(x, z)
+            if c not in '.,' or (c == ',' and z > H - 4):
+                continue
+            touch = facing(x, z)
+            if not touch:
+                continue
+            x0, z0 = x * S, z * S
+            cx, cz = x0 + S / 2, z0 + S / 2
+            dx, dz = touch[0]
+            r = rnd.random()
+            if r < 0.05:
+                # palm tree in a corner of the cell, leaning away from the wall
+                px, pz = cx + dx * (S / 2 - 0.9) + (dz and (rnd.random() - 0.5) * 2), cz + dz * (S / 2 - 0.9) + (dx and (rnd.random() - 0.5) * 2)
+                palm(B, px, pz, -dx, -dz, rnd)
+                B.colliders.append([round(px - 0.25, 3), 0, round(pz - 0.25, 3), round(px + 0.25, 3), 6.0, round(pz + 0.25, 3), 'palm'])
+            elif r < 0.11 and c == '.':
+                stall(B, cx, cz, dx, dz, S, rnd)
+            elif r < 0.2:
+                # clay pots and urns against the wall
+                for k in range(rnd.randint(2, 4)):
+                    u = (rnd.random() - 0.5) * (S - 1.2)
+                    px = cx + dx * (S / 2 - 0.45) + (u if dz else 0)
+                    pz = cz + dz * (S / 2 - 0.45) + (u if dx else 0)
+                    s_ = rnd.uniform(0.7, 1.15)
+                    pot(B, px, pz, s_)
+                    B.colliders.append([round(px - 0.3 * s_, 3), 0, round(pz - 0.3 * s_, 3), round(px + 0.3 * s_, 3), round(0.85 * s_, 3), round(pz + 0.3 * s_, 3), 'pot'])
+
+    # ---- wooden balconies on some upper facades (above head height, visual only)
+    for (x0, z0, x1, z1, h, border) in walls:
+        if h < 6.5:
+            continue
+        for zc in range(int(z0 / S), int(z1 / S)):
+            for side in (-1, 1):
+                xs = int(x0 / S) - 1 if side < 0 else int(x1 / S)
+                if walk(xs, zc) and rnd.random() < 0.12:
+                    f = x0 if side < 0 else x1
+                    balcony(B, 'x', f, zc * S + S / 2, side)
+        for xc in range(int(x0 / S), int(x1 / S)):
+            for side in (-1, 1):
+                zs = int(z0 / S) - 1 if side < 0 else int(z1 / S)
+                if walk(xc, zs) and rnd.random() < 0.12:
+                    f = z0 if side < 0 else z1
+                    balcony(B, 'z', f, xc * S + S / 2, side)
+
+
+def tower(B, cx, cz, h, rnd):
+    s = 1.7
+    B.box('sandstone', cx - s, h, cz - s, cx + s, h + 3.2, cz + s)
+    B.box('trim', cx - s - 0.12, h + 3.2, cz - s - 0.12, cx + s + 0.12, h + 3.45, cz + s + 0.12)
+    for k in range(4):
+        for t in (-1, 0, 1):
+            u = t * 1.1
+            pts = [(cx + u, cz - s - 0.12), (cx + u, cz + s + 0.12 - 0.3), (cx - s - 0.12, cz + u), (cx + s + 0.12 - 0.3, cz + u)][k]
+            if k < 2:
+                B.box('trim', pts[0] - 0.3, h + 3.45, pts[1], pts[0] + 0.3, h + 4.0, pts[1] + 0.3)
+            else:
+                B.box('trim', pts[0], h + 3.45, pts[1] - 0.3, pts[0] + 0.3, h + 4.0, pts[1] + 0.3)
+    for (ox, oz) in ((0, -s - 0.01), (0, s - 0.01), (-s - 0.01, 0), (s - 0.01, 0)):
+        if ox:
+            B.box('glass', cx + ox, h + 1.4, cz - 0.12, cx + ox + 0.02, h + 2.5, cz + 0.12)
+        else:
+            B.box('glass', cx - 0.12, h + 1.4, cz + oz, cx + 0.12, h + 2.5, cz + oz + 0.02)
+    if rnd.random() < 0.6:
+        col = 'cloth_red' if rnd.random() < 0.5 else 'cloth_blue'
+        B.box('iron', cx - 0.03, h + 3.45, cz - 0.03, cx + 0.03, h + 6.0, cz + 0.03)
+        B.box(col, cx + 0.03, h + 5.0, cz - 0.01, cx + 1.1, h + 5.8, cz + 0.01)
+
+
+def palm(B, px, pz, lx, lz, rnd):
+    hgt = rnd.uniform(5.5, 7.5)
+    n = 10
+    lean = rnd.uniform(0.6, 1.2)
+    pts = []
+    for k in range(n + 1):
+        t = k / n
+        off = lean * t * t
+        pts.append((px + lx * off, t * hgt, pz + lz * off))
+    for k in range(n):
+        (ax, ay, az), (bx, by, bz) = pts[k], pts[k + 1]
+        r0 = 0.2 - 0.07 * k / n
+        B.lathe_y('darkwood', ax, ay, az, [(0, r0), (by - ay - 0.06, r0 * 0.92), (by - ay, r0 * 1.06)], 10)
+    tx, ty, tz = pts[-1]
+    B.lathe_y('leaf', tx, ty - 0.2, tz, [(0, 0.22), (0.3, 0.26), (0.45, 0.05)], 10)
+    for f in range(9):
+        a = f / 9 * math.pi * 2 + rnd.random() * 0.4
+        L = rnd.uniform(2.2, 3.0)
+        ca, sa = math.cos(a), math.sin(a)
+        prev = None
+        for s in range(6):
+            t = s / 5
+            d = L * t
+            y = ty + 0.25 + math.sin(t * math.pi * 0.8) * 0.7 - t * t * 1.6
+            w = 0.38 * math.sin(math.pi * min(0.95, t * 0.85 + 0.12))
+            cxp, czp = tx + ca * d, tz + sa * d
+            left = (cxp - sa * w, y - 0.08 * t, czp + ca * w)
+            right = (cxp + sa * w, y - 0.08 * t, czp - ca * w)
+            mid = (cxp, y + 0.04, czp)
+            if prev:
+                pl, pm, pr = prev
+                B.quad('leaf', [pl, pm, mid, left])
+                B.quad('leaf', [pm, pr, right, mid])
+            prev = (left, mid, right)
+
+
+def stall(B, cx, cz, dx, dz, S, rnd):
+    """Market stall against the wall: counter, goods, poles and a sloped canopy."""
+    def L(u, v):
+        # u along the wall, v outward from the wall face
+        wx = cx + dx * (S / 2) - dx * v + (u if dz else 0)
+        wz = cz + dz * (S / 2) - dz * v + (u if dx else 0)
+        return wx, wz
+
+    def lbox(mat, u0, y0, v0, u1, y1, v1, collide=None):
+        ax, az = L(u0, v0); bx, bz = L(u1, v1)
+        B.box(mat, min(ax, bx), y0, min(az, bz), max(ax, bx), y1, max(az, bz), collide)
+
+    lbox('wood', -1.2, 0, 0.1, 1.2, 0.85, 1.0, 'stall')
+    lbox('darkwood', -1.25, 0.85, 0.05, 1.25, 0.92, 1.05)
+    for u in (-1.2, 1.2):
+        lbox('darkwood', u - 0.05, 0, 1.35, u + 0.05, 2.25, 1.45)
+    col = rnd.choice(['cloth_red', 'cloth_blue', 'cloth_sand'])
+    for k in range(6):
+        v0, v1 = 0.0 + k * 0.25, 0.25 + k * 0.25
+        y0, y1 = 2.75 - k * 0.09, 2.75 - (k + 1) * 0.09
+        a0, a1, b0, b1 = L(-1.4, v0), L(1.4, v0), L(-1.4, v1), L(1.4, v1)
+        B.quad(col, [(a0[0], y0, a0[1]), (a1[0], y0, a1[1]), (b1[0], y1, b1[1]), (b0[0], y1, b0[1])])
+    # goods on the counter: crates of produce and pots
+    for k in range(3):
+        u = -0.8 + k * 0.8
+        lbox('crate', u - 0.3, 0.92, 0.3, u + 0.3, 1.15, 0.8)
+        lbox(rnd.choice(['cloth_red', 'leaf', 'terracotta']), u - 0.26, 1.15, 0.34, u + 0.26, 1.22, 0.76)
+    px, pz = L(1.0, 0.55)
+    pot(B, px, pz, 0.5, y0=0.92)
+
+
+def pot(B, px, pz, s, y0=0.0):
+    prof = [(0, 0.12), (0.05, 0.2), (0.3, 0.3), (0.55, 0.27), (0.7, 0.14), (0.78, 0.1), (0.82, 0.13), (0.85, 0.13)]
+    B.lathe_y('terracotta', px, y0, pz, [(dy * s, r * s) for dy, r in prof], 16)
+
+
+def balcony(B, axis, f, mid, side):
+    """Wooden balcony with railing and brackets on a wall face (axis x or z)."""
+    y = 3.35
+    def put(mat, u0, y0, u1, y1, d0, d1):
+        if axis == 'x':
+            B.box(mat, min(f + side * d0, f + side * d1), y0, u0, max(f + side * d0, f + side * d1), y1, u1)
+        else:
+            B.box(mat, u0, y0, min(f + side * d0, f + side * d1), u1, y1, max(f + side * d0, f + side * d1))
+    put('darkwood', mid - 1.2, y, mid + 1.2, y + 0.14, 0.0, 0.95)
+    for k in range(3):
+        u = mid - 1.0 + k * 1.0
+        put('darkwood', u - 0.06, y - 0.7, u + 0.06, y, 0.0, 0.12)
+        put('darkwood', u - 0.05, y - 0.55, u + 0.05, y - 0.05, 0.1, 0.75)
+    for u in (mid - 1.15, mid + 1.15):
+        put('wood', u - 0.05, y + 0.14, u + 0.05, y + 1.05, 0.0, 0.95)
+    put('wood', mid - 1.2, y + 1.0, mid + 1.2, y + 1.08, 0.88, 0.96)
+    for k in range(13):
+        u = mid - 1.1 + k * 0.183
+        put('wood', u - 0.025, y + 0.14, u + 0.025, y + 1.0, 0.89, 0.93)
+    put('cloth_red' if int(mid) % 2 else 'cloth_blue', mid - 1.0, y + 0.3, mid + 1.0, y + 0.95, 0.95, 0.965)
 
 
 def crate(B, cx, y0, cz, s, rot):
@@ -384,19 +633,20 @@ def barrel(B, px, pz):
     B.cylinder('iron', px, 1.2, pz, 0.38, 0.015, segs=20)
 
 
-if __name__ == '__main__':
-    name = sys.argv[sys.argv.index('--map') + 1] if '--map' in sys.argv else 'dunehold'
-    out = sys.argv[sys.argv.index('--out') + 1] if '--out' in sys.argv else os.path.join(ROOT, 'public', 'models', 'maps')
+def main(argv):
+    name = argv[argv.index('--map') + 1] if '--map' in argv else 'dunehold'
+    out = argv[argv.index('--out') + 1] if '--out' in argv else os.path.join(ROOT, 'public', 'models', 'maps')
     os.makedirs(out, exist_ok=True)
     cols = build(name)
     for m, col in {'sandstone': (0.75, 0.6, 0.4, 1), 'plaster': (0.8, 0.72, 0.6, 1), 'trim': (0.55, 0.45, 0.32, 1), 'stone': (0.7, 0.58, 0.42, 1),
                    'sand': (0.78, 0.66, 0.47, 1), 'paving': (0.55, 0.5, 0.44, 1), 'tiles': (0.7, 0.62, 0.5, 1), 'concrete': (0.5, 0.5, 0.48, 1),
                    'wood': (0.45, 0.3, 0.16, 1), 'darkwood': (0.22, 0.14, 0.08, 1), 'crate': (0.5, 0.35, 0.2, 1), 'iron': (0.12, 0.12, 0.13, 1),
-                   'barrel': (0.3, 0.42, 0.28, 1), 'glass': (0.04, 0.05, 0.06, 1), 'lamp': (1.0, 0.75, 0.4, 1), 'cloth_red': (0.6, 0.12, 0.1, 1), 'cloth_blue': (0.12, 0.22, 0.45, 1)}.items():
+                   'barrel': (0.3, 0.42, 0.28, 1), 'glass': (0.04, 0.05, 0.06, 1), 'lamp': (1.0, 0.75, 0.4, 1), 'cloth_red': (0.6, 0.12, 0.1, 1),
+                   'cloth_blue': (0.12, 0.22, 0.45, 1), 'cloth_sand': (0.75, 0.62, 0.42, 1), 'leaf': (0.2, 0.38, 0.12, 1), 'terracotta': (0.62, 0.3, 0.16, 1)}.items():
         mm = bpy.data.materials.get(m)
         if mm:
             mm.node_tree.nodes['Principled BSDF'].inputs['Base Color'].default_value = col
-    if '--preview' in sys.argv:
+    if '--preview' in argv:
         from preview import render_preview
         render_preview(os.path.join(out, f'{name}_preview.png'), size=(1400, 800), angle=(0.75, 0, -0.5), samples=12)
     from lib import export_glb, stats
@@ -404,3 +654,8 @@ if __name__ == '__main__':
     with open(os.path.join(out, f'{name}.colliders.json'), 'w') as f:
         json.dump(cols, f)
     print(f'{name}: {stats()} tris, {len(cols)} colliders')
+    return {'tris': stats(), 'colliders': len(cols)}
+
+
+if __name__ == '__main__':
+    main(sys.argv)

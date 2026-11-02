@@ -7,8 +7,9 @@ const BASE = (import.meta.env?.BASE_URL || '/') + 'models/';
 const WEAPONS = ['ak47', 'm4a1', 'awp', 'glock', 'usp', 'deagle'];
 const KNIVES = ['standard', 'bayonet', 'combat', 'karambit', 'butterfly', 'flip', 'gut', 'bowie', 'push', 'navaja', 'stiletto', 'kukri', 'tanto', 'survival', 'cleaver'];
 const MAPS = ['dunehold'];
+const CHARACTERS = ['t', 'ct'];
 
-export const assets = { weapons: {}, maps: {}, colliders: {} };
+export const assets = { weapons: {}, maps: {}, colliders: {}, characters: {} };
 
 export async function loadAssets(onProgress = () => {}) {
   const loader = new GLTFLoader();
@@ -16,6 +17,7 @@ export async function loadAssets(onProgress = () => {}) {
     ...WEAPONS.map(id => [id, `weapons/${id}.glb`, (g) => { assets.weapons[id] = g.scene; }]),
     ...KNIVES.map(k => [`knife:${k}`, `weapons/knife_${k}.glb`, (g) => { assets.weapons[`knife:${k}`] = g.scene; }]),
     ...MAPS.map(m => [m, `maps/${m}.glb`, (g) => { assets.maps[m] = g.scene; }]),
+    ...CHARACTERS.map(c => [`char:${c}`, `characters/${c}.glb`, (g) => { assets.characters[c] = g.scene; }]),
   ];
   let done = 0;
   const total = jobs.length + MAPS.length;

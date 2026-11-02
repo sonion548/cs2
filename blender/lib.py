@@ -4,7 +4,8 @@ Coordinates for weapons: +X = muzzle direction, +Z = up, +Y = the weapon's
 LEFT side (glTF export maps Blender (x, y, z) -> (x, z, -y), so the left side
 ends up on glTF -Z, matching the game's authoring space where +Z is right).
 
-Run with the `bpy` module (pip install bpy) — see blender/README.md.
+Run with the `bpy` module (pip install bpy) or inside a running Blender
+(e.g. through the Blender MCP add-on) — see blender/README.md.
 """
 import math
 import bpy
@@ -13,8 +14,31 @@ from mathutils import Vector, Matrix
 
 # ---------------------------------------------------------------- scene
 
+BUILD_SCENE = 'VantageBuild'
+
+
+def scene():
+    if bpy.app.background:
+        return bpy.context.scene
+    return bpy.data.scenes.get(BUILD_SCENE) or bpy.context.scene
+
+
 def reset():
-    bpy.ops.wm.read_factory_settings(use_empty=True)
+    """Headless: factory reset. Inside a running Blender: build into a
+    dedicated scene and only clear that, so the user's own scenes and
+    add-ons (like the MCP server) are left alone."""
+    if bpy.app.background:
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        return
+    sc = bpy.data.scenes.get(BUILD_SCENE) or bpy.data.scenes.new(BUILD_SCENE)
+    for win in bpy.context.window_manager.windows:
+        win.scene = sc
+    for o in list(sc.objects):
+        bpy.data.objects.remove(o)
+    for coll in (bpy.data.meshes, bpy.data.materials, bpy.data.cameras, bpy.data.lights):
+        for item in list(coll):
+            if item.users == 0:
+                coll.remove(item)
 
 
 def material(name, color=(0.5, 0.5, 0.5, 1), metal=0.0, rough=0.5):
@@ -34,7 +58,7 @@ def material(name, color=(0.5, 0.5, 0.5, 1), metal=0.0, rough=0.5):
 
 
 def link(obj, parent=None):
-    bpy.context.scene.collection.objects.link(obj)
+    scene().collection.objects.link(obj)
     if parent is not None:
         obj.parent = parent
     return obj
@@ -121,6 +145,82 @@ def extrude(name, cmds, width, mat, parent=None, y=0.0, bevel=0.002, bevel_segs=
     if bevel > 0:
         add_bevel(obj, bevel, bevel_segs)
     return obj
+
+
+def puffy(name, cmds, width, mat, parent=None, y=0.0, r=0.006, rings=3, seg=12):
+    """Side profile extruded along Y with soft, moulded edges: a wide clamped
+    bevel rounds the side faces into the edge (works on concave outlines)."""
+    obj = extrude(name, cmds, width, mat, parent, y, bevel=0, seg=seg)
+    if r > 0:
+        m = add_bevel(obj, min(r, width * 0.45), rings + 1)
+        m.angle_limit = math.radians(30)
+        m.profile = 0.6
+    return obj
+
+
+def resample(pts, n):
+    """Closed polyline -> n points evenly spaced by arc length."""
+    segs = [(pts[i], pts[(i + 1) % len(pts)]) for i in range(len(pts))]
+    lens = [math.dist(a, b) for a, b in segs]
+    total = sum(lens)
+    out, i, acc = [], 0, 0.0
+    for k in range(n):
+        d = k / n * total
+        while acc + lens[i] < d and i < len(lens) - 1:
+            acc += lens[i]; i += 1
+        t = (d - acc) / lens[i] if lens[i] else 0
+        (ax, az), (bx, bz) = segs[i]
+        out.append((ax + (bx - ax) * t, az + (bz - az) * t))
+    return out
+
+
+def rrect(w, h, r, cy=0.0, cz=0.0, top_r=None):
+    """Rounded rectangle cross-section (Y width, Z height) as path commands.
+    top_r rounds only the two upper corners differently (e.g. slides)."""
+    tr = r if top_r is None else top_r
+    y0, y1, z0, z1 = cy - w / 2, cy + w / 2, cz - h / 2, cz + h / 2
+    P = math.pi
+    return [('M', y0 + r, z0), ('L', y1 - r, z0), ('A', y1 - r, z0 + r, r, -P / 2, 0), ('L', y1, z1 - tr),
+            ('A', y1 - tr, z1 - tr, tr, 0, P / 2), ('L', y0 + tr, z1), ('A', y0 + tr, z1 - tr, tr, P / 2, P),
+            ('L', y0, z0 + r), ('A', y0 + r, z0 + r, r, P, P * 1.5)]
+
+
+def loft(name, sections, mat, parent=None, n=48, cap=True, crease=40):
+    """Skin a solid through cross-sections along X.
+    sections: [(x, yz_path_cmds_or_points), ...] from back to front."""
+    rings = []
+    for x, sec in sections:
+        pts = sec if isinstance(sec[0][0], (int, float)) else sample_path(sec, 8)
+        if _signed_area(pts) < 0:
+            pts = pts[::-1]
+        rings.append((x, resample(pts, n)))
+    bm = bmesh.new()
+    vr = [[bm.verts.new((x, yy, zz)) for yy, zz in ring] for x, ring in rings]
+    for a, b in zip(vr, vr[1:]):
+        for i in range(n):
+            j = (i + 1) % n
+            bm.faces.new((a[i], b[i], b[j], a[j]))
+    if cap:
+        bm.faces.new(vr[0]); bm.faces.new(vr[-1][::-1])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    obj = mesh_obj(name, bm, mat, parent)
+    smooth_by_angle(obj, crease)
+    return obj
+
+
+def section(name, yz_cmds, x0, x1, mat, parent=None, bevel=0.0, n=48, crease=40):
+    """Constant cross-section (YZ plane) run along X from x0 to x1."""
+    obj = loft(name, [(x0, yz_cmds), (x1, yz_cmds)], mat, parent, n=n, crease=crease)
+    if bevel:
+        add_bevel(obj, bevel, 2)
+    return obj
+
+
+def smooth_by_angle(obj, angle=40):
+    me = obj.data
+    for p in me.polygons:
+        p.use_smooth = True
+    me.set_sharp_from_angle(angle=math.radians(angle))
 
 
 def lathe(name, prof, mat, parent=None, z=0.0, y=0.0, segs=32):
@@ -242,15 +342,10 @@ def cut(target, cutter):
     m.operation = 'DIFFERENCE'
     m.solver = 'EXACT'
     m.object = cutter
-    # keep bevel after boolean
-    bpy.context.view_layer.objects.active = target
-    for name in [x.name for x in target.modifiers]:
-        pass
-    order = [x for x in target.modifiers]
     # move boolean before bevel so the cut edges get bevelled too
-    while target.modifiers.find('cut') > 0:
-        with bpy.context.temp_override(object=target):
-            bpy.ops.object.modifier_move_up(modifier='cut')
+    first = next((i for i, x in enumerate(target.modifiers) if x.type != 'BOOLEAN'), None)
+    if first is not None and first < len(target.modifiers) - 1:
+        target.modifiers.move(len(target.modifiers) - 1, first)
     m.name = 'cut_done'
     cutter.hide_render = True
     cutter.display_type = 'WIRE'
@@ -279,7 +374,7 @@ def cutter_cyl(r, depth, loc, axis='Y', segs=20):
 
 def apply_all():
     """Apply modifiers on every mesh and delete boolean cutters."""
-    for obj in list(bpy.data.objects):
+    for obj in list(scene().objects):
         if obj.get('_cutter'):
             continue
         if obj.type != 'MESH' or not obj.modifiers:
@@ -291,7 +386,7 @@ def apply_all():
         obj.modifiers.clear()
         obj.data = me
         bpy.data.meshes.remove(old)
-    for obj in list(bpy.data.objects):
+    for obj in list(scene().objects):
         if obj.get('_cutter'):
             bpy.data.objects.remove(obj)
 
@@ -337,13 +432,13 @@ def export_glb(path):
     bpy.ops.export_scene.gltf(
         filepath=path, export_format='GLB', export_apply=True, export_yup=True,
         export_extras=True, export_materials='EXPORT', export_normals=True,
-        export_texcoords=True, use_visible=False,
+        export_texcoords=True, use_visible=False, use_active_scene=True,
     )
 
 
 def stats():
     tris = 0
-    for obj in bpy.data.objects:
+    for obj in scene().objects:
         if obj.type == 'MESH':
             tris += sum(len(p.vertices) - 2 for p in obj.data.polygons)
     return tris

@@ -151,6 +151,9 @@ export function buildLevel(map, scene) {
     lamp: new THREE.MeshStandardMaterial({ color: 0xffd9a0, emissive: 0xffa040, emissiveIntensity: 1.6 }),
     cloth_red: new THREE.MeshStandardMaterial({ color: 0x9a2a1e, roughness: 0.95, side: THREE.DoubleSide }),
     cloth_blue: new THREE.MeshStandardMaterial({ color: 0x24406e, roughness: 0.95, side: THREE.DoubleSide }),
+    cloth_sand: new THREE.MeshStandardMaterial({ color: 0xb89a68, roughness: 0.95, side: THREE.DoubleSide }),
+    leaf: new THREE.MeshStandardMaterial({ color: 0x4f6b2a, roughness: 0.8, side: THREE.DoubleSide }),
+    terracotta: surf('plaster', 3, { ns: 0.8, rough: 0.85, color: 0xc0704a }),
   };
 
 
