@@ -80,6 +80,11 @@ function drawCharacter(x, cx, cy, R, c) {
   x.fillStyle = c.outfit;
   x.beginPath(); x.moveTo(-R * 1.5, R * 2.4); x.quadraticCurveTo(-R * 1.4, R * 1.25, -R * 0.35, R * 1.12); x.lineTo(R * 0.35, R * 1.12); x.quadraticCurveTo(R * 1.4, R * 1.25, R * 1.5, R * 2.4); x.closePath(); x.fill();
   x.strokeStyle = ink; x.lineWidth = R * 0.03; x.stroke();
+  // cloth shading + fold lines
+  x.fillStyle = 'rgba(40,20,50,0.18)';
+  x.beginPath(); x.moveTo(-R * 1.45, R * 2.4); x.quadraticCurveTo(-R * 1.3, R * 1.5, -R * 0.6, R * 1.3); x.quadraticCurveTo(-R * 0.9, R * 1.9, -R * 0.8, R * 2.4); x.closePath(); x.fill();
+  x.strokeStyle = shade(c.outfit, -0.3); x.lineWidth = R * 0.018;
+  for (const [a, b, cc, d] of [[-R * 0.8, R * 1.5, -R * 0.95, R * 2.2], [R * 0.75, R * 1.45, R * 0.9, R * 2.15], [-R * 0.3, R * 1.9, -R * 0.35, R * 2.35]]) { x.beginPath(); x.moveTo(a, b); x.quadraticCurveTo((a + cc) / 2 + R * 0.08, (b + d) / 2, cc, d); x.stroke(); }
   // neck
   x.fillStyle = shade(skin, -0.06);
   x.fillRect(-R * 0.22, R * 0.75, R * 0.44, R * 0.45);
@@ -109,6 +114,10 @@ function drawCharacter(x, cx, cy, R, c) {
   x.arc(0, -R * 0.15, R * 0.9, 0, Math.PI, true);
   x.closePath(); x.fill();
   x.strokeStyle = ink; x.lineWidth = R * 0.025; x.stroke();
+  // shadow cast by the fringe and along the jaw
+  x.fillStyle = 'rgba(200,110,120,0.12)';
+  x.beginPath(); x.moveTo(-R * 0.88, -R * 0.2); x.quadraticCurveTo(0, R * 0.05, R * 0.88, -R * 0.2); x.lineTo(R * 0.88, -R * 0.35); x.quadraticCurveTo(0, -R * 0.2, -R * 0.88, -R * 0.35); x.closePath(); x.fill();
+  x.beginPath(); x.moveTo(R * 0.86, R * 0.1); x.quadraticCurveTo(R * 0.8, R * 0.6, R * 0.3, R * 0.88); x.quadraticCurveTo(R * 0.65, R * 0.5, R * 0.7, R * 0.1); x.closePath(); x.fill();
   // blush
   x.fillStyle = 'rgba(255,110,130,0.35)';
   for (const s of [-1, 1]) { x.beginPath(); x.ellipse(s * R * 0.5, R * 0.42, R * 0.17, R * 0.08, 0, 0, TAU); x.fill(); }
@@ -171,6 +180,12 @@ function drawCharacter(x, cx, cy, R, c) {
   x.beginPath(); x.arc(0, -R * 0.35, R * 0.75, Math.PI * 1.2, Math.PI * 1.45); x.stroke();
   x.beginPath(); x.arc(0, -R * 0.35, R * 0.75, Math.PI * 1.55, Math.PI * 1.75); x.stroke();
 
+  // individual strand lines through the fringe
+  x.strokeStyle = shade(hair, -0.4); x.lineWidth = R * 0.015;
+  for (let i = 0; i < 9; i++) {
+    const sx = -R * 0.85 + i * R * 0.21;
+    x.beginPath(); x.moveTo(sx * 0.4, -R * 1.1); x.quadraticCurveTo(sx * 0.8, -R * 0.8, sx + R * 0.03, -R * 0.4 + Math.abs(sx) * 0.15); x.stroke();
+  }
   // accessories
   if (c.acc === 'ears') {
     for (const s of [-1, 1]) {

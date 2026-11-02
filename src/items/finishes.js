@@ -3,6 +3,7 @@
 // or recolours the pattern so no two seeds look exactly alike.
 import { fbm, voronoi, valueNoise, rng, hexToRgb, mixRgb, mix, smooth, clamp01 } from '../noise.js';
 import { ART_FINISHES } from './finishes_art.js';
+import { HandCtx, paper } from './handdrawn.js';
 
 // Per-pixel helper: fn(x, y, out) with x ∈ [0, 2), y ∈ [0, 1).
 function pixels(ctx, W, H, fn) {
@@ -408,11 +409,30 @@ export const FINISH_TYPES = {
 
 Object.assign(FINISH_TYPES, ART_FINISHES);
 
+// Illustrated finishes are painted through the hand-drawn renderer (ink lines,
+// layered washes) and finished with paper grain. Value: brush style.
+export const HAND_DRAWN = {
+  anime: 'gouache', landscape: 'wash', koi: 'wash', wildstyle: 'gouache', comic: 'gouache', tattoo: 'gouache',
+  mecha: 'gouache', shards: 'wash', splatter: 'wash', graffiti: 'gouache', livery: 'gouache', blueprint: 'wash',
+};
+const PAPER_ONLY = { ink: true };
+
 // Paints the finish for `def` at the given size. Returns { canvas, metal, rough }.
 export function paintFinish(def, seed, W = 1024, H = 512) {
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   const ctx = c.getContext('2d');
-  const ft = FINISH_TYPES[def.finish.type];
-  ft.draw(ctx, W, H, def.finish, seed * 13 + (def.seedOffset || 0));
+  const type = def.finish.type;
+  const ft = FINISH_TYPES[type];
+  const s = seed * 13 + (def.seedOffset || 0);
+  if (HAND_DRAWN[type]) {
+    // keep stroke widths consistent across texture sizes
+    const k = W / 1024;
+    const h = new HandCtx(ctx, { seed: s, style: HAND_DRAWN[type], wobble: 0.6 + k * 0.6 });
+    ft.draw(h, W, H, def.finish, s);
+    paper(c, s, 0.9);
+  } else {
+    ft.draw(ctx, W, H, def.finish, s);
+    if (PAPER_ONLY[type]) paper(c, s, 0.7);
+  }
   return { canvas: c, metal: def.finish.metal ?? ft.metal, rough: def.finish.rough ?? ft.rough };
 }
