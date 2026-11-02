@@ -490,11 +490,7 @@ const KNIVES = {
   },
 };
 
-export const KNIFE_TYPES = {
-  standard: 'Field Knife', bayonet: 'Bayonet', combat: 'Combat Bayonet', karambit: 'Karambit', butterfly: 'Balisong',
-  flip: 'Flip Knife', gut: 'Gut Hook', bowie: 'Bowie Knife', push: 'Push Dagger', navaja: 'Navaja',
-  stiletto: 'Stiletto', kukri: 'Kukri', tanto: 'Tanto', survival: 'Survival Knife', cleaver: 'Cleaver',
-};
+export { KNIFE_TYPES } from './shared/knives.js';
 
 function knife(type) {
   const k = (KNIVES[type] || KNIVES.standard)();

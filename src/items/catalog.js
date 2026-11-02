@@ -1,5 +1,5 @@
 // Item catalogue: original skins, knife finishes, stickers and cases.
-import { KNIFE_TYPES } from '../gunmodels.js';
+import { KNIFE_TYPES } from '../shared/knives.js';
 
 export const RARITIES = [
   { id: 'standard', name: 'Standard', color: '#4f7cff', odds: 0.7920 },
@@ -267,7 +267,7 @@ export const CASES = {
   },
 };
 // sanity: every listed skin must exist
-for (const c of Object.values(CASES)) for (const s of c.skins) if (!SKINS[s]) console.warn('Missing skin in case', c.id, s);
+for (const c of Object.values(CASES)) for (const s of c.skins) if (!SKINS[s]) console.warn('Missing skin in case', c.id, s); // eslint-disable-line no-console
 
 export const STICKER_CAPSULE = { id: 'capsule', name: 'Sticker Capsule', price: 90, color: '#e7b53c' };
 export const KEY_PRICE = 250;

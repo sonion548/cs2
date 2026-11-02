@@ -33,11 +33,16 @@ export function skillForMMR(mmr) { return Math.max(0.03, Math.min(1, (mmr - 250)
 
 // ---------------------------------------------------------------- state
 const KEY = 'vantage.ranked.v1';
-export const LADDERS = { '5v5': { label: 'Competitive 5v5', size: 5, win: 13 }, '2v2': { label: 'Wingman 2v2', size: 2, win: 9 } };
+export const LADDERS = {
+  '5v5': { label: 'Competitive 5v5', size: 5, win: 13, bots: true },
+  '2v2': { label: 'Wingman 2v2', size: 2, win: 9, bots: true },
+  pvp5: { label: 'PvP 5v5', size: 5, win: 13, online: true },
+  pvp2: { label: 'PvP 2v2', size: 2, win: 9, online: true },
+};
 const PLACEMENTS = 5;
 const PLACEMENT_CAP = RANKS.findIndex(r => r.tierId === 'platinum' && r.sub === 4); // can't place above Platinum IV
 
-function freshLadder() {
+export function freshLadder() {
   return {
     mmr: 1000, rd: 350, rank: null, rp: 0, placements: 0,
     wins: 0, losses: 0, streak: 0, peak: null, shield: 0,
@@ -47,16 +52,22 @@ function freshLadder() {
 }
 let store = load();
 function load() {
-  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s) return { '5v5': { ...freshLadder(), ...s['5v5'] }, '2v2': { ...freshLadder(), ...s['2v2'] } }; } catch { /* ignore */ }
+  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s) return { '5v5': { ...freshLadder(), ...s['5v5'] }, '2v2': { ...freshLadder(), ...s['2v2'] } }; } catch { /* storage unavailable (e.g. on the server) */ }
   return { '5v5': freshLadder(), '2v2': freshLadder() };
 }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch { /* ignore */ } }
-export function ladder(id) { applyDecay(id); return store[id]; }
+let remoteLadders = null;
+export function setRemoteLadders(l) { remoteLadders = l; }
+export function isRemote() { return !!remoteLadders; }
+export function ladder(id) {
+  if (remoteLadders) return remoteLadders[id] || freshLadder();
+  applyDecay(id); return store[id] || freshLadder();
+}
 export function resetRanked() { store = { '5v5': freshLadder(), '2v2': freshLadder() }; save(); }
 
 // Inactivity: uncertainty grows; high tiers lose RP after a week away.
-function applyDecay(id) {
-  const L = store[id];
+export function applyDecay(id, L = store[id]) {
+  if (!L) return;
   if (!L.lastPlayed || L.rank == null) return;
   const days = (Date.now() - L.lastPlayed) / 86400000;
   if (days < 1) return;
@@ -71,7 +82,7 @@ function applyDecay(id) {
     L.mmr -= decayDays * 10;
     L.decayApplied = true;
   }
-  save();
+  if (L === store[id]) save();
 }
 
 // ---------------------------------------------------------------- population
@@ -133,6 +144,7 @@ export function matchSkills(id) {
 
 export function canQueue(id) {
   const L = ladder(id);
+  if (!L) return { ok: true };
   if (Date.now() < L.cooldownUntil) return { ok: false, reason: `Leave penalty: ${Math.ceil((L.cooldownUntil - Date.now()) / 60000)} min remaining` };
   return { ok: true };
 }
@@ -143,7 +155,13 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 // Applies a finished ranked match. Returns a summary for the results screen.
 // result: { won, abandoned, stats:{kills,deaths,assists,damage}, rounds, teamAvgKills }
 export function recordMatch(id, result) {
-  const L = store[id];
+  const out = applyMatch(store[id], result, (mmr) => leaderboardPosition(mmr).position);
+  save();
+  return out;
+}
+
+// Pure ladder update (also used by the server). position(mmr) → leaderboard place.
+export function applyMatch(L, result, position) {
   const before = { rank: L.rank, rp: L.rp };
   const S = result.won ? 1 : 0;
   // expected score vs the opposition rating we were matched against
@@ -176,7 +194,6 @@ export function recordMatch(id, result) {
     }
     L.history.unshift({ t: Date.now(), won: !!S, rp: null, rank: L.rank, k: result.stats.kills, d: result.stats.deaths, placement: true });
     L.history = L.history.slice(0, 50);
-    save();
     return { ...out, before, after: { rank: L.rank, rp: L.rp } };
   }
 
@@ -219,7 +236,7 @@ export function recordMatch(id, result) {
       const crossingTier = next.tier !== RANKS[L.rank].tier;
       const nt = TIERS[next.tier];
       if (crossingTier && nt.series) {
-        if (nt.topN && leaderboardPosition(L.mmr).position > nt.topN) { L.rp = 100; out.events.push({ type: 'apexLocked' }); break; }
+        if (nt.topN && position(L.mmr) > nt.topN) { L.rp = 100; out.events.push({ type: 'apexLocked' }); break; }
         L.rp = 100;
         L.series = { max: nt.series, wins: 0, losses: 0, target: L.rank + 1 };
         out.events.push({ type: 'seriesStart', series: { ...L.series } });
@@ -247,7 +264,6 @@ export function recordMatch(id, result) {
   L.peak = Math.max(L.peak ?? 0, L.rank);
   L.history.unshift({ t: Date.now(), won: !!S, rp: out.rpDelta ?? 0, rank: L.rank, k: result.stats.kills, d: result.stats.deaths, abandoned: !!result.abandoned });
   L.history = L.history.slice(0, 50);
-  save();
   return { ...out, before, after: { rank: L.rank, rp: L.rp } };
 }
 
