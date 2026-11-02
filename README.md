@@ -27,7 +27,21 @@ and `npm run dev` in another; the dev server forwards `/ws` to port 8080.
 Server settings come from environment variables: `PORT` (default 8080) and `DB_FILE` (default
 `data/db.json`). To check a running server end to end, run `node server/selftest.js ws://localhost:8080/ws`.
 
-### Hosting for other players
+### Hosting on Render
+
+The repo includes a Render Blueprint (`render.yaml`) that sets up one web service. It builds the
+client, runs the game server (HTTP and WebSockets on Render's port) and mounts a 1 GB disk at
+`/var/data` for the database.
+
+1. Push this branch to GitHub (or merge it into `main`).
+2. In Render: **New → Blueprint**, connect the GitHub repo, pick the branch and click **Apply**.
+3. When the deploy finishes, open the `https://<name>.onrender.com` URL. Players sign in from the menu.
+
+Free instances have no disks and sleep after 15 minutes idle. To try one anyway, set
+`plan: free`, delete the `disk:` block and the `DB_FILE` variable, and expect accounts to reset on
+every deploy or restart.
+
+### Hosting elsewhere
 
 Run the server on any machine that other players can reach: a small cloud VM, a VPS or a home PC
 with port forwarding. It needs Node 18+, the repo, `npm install && npm run build`, and then

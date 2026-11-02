@@ -7,6 +7,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { openDb } from './db.js';
@@ -16,7 +17,8 @@ import { freshLadder, applyMatch, applyDecay, mmrToRankIndex, skillForMMR, RANKS
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PORT = +process.env.PORT || 8080;
-const db = openDb(process.env.DB_FILE || path.join(ROOT, 'data', 'db.json'));
+const DB_FILE = process.env.DB_FILE || path.join(ROOT, 'data', 'db.json');
+const db = openDb(DB_FILE);
 const D = db.data;
 const MARKET_FEE = 0.1;
 
@@ -545,20 +547,40 @@ function login(ws, u, token) {
 }
 
 // ================================================================ transport
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.woff2': 'font/woff2', '.woff': 'font/woff', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.woff2': 'font/woff2', '.woff': 'font/woff', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json', '.glb': 'model/gltf-binary' };
+const COMPRESS = new Set(['.html', '.js', '.css', '.json', '.svg', '.glb']);
 const DIST = path.join(ROOT, 'dist');
+const gzCache = new Map();   // file -> gzipped buffer (static files never change while running)
+
+function sendFile(req, res, file) {
+  const ext = path.extname(file);
+  const headers = { 'content-type': MIME[ext] || 'application/octet-stream' };
+  // hashed build assets can be cached forever; everything else revalidates
+  headers['cache-control'] = file.includes(`${path.sep}assets${path.sep}`) ? 'public, max-age=31536000, immutable' : 'public, max-age=300';
+  if (COMPRESS.has(ext) && /\bgzip\b/.test(req.headers['accept-encoding'] || '')) {
+    if (!gzCache.has(file)) gzCache.set(file, zlib.gzipSync(fs.readFileSync(file), { level: 6 }));
+    const body = gzCache.get(file);
+    res.writeHead(200, { ...headers, 'content-encoding': 'gzip', 'content-length': body.length, vary: 'Accept-Encoding' });
+    res.end(body);
+    return;
+  }
+  res.writeHead(200, headers);
+  fs.createReadStream(file).pipe(res);
+}
+
 const server = http.createServer((req, res) => {
   if (req.url === '/health') { res.writeHead(200); res.end('ok'); return; }
-  let p = decodeURIComponent(req.url.split('?')[0]);
+  let p;
+  try { p = decodeURIComponent(req.url.split('?')[0]); } catch { res.writeHead(400); res.end(); return; }
   if (p === '/') p = '/index.html';
   const file = path.join(DIST, path.normalize(p));
   if (!file.startsWith(DIST) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
-    if (fs.existsSync(path.join(DIST, 'index.html'))) { res.writeHead(200, { 'content-type': 'text/html' }); fs.createReadStream(path.join(DIST, 'index.html')).pipe(res); }
+    const index = path.join(DIST, 'index.html');
+    if (fs.existsSync(index)) sendFile(req, res, index);
     else { res.writeHead(404); res.end('Build the client first: npm run build'); }
     return;
   }
-  res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream' });
-  fs.createReadStream(file).pipe(res);
+  sendFile(req, res, file);
 });
 
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 256 * 1024 });
@@ -603,5 +625,9 @@ setInterval(() => { for (const ws of wss.clients) { if (!ws.isAlive) { ws.termin
 process.on('SIGINT', () => { db.flushNow(); process.exit(0); });
 process.on('SIGTERM', () => { db.flushNow(); process.exit(0); });
 
-server.listen(PORT, () => console.log(`Vantage server on http://localhost:${PORT}`));
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Vantage server listening on port ${PORT}`);
+  console.log(`Saving accounts and items to ${DB_FILE}`);
+  if (process.env.RENDER && !process.env.DB_FILE) console.warn('WARNING: no DB_FILE set. On Render, data in the app folder is wiped on every deploy/restart; attach a disk and set DB_FILE.');
+});
 export { condition };

@@ -1,0 +1,21 @@
+# Render Blueprint: one web service that builds the client and runs the game
+# server (HTTP + WebSockets on the same port). A persistent disk keeps the
+# account/inventory database across deploys and restarts.
+services:
+  - type: web
+    name: vantage
+    runtime: node
+    plan: starter            # disks need a paid instance; see README for the free option
+    region: oregon
+    buildCommand: npm ci && npm run build
+    startCommand: npm run server
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DB_FILE
+        value: /var/data/db.json
+    disk:
+      name: vantage-data
+      mountPath: /var/data
+      sizeGB: 1
