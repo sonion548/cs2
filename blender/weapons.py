@@ -452,33 +452,50 @@ def karambit():
     M = mats()
     piv = empty('karambitPivot', (0, 0, 0))
     parts = []
-    # claw blade: convex spine sweeping down into a hooked tip, sharpened on the concave inside
-    spine = ((0.012, 0.016), (0.06, 0.036), (0.125, 0.026), (0.15, -0.06))
-    b = blade('blade', [('M', *spine[0]), ('C', *spine[1], *spine[2], *spine[3]), ('C', 0.125, -0.03, 0.075, -0.008, 0.03, -0.014),
-                        ('Q', 0.02, -0.016, 0.017, -0.009), ('L', 0.012, -0.009)],
-              lambda x, z: x > 0.026 and math.hypot(x - 0.07, z + 0.115) < 0.115, 0.0055, M['blade'], seg=20)
-    # thumb jimping along the spine
+    # Everything follows one arc around (CX, CZ): the handle's back flows straight
+    # into the blade's spine, and the grip underside and cutting edge run
+    # concentric to it, giving the karambit its single C-shaped sweep.
+    CX, CZ, R = 0.02, -0.11, 0.13
+    P = lambda deg, r: (CX + math.cos(math.radians(deg)) * r, CZ + math.sin(math.radians(deg)) * r)
+    J, END, TIP = 85.0, 148.0, 20.0                      # junction, ring end, tip (degrees)
+
+    def r_in(d):
+        """Grip underside: three finger grooves and a guard hook behind the blade."""
+        r = 0.1
+        if d < 96:
+            r -= 0.013 * math.sin(math.pi * max(0.0, d - J) / (96 - J)) ** 0.8
+        elif d < 141:
+            r += 0.0045 * (1 - math.cos(3 * 2 * math.pi * (d - 96) / 45)) / 2
+        return r
+
+    def arc(d0, d1, rf, n):
+        return [P(d0 + (d1 - d0) * i / n, rf(d0 + (d1 - d0) * i / n)) for i in range(n + 1)]
+
+    def outline(grow=0.0):
+        pts = arc(J, END, lambda d: R + grow, 40) + arc(END, J, lambda d: r_in(d) - grow, 80)
+        return [('M', *pts[0])] + [('L', *p) for p in pts[1:]]
+
+    # claw blade: spine continues the handle's arc, edge tapers in to the tip
+    w = lambda d: 0.03 * ((d - TIP) / (J - TIP)) ** 0.75
+    bl = arc(J + 0.6, TIP, lambda d: R, 50) + arc(TIP, J + 0.6, lambda d: R - w(d) - (0.004 if d > J - 4 else 0), 50)[1:]
+    b = blade('blade', [('M', *bl[0])] + [('L', *p) for p in bl[1:]],
+              lambda x, z: math.hypot(x - CX, z - CZ) < R - 0.0006 and math.degrees(math.atan2(z - CZ, x - CX)) < J - 5, 0.0055, M['blade'], seg=2)
+    # thumb jimping where the thumb rests on the spine
     for i in range(6):
-        t = 0.07 + i * 0.03
-        u = 1 - t
-        px = u ** 3 * spine[0][0] + 3 * u * u * t * spine[1][0] + 3 * u * t * t * spine[2][0] + t ** 3 * spine[3][0]
-        pz = u ** 3 * spine[0][1] + 3 * u * u * t * spine[1][1] + 3 * u * t * t * spine[2][1] + t ** 3 * spine[3][1]
-        cut(b, cutter_box((0.0016, 0.02, 0.004), (px, 0, pz + 0.0008), rot=(0, -0.35, 0)))
+        d = J - 6 - i * 2.6
+        x, z = P(d, R)
+        cut(b, cutter_box((0.0016, 0.02, 0.004), (x, 0, z), rot=(0, -math.radians(d - 90), 0)))
     parts.append(b)
-    # handle arching down to the ring (the knife's C shape), finger grooves and a guard hook
-    hp = [('M', 0.014, 0.016), ('C', -0.02, 0.021, -0.055, 0.01, -0.08, -0.02), ('L', -0.083, -0.03), ('L', -0.072, -0.044),
-          ('Q', -0.062, -0.03, -0.054, -0.028), ('Q', -0.046, -0.03, -0.04, -0.022), ('Q', -0.03, -0.014, -0.02, -0.016),
-          ('Q', -0.01, -0.018, -0.004, -0.022), ('Q', 0.006, -0.036, 0.014, -0.03), ('L', 0.016, -0.01)]
-    parts.append(puffy('handle', hp, 0.019, M['polymer'], r=0.006, rings=3))
-    # steel tang showing between the scales (handle outline grown slightly)
-    cx, cz = -0.034, -0.008
-    tp = [(c[0],) + tuple(cx + (v - cx) * 1.045 if i % 2 == 0 else cz + (v - cz) * 1.07 for i, v in enumerate(c[1:])) for c in hp]
-    parts.append(extrude('tang', tp, 0.006, M['dark'], bevel=0.0008))
-    # safety ring with a bolster joining it to the handle
-    parts.append(torus('ring', 0.019, 0.0058, (-0.097, 0, -0.045), M['dark'], segs=40))
-    parts.append(puffy('ring_bolster', [('M', -0.078, -0.016), ('L', -0.087, -0.022), ('L', -0.082, -0.052), ('L', -0.07, -0.046)], 0.015, M['dark'], r=0.003, rings=2))
+    parts.append(puffy('handle', outline(), 0.019, M['polymer'], r=0.006, rings=3, seg=2))
+    parts.append(extrude('tang', outline(0.0016), 0.006, M['dark'], bevel=0.0008, seg=2))
+    # safety ring continuing the arc past the handle, with a bolster
+    rx, rz = P(159, 0.116)
+    parts.append(torus('ring', 0.019, 0.0058, (rx, 0, rz), M['dark'], segs=40))
+    bo = arc(146, 153, lambda d: R + 0.002, 6) + arc(153, 146, lambda d: 0.098, 6)
+    parts.append(puffy('ring_bolster', [('M', *bo[0])] + [('L', *p) for p in bo[1:]], 0.015, M['dark'], r=0.003, rings=2, seg=2))
     # pivot screw at the blade root, two screws through the scales
-    for i, (x, z) in enumerate(((0.007, 0.003), (-0.02, 0.002), (-0.052, -0.01))):
+    for i, d in enumerate((90, 112, 134)):
+        x, z = P(d, 0.116)
         parts.append(cyl(f'screw{i}', 0.0034 if i == 0 else 0.0028, 0.0215, (x, 0, z), M['steel'], axis='Y', segs=16))
     for o in parts:
         o.parent = piv
