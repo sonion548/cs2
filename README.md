@@ -24,29 +24,52 @@ npm run server
 Open http://localhost:8080. For development with hot reload, run `npm run server` in one terminal
 and `npm run dev` in another; the dev server forwards `/ws` to port 8080.
 
-Server settings come from environment variables: `PORT` (default 8080) and `DB_FILE` (default
-`data/db.json`). To check a running server end to end, run `node server/selftest.js ws://localhost:8080/ws`.
+Server settings come from environment variables, or from a `.env` file next to `package.json`
+(copy `.env.example`; `.env` is never committed):
+
+- `DATABASE_URL`: a Postgres connection string (for example a free Neon database). When it's set,
+  accounts, inventories, market listings, sales and trades are saved there, in one table
+  (`vantage_kv`, created automatically).
+- `DB_FILE`: without `DATABASE_URL`, everything is saved to this JSON file instead (default
+  `data/db.json`).
+- `PORT`: default 8080.
+
+To check a running server end to end, run `node server/selftest.js ws://localhost:8080/ws`.
+
+### Saving accounts in Neon (Postgres)
+
+1. Sign up at neon.tech and create a project (the free plan is enough).
+2. In the project dashboard click **Connect** and copy the connection string. It looks like
+   `postgresql://user:password@ep-something.region.aws.neon.tech/neondb?sslmode=require`.
+3. Local server: create `.env` next to `package.json` with `DATABASE_URL=<that string>`, then
+   `npm run server`. The first line it prints says where it saves (Postgres or a file).
+4. Already have accounts in `data/db.json`? Copy them across once with `npm run db:import`.
+
+Neon pauses the database after a few minutes without traffic and wakes it on the next request,
+so the first save after a quiet spell can take a second.
 
 ### Hosting on Render
 
 The repo includes a Render Blueprint (`render.yaml`) that sets up one web service. It builds the
-client, runs the game server (HTTP and WebSockets on Render's port) and mounts a 1 GB disk at
-`/var/data` for the database.
+client and runs the game server (HTTP and WebSockets on Render's port). Accounts live in Neon, so the
+service needs no disk.
 
 1. Push this branch to GitHub (or merge it into `main`).
 2. In Render: **New → Blueprint**, connect the GitHub repo, pick the branch and click **Apply**.
+   Render asks for `DATABASE_URL`: paste the Neon connection string.
 3. When the deploy finishes, open the `https://<name>.onrender.com` URL. Players sign in from the menu.
 
-Free instances have no disks and sleep after 15 minutes idle. To try one anyway, set
-`plan: free`, delete the `disk:` block and the `DB_FILE` variable, and expect accounts to reset on
-every deploy or restart.
+The Blueprint uses the free plan, which sleeps after 15 minutes idle (the next visit takes about a
+minute to wake it). Accounts are safe either way because they're in Neon. Switch `plan` to
+`starter` to keep it awake.
 
 ### Hosting elsewhere
 
 Run the server on any machine that other players can reach: a small cloud VM, a VPS or a home PC
-with port forwarding. It needs Node 18+, the repo, `npm install && npm run build`, and then
+with port forwarding. It needs Node 22+, the repo, `npm install && npm run build`, and then
 `npm run server` kept running (for example with systemd or pm2). Put it behind HTTPS (Caddy or
-nginx) so browsers can use `wss://`. Back up `data/db.json`, which holds all accounts and items.
+nginx) so browsers can use `wss://`. Set `DATABASE_URL` to keep accounts in Neon, or back up
+`data/db.json` if you use the file.
 
 ## Stage 1 (this build)
 

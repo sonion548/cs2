@@ -28,8 +28,8 @@ function loadSettings() {
 const settings = loadSettings();
 audio.setVolume(settings.volume);
 const root = document.getElementById('menu');
-const canvas = document.getElementById('view');
 let game = null;
+const view = () => document.getElementById('view');
 
 const menu = new Menu(root, settings, start);
 
@@ -38,19 +38,35 @@ let pendingResult = null;   // server match result that arrived while a game was
 function launch(opts, onDone) {
   audio.init();
   menu.hide();
+  // every match gets a brand-new canvas, so a graphics context that was lost
+  // earlier (GPU reset, too many 3D views) can't leave the screen black
+  const old = view();
+  const canvas = old.cloneNode(false);
+  old.replaceWith(canvas);
   canvas.style.visibility = 'visible';
+  const loading = document.createElement('div');
+  loading.className = 'match-loading';
+  loading.innerHTML = '<b>VANTAGE</b><span>Loading match…</span>';
+  document.body.appendChild(loading);
   const skins = {};
   for (const slot of [...GUN_IDS, 'knife']) skins[slot] = P.equippedFor(slot);
   settings.name = P.getProfile().name;
-  game = new Game(canvas, { ...opts, skins }, settings, async (result) => {
-    game = null;
-    window.__game = null;
-    canvas.style.visibility = 'hidden';
-    menu.show();
-    await onDone(result);
-  });
+  const back = () => { game = null; window.__game = null; loading.remove(); view().style.visibility = 'hidden'; menu.show(); };
+  try {
+    game = new Game(canvas, { ...opts, skins }, settings, async (result) => {
+      back();
+      if (result?.crashed) { menu.error('The match stopped because of an error', result.error); return; }
+      await onDone(result);
+    });
+  } catch (e) {
+    console.error(e);
+    back();
+    menu.error('The match failed to start', e);
+    return;
+  }
   window.__game = game;
-  canvas.requestPointerLock();
+  game.ready.then(() => loading.remove());
+  canvas.requestPointerLock()?.catch?.(() => { /* clicking the game takes the mouse later */ });
 }
 
 // Offline / solo matches started from the menu.
@@ -108,7 +124,7 @@ function showServerResult(res) {
 // resume a saved session silently
 if (net.token()) net.connect().then(() => net.resume()).catch(() => menu.refresh());
 
-canvas.style.visibility = 'hidden';
+view().style.visibility = 'hidden';
 // load the Blender-built weapons and maps before showing the menu
 root.style.display = 'block';
 root.innerHTML = '<div class="loading"><b>VANTAGE</b><span>Loading models</span><i><em style="width:0%"></em></i></div>';

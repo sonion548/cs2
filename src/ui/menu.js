@@ -1,5 +1,5 @@
 // Main menu / client shell: Play, Inventory, Cases, Career, Settings.
-import { Viewer, thumbnail } from './studio.js';
+import { Viewer, thumbnail, previewItem, warmThumbnails } from './studio.js';
 import * as P from '../items/profile.js';
 import { SKINS, STICKERS, CASES, RARITY, RARITIES, CONDITIONS, condition, itemDef, itemTitle, KEY_PRICE, STICKER_CAPSULE, WEAPON_NAMES } from '../items/catalog.js';
 import { KNIFE_TYPES, buildGun } from '../gunmodels.js';
@@ -381,6 +381,8 @@ export class Menu {
           <div class="own">${owned[c.id] ? `<span>Owned × ${owned[c.id]}</span>` : '<span class="none">None owned</span>'}</div>
           <div class="btns"><button data-buy="${c.id}">Buy · ${CR(c.price)}</button><button data-view="${c.id}" class="pri">${owned[c.id] ? 'Open' : 'Contents'}</button></div>
         </div>`).join('')}</div>`;
+    // get every case's previews ready in the background before anyone opens one
+    warmThumbnails(Object.values(CASES).flatMap(c => c.skins));
     page.onclick = async (e) => {
       const b = e.target.closest('button'); if (!b) return;
       audio.init(); audio.ui();
@@ -413,7 +415,7 @@ export class Menu {
         </div>
       </div>`;
     // previews for contents
-    for (const img of layer.querySelectorAll('img[data-def]')) thumbnail({ defId: img.dataset.def, float: 0.05, seed: 1, stickers: [] }, url => { img.src = url; });
+    for (const img of layer.querySelectorAll('img[data-def]')) thumbnail(previewItem(img.dataset.def), url => { img.src = url; });
     layer.onclick = async (e) => {
       const b = e.target.closest('button'); if (!b) return;
       if (b.dataset.act === 'close') { layer.innerHTML = ''; layer.onclick = null; this.go(this.tab); return; }
@@ -445,7 +447,8 @@ export class Menu {
       const knife = it.kind === 'skin' && SKINS[it.defId].knife && i !== WIN;
       return `<div class="rt" style="--rc:${r.color}">${knife ? '<div class="star">★</div>' : `<img src="${img}" ${it.kind === 'skin' ? `data-i="${i}"` : ''} alt="">`}<span class="w">${knife ? 'Rare special item' : h(t.weapon)}</span><span class="n">${knife ? '★' : h(t.name)}</span></div>`;
     }).join('');
-    for (const img of reel.querySelectorAll('img[data-i]')) { const it = filler[+img.dataset.i]; thumbnail({ ...it, float: 0.1 }, url => { img.src = url; }); }
+    // one preview per skin, shared with the contents grid, so the reel is usually ready instantly
+    for (const img of reel.querySelectorAll('img[data-i]')) thumbnail(previewItem(filler[+img.dataset.i].defId), url => { img.src = url; });
     const vw = wrap.clientWidth;
     const offset = WIN * TW - vw / 2 + TW / 2 + (Math.random() - 0.5) * (TW * 0.8);
     reel.style.transition = 'none'; reel.style.transform = 'translateX(0)';
@@ -598,6 +601,24 @@ export class Menu {
   }
 
   // ------------------------------------------------------------- misc
+  // Error panel with the message and the technical details to copy.
+  error(title, err) {
+    const layer = this.$?.('.modal-layer');
+    const msg = err?.message || String(err);
+    const text = `${msg}\n\n${err?.stack || ''}\n\n${navigator.userAgent}`.slice(0, 4000);
+    if (!layer) { alert(`${title}\n\n${msg}`); return; }
+    layer.innerHTML = `<div class="modal small"><div class="info">
+      <div class="rar"><i></i>Error</div><h2>${h(title)}</h2>
+      <p class="note">${h(msg)}</p>
+      <textarea class="errtext" readonly>${h(text)}</textarea>
+      <div class="acts"><button class="pri" data-act="copy">Copy details</button><button data-act="close">Close</button></div></div></div>`;
+    layer.onclick = (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.act === 'copy') { navigator.clipboard?.writeText(text); this.toast('Copied'); return; }
+      layer.innerHTML = ''; layer.onclick = null;
+    };
+  }
+
   toast(msg) {
     const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
     this.root.appendChild(t); setTimeout(() => t.remove(), 2600);

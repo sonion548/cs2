@@ -4,3 +4,4 @@ data
 .bvenv
 __pycache__
 *.pyc
+.env

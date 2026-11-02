@@ -3,6 +3,10 @@
 // dist/ and speaks JSON over a WebSocket at /ws.
 //
 //   npm run build && npm run server        (PORT=8080 by default)
+//
+// Accounts and items are saved to Postgres when DATABASE_URL is set (e.g. a
+// Neon database), otherwise to a JSON file (DB_FILE). Local settings can go in
+// a .env file next to package.json; it is never committed.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,11 +20,13 @@ import { SKINS, STICKERS, itemDef, condition } from '../src/items/catalog.js';
 import { freshLadder, applyMatch, applyDecay, mmrToRankIndex, skillForMMR, RANKS, TIERS, LADDERS } from '../src/ranked.js';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+try { process.loadEnvFile(path.join(ROOT, '.env')); } catch { /* no .env file */ }
 const PORT = +process.env.PORT || 8080;
 const DB_FILE = process.env.DB_FILE || path.join(ROOT, 'data', 'db.json');
-const db = openDb(DB_FILE);
+const db = await openDb({ file: DB_FILE, url: process.env.DATABASE_URL });
 const D = db.data;
 for (const u of Object.values(D.users)) if (E.migrateProfile(u)) db.dirty();
+for (const l of D.listings) if (E.migrateItem(l.item)) db.dirty();
 const MARKET_FEE = 0.1;
 
 // ================================================================ helpers
@@ -623,12 +629,17 @@ wss.on('connection', (ws) => {
 });
 setInterval(() => { for (const ws of wss.clients) { if (!ws.isAlive) { ws.terminate(); continue; } ws.isAlive = false; ws.ping(); } }, 20000);
 
-process.on('SIGINT', () => { db.flushNow(); process.exit(0); });
-process.on('SIGTERM', () => { db.flushNow(); process.exit(0); });
+// save anything pending before the host stops us (Render sends SIGTERM on deploys)
+const shutdown = async () => {
+  try { await db.flushNow(); await db.close(); } catch (e) { console.error('Final save failed:', e.message); }
+  process.exit(0);
+};
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Vantage server listening on port ${PORT}`);
-  console.log(`Saving accounts and items to ${DB_FILE}`);
-  if (process.env.RENDER && !process.env.DB_FILE) console.warn('WARNING: no DB_FILE set. On Render, data in the app folder is wiped on every deploy/restart; attach a disk and set DB_FILE.');
+  console.log(db.kind === 'postgres' ? `Saving accounts and items to Postgres at ${db.where}` : `Saving accounts and items to ${DB_FILE}`);
+  if (process.env.RENDER && db.kind === 'file' && !process.env.DB_FILE) console.warn('WARNING: no DATABASE_URL or DB_FILE set. On Render, data in the app folder is wiped on every deploy/restart; set DATABASE_URL to your Neon connection string.');
 });
 export { condition };

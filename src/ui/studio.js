@@ -18,11 +18,11 @@ function studioScene(renderer) {
   return scene;
 }
 
-export function modelFor(item) {
+export function modelFor(item, { size = 1024 } = {}) {
   if (!item) return buildGun('ak47');
   const d = SKINS[item.defId];
   const gun = buildGun(d.knife ? `knife:${d.knife}` : d.weapon);
-  applySkin(gun, item);
+  applySkin(gun, item, { size });
   return gun;
 }
 
@@ -95,14 +95,20 @@ export class Viewer {
   }
   dispose() {
     this.running = false; this.ro.disconnect();
-    this.renderer.dispose(); this.renderer.domElement.remove();
+    // release the WebGL context right away: browsers only allow ~16 at once and
+    // drop the oldest (possibly the game's) when there are more
+    this.renderer.dispose(); this.renderer.forceContextLoss(); this.renderer.domElement.remove();
   }
 }
 
-// Thumbnail renderer: one shared WebGL context, results cached as data URLs.
+// Thumbnail renderer: one shared WebGL context. Results are cached in memory
+// and in IndexedDB (so they survive reloads), visible requests jump the queue,
+// and pages can warm previews in idle time before they're needed.
 let thumbR = null, thumbScene, thumbCam;
+const THUMB_VERSION = 'v3|';            // bump when models or finishes change so old previews are dropped
 const thumbCache = new Map();
-const queue = [];
+const pending = new Map();              // key -> callbacks waiting for it
+const queue = [], idleQueue = [];
 let busy = false;
 
 function thumbSetup() {
@@ -116,10 +122,35 @@ function thumbSetup() {
 
 function thumbKey(item) { return `${item.defId}|${item.float}|${item.seed}|${(item.stickers || []).map(s => s.defId + s.slot + s.wear).join()}`; }
 
+// The look used for case contents and the opening reel: one image per skin.
+export function previewItem(defId) { return { defId, float: 0.05, seed: 1, stickers: [] }; }
+
+// ---- persistent cache (best effort: private windows or blocked storage just skip it)
+let idbP = null;
+function idb() {
+  if (!idbP) idbP = new Promise((res) => {
+    try {
+      const rq = indexedDB.open('vantage-thumbs', 1);
+      rq.onupgradeneeded = () => rq.result.createObjectStore('t');
+      rq.onsuccess = () => res(rq.result);
+      rq.onerror = () => res(null);
+    } catch { res(null); }
+  });
+  return idbP;
+}
+async function idbGet(k) {
+  const db = await idb();
+  if (!db) return null;
+  return new Promise((res) => {
+    try { const r = db.transaction('t').objectStore('t').get(THUMB_VERSION + k); r.onsuccess = () => res(r.result || null); r.onerror = () => res(null); } catch { res(null); }
+  });
+}
+function idbPut(k, url) { idb().then((db) => { try { db?.transaction('t', 'readwrite').objectStore('t').put(url, THUMB_VERSION + k); } catch { /* storage full or unavailable */ } }); }
+
 function renderThumb(item) {
   if (!thumbR) thumbSetup();
-  const obj = modelFor(item);
-  // side view, slight tilt for knives
+  // a small finish texture is plenty at thumbnail size and paints far faster
+  const obj = modelFor(item, { size: 256 });
   const holder = new THREE.Group(); holder.add(obj);
   obj.rotation.y = Math.PI / 2;
   if (SKINS[item.defId]?.knife) obj.rotation.z = -0.5;
@@ -131,25 +162,53 @@ function renderThumb(item) {
   thumbCam.position.set(0, 0, dist);
   thumbCam.lookAt(0, 0, 0);
   thumbR.render(thumbScene, thumbCam);
-  const url = thumbR.domElement.toDataURL('image/png');
+  const url = thumbR.domElement.toDataURL('image/webp', 0.9);
   thumbScene.remove(holder);
   holder.traverse(o => { if (o.geometry) o.geometry.dispose(); });
   return url;
 }
 
-// Calls cb(url) once the thumbnail is ready (async, one per frame).
-export function thumbnail(item, cb) {
-  const k = thumbKey(item);
-  if (thumbCache.has(k)) { cb(thumbCache.get(k)); return; }
-  queue.push([item, k, cb]);
-  if (!busy) pump();
+function deliver(k, url) {
+  thumbCache.set(k, url);
+  const cbs = pending.get(k) || [];
+  pending.delete(k);
+  for (const cb of cbs) cb(url);
 }
+
+// Calls cb(url) once the thumbnail is ready. Visible requests go first;
+// background: true queues it behind them and renders in idle time.
+export function thumbnail(item, cb, { background = false } = {}) {
+  const k = thumbKey(item);
+  if (thumbCache.has(k)) { cb?.(thumbCache.get(k)); return; }
+  if (pending.has(k)) {
+    if (cb) pending.get(k).push(cb);
+    // a visible request for something already waiting in the idle queue gets promoted
+    if (!background) { const i = idleQueue.findIndex(q => q[1] === k); if (i >= 0) queue.push(...idleQueue.splice(i, 1)); }
+    return;
+  }
+  pending.set(k, cb ? [cb] : []);
+  idbGet(k).then((url) => {
+    if (url) { deliver(k, url); return; }
+    (background ? idleQueue : queue).push([item, k]);
+    if (!busy) pump();
+  });
+}
+
+// Renders previews for these skins ahead of time (e.g. every case's contents).
+export function warmThumbnails(defIds) { for (const id of defIds) thumbnail(previewItem(id), null, { background: true }); }
+
 function pump() {
   busy = true;
-  const next = queue.shift();
+  const next = queue.shift() || idleQueue.shift();
   if (!next) { busy = false; return; }
-  const [item, k, cb] = next;
-  if (!thumbCache.has(k)) thumbCache.set(k, renderThumb({ ...item, stickers: item.stickers }));
-  cb(thumbCache.get(k));
-  setTimeout(pump, 0);
+  const [item, k] = next;
+  if (!thumbCache.has(k)) {
+    const url = renderThumb({ ...item, stickers: item.stickers });
+    deliver(k, url);
+    idbPut(k, url);
+  }
+  // keep the page responsive: visible work runs back to back, warm-up waits for idle time
+  if (queue.length) setTimeout(pump, 0);
+  else if (window.requestIdleCallback) requestIdleCallback(pump, { timeout: 250 });
+  else setTimeout(pump, 30);
 }

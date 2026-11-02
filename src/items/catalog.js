@@ -433,15 +433,32 @@ export const CASES = {
       sk('ak47', 'Gold Seam'), sk('m4a1', 'Petrol'), sk('awp', 'Obsidian Vein'), sk('glock', 'Ripcurl'), sk('usp', 'Purple Haze'), sk('deagle', 'Chrome Swirl')],
     knives: ['bowie', 'stiletto', 'tanto', 'navaja'],
   },
-  sidearm: { id: 'sidearm', name: 'Sidearm Case', price: 110, color: '#7a8a9a', skins: [], knives: ['flip', 'push', 'gut'] },
-  arsenal: { id: 'arsenal', name: 'Arsenal Case', price: 150, color: '#3ac86a', skins: [], knives: ['karambit', 'survival', 'combat'] },
-  frontline: { id: 'frontline', name: 'Frontline Case', price: 170, color: '#c8463a', skins: [], knives: ['bayonet', 'kukri', 'butterfly'] },
-  heavy: { id: 'heavy', name: 'Heavy Metal Case', price: 170, color: '#8a8e94', skins: [], knives: ['bowie', 'tanto', 'survival', 'gut'] },
 };
-// the arsenal cases hold every finish for their weapon groups
-const CASE_GROUPS = { sidearm: ['m1911', 'fiveseven', 'vz61', 'revolver'], arsenal: ['mac10', 'mp5', 'mp7', 'ump45', 'vector', 'p90'],
-  frontline: ['galil', 'famas', 'scarh', 'sg550', 'aug'], heavy: ['scout', 'dmr', 'dbarrel', 'pump', 'm1014', 'm249', 'pkm'] };
-for (const [cid, ws] of Object.entries(CASE_GROUPS)) CASES[cid].skins = MORE_SKINS.filter(([w]) => ws.includes(w)).map(([w, n]) => sk(w, n));
+// The expanded arsenal's finishes go into the existing cases, matched by look
+// (desert camo to Dunehold, fire to Ember, street art to Street...), with a cap
+// so every case gains about the same number.
+const NEW_GUNS = ['m1911', 'fiveseven', 'vz61', 'revolver', 'mac10', 'mp5', 'mp7', 'ump45', 'vector', 'p90',
+  'galil', 'famas', 'scarh', 'sg550', 'aug', 'scout', 'dmr', 'dbarrel', 'pump', 'm1014', 'm249', 'pkm'];
+const CASE_THEME = {
+  camo: 'dunehold', digital: 'dunehold', spots: 'dunehold', tiger: 'dunehold', topo: 'dunehold',
+  carbon: 'nightfall', hex: 'nightfall', galaxy: 'nightfall', swirl: 'nightfall', paint: 'nightfall',
+  circuit: 'voltage', lightning: 'voltage', neon: 'voltage', anodized: 'voltage',
+  waves: 'tidebreak', scales: 'tidebreak', snake: 'tidebreak', marble: 'tidebreak', gradient: 'tidebreak',
+  lava: 'ember', flames: 'ember', shards: 'ember',
+  landscape: 'canvas', tattoo: 'canvas', ink: 'canvas', mecha: 'canvas', koi: 'canvas',
+  graffiti: 'street', comic: 'street', livery: 'street', hydro: 'street',
+  damascus: 'workshop', woodgrain: 'workshop', kintsugi: 'workshop', folded: 'workshop',
+};
+{
+  const ids = Object.keys(CASES), added = Object.fromEntries(ids.map(id => [id, 0]));
+  const newSkins = MORE_SKINS.filter(([w]) => NEW_GUNS.includes(w));
+  const cap = Math.ceil(newSkins.length / ids.length) + 2;
+  for (const [w, n, , finish] of newSkins) {
+    let cid = CASE_THEME[finish.type] || ids[0];
+    if (added[cid] >= cap) cid = ids.reduce((a, b) => (added[b] < added[a] ? b : a));
+    CASES[cid].skins.push(sk(w, n)); added[cid]++;
+  }
+}
 // sanity: every listed skin must exist
 for (const c of Object.values(CASES)) for (const s of c.skins) if (!SKINS[s]) console.warn('Missing skin in case', c.id, s); // eslint-disable-line no-console
 

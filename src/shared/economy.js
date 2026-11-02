@@ -21,16 +21,22 @@ export function freshProfile(name = 'You') {
 
 export const findItem = (state, id) => state.items.find(i => i.uid === id);
 
-// Brings an older saved profile up to date: retired knife types become a
-// close relative with the same finish, and items with no definition are dropped.
+// Brings older saved data up to date: retired knife types become a close
+// relative with the same finish, retired cases become a current case, and
+// items with no definition left are dropped.
 const RETIRED = { 'knife:cleaver:': 'knife:bowie:' };
+const RETIRED_CASES = { sidearm: 'voltage', arsenal: 'nightfall', frontline: 'ember', heavy: 'dunehold' };
+export function migrateItem(it) {
+  if (!it || typeof it.defId !== 'string') return false;
+  if (it.kind === 'case' && RETIRED_CASES[it.defId]) { it.defId = RETIRED_CASES[it.defId]; return true; }
+  if (it.kind !== 'skin') return false;
+  for (const [from, to] of Object.entries(RETIRED)) if (it.defId.startsWith(from)) { it.defId = to + it.defId.slice(from.length); return true; }
+  return false;
+}
 export function migrateProfile(state) {
   if (!state?.items) return false;
   let changed = false;
-  for (const it of state.items) {
-    if (it.kind !== 'skin' || typeof it.defId !== 'string') continue;
-    for (const [from, to] of Object.entries(RETIRED)) if (it.defId.startsWith(from)) { it.defId = to + it.defId.slice(from.length); changed = true; }
-  }
+  for (const it of state.items) if (migrateItem(it)) changed = true;
   const keep = state.items.filter(it => itemDef(it));
   if (keep.length !== state.items.length) { state.items = keep; changed = true; }
   for (const [slot, id] of Object.entries(state.equipped || {})) if (!state.items.some(i => i.uid === id)) { delete state.equipped[slot]; changed = true; }

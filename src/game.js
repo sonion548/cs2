@@ -109,10 +109,30 @@ export class Game {
     this.resize();
     if (!this.net || this.net.isHost) this.startRound();
     else this.clientStart();
+    // A lost graphics context can't be drawn to again: say so instead of showing black.
+    this.onContextLost = (e) => { e.preventDefault(); this.crash(new Error('The graphics context was lost (the GPU driver reset, or too many 3D views were open).')); };
+    canvas.addEventListener('webglcontextlost', this.onContextLost);
+    // Compile every shader up front (behind the loading screen) so the first
+    // frames don't stall; the round clock starts once that's done.
+    this.loaded = false;
+    this.ready = Promise.all([
+      this.renderer.compileAsync(this.scene, this.camera),
+      this.renderer.compileAsync(this.vm.scene, this.vm.camera),
+    ]).catch((e) => console.warn('Shader warm-up skipped:', e)).then(() => { this.loaded = true; this.last = performance.now(); });
     this.last = performance.now();
     this.running = true;
     this.loop = this.loop.bind(this);
     requestAnimationFrame(this.loop);
+  }
+
+  // Something threw inside the game loop: stop cleanly and report it on the menu.
+  crash(err) {
+    if (this.crashed) return;
+    this.crashed = true;
+    console.error('Match crashed:', err);
+    this.running = false;
+    try { this.dispose(); } catch { /* already half torn down */ }
+    this.onExit({ crashed: true, error: err });
   }
 
   buildEnvironment() {
@@ -922,16 +942,19 @@ export class Game {
   loop(t) {
     if (!this.running) return;
     requestAnimationFrame(this.loop);
+    if (!this.loaded) return;   // shaders still compiling behind the loading screen
     // rAF timestamps can precede performance.now() taken during setup, so clamp at 0
     let dt = Math.max(0, Math.min(0.05, (t - this.last) / 1000));
     this.last = t;
-    if (!this.paused || this.net) {
-      // fixed sub-steps keep movement deterministic at low frame rates
-      const steps = Math.ceil(dt / (1 / 120));
-      const h = dt / steps;
-      for (let i = 0; i < steps; i++) this.tick(h);
-    }
-    this.render(dt);
+    try {
+      if (!this.paused || this.net) {
+        // fixed sub-steps keep movement deterministic at low frame rates
+        const steps = Math.ceil(dt / (1 / 120));
+        const h = dt / steps;
+        for (let i = 0; i < steps; i++) this.tick(h);
+      }
+      if (this.running) this.render(dt);
+    } catch (e) { this.crash(e); }
   }
 
   tick(dt) {
@@ -1068,10 +1091,12 @@ export class Game {
     document.removeEventListener('pointerlockchange', this.h.lock);
     this.canvas.removeEventListener('contextmenu', this.h.ctx);
     window.removeEventListener('resize', this.onResize);
+    this.canvas.removeEventListener('webglcontextlost', this.onContextLost);
     if (document.pointerLockElement) document.exitPointerLock();
     this.hud.dispose();
     this.net?.dispose();
     this.renderer.dispose();
+    this.renderer.forceContextLoss();   // free the GPU context now; the next match gets a new canvas
     this.scene.traverse(o => { if (o.geometry) o.geometry.dispose(); });
   }
 }

@@ -50,6 +50,21 @@ export class Grenades {
     this.puffTex = [puffTexture(3), puffTexture(7), puffTexture(13)];
     this.flameTex = flameTexture();
     this.glowTex = glowTexture();
+    // A fixed set of lights, switched on and off as needed. Adding or removing a
+    // light makes three.js recompile every shader, which froze the game.
+    this.lights = [];
+    for (let i = 0; i < 4; i++) {
+      const l = new THREE.PointLight(0xffffff, 0, 10, 2);
+      l.userData = { busy: false, t: -1 };
+      game.scene.add(l); this.lights.push(l);
+    }
+  }
+
+  takeLight() {
+    const free = this.lights.filter(l => !l.userData.busy);
+    const l = free.find(x => x.intensity === 0) || free.sort((a, b) => a.userData.t - b.userData.t)[0] || this.lights[0];
+    l.userData.t = this.g.time;
+    return l;
   }
 
   // power: 1 = full throw, ~0.35 = underhand lob
@@ -124,7 +139,7 @@ export class Grenades {
       const k = Math.max(0, f.life / f.max);
       if (f.sprite) { f.sprite.material.opacity = k * (f.alpha ?? 1); f.sprite.scale.setScalar(f.size * (1 + (1 - k) * (f.grow ?? 1))); f.sprite.position.y += (f.rise || 0) * dt; }
       if (f.light) f.light.intensity = f.power * k * k;
-      if (f.life <= 0) { this.fx.splice(this.fx.indexOf(f), 1); if (f.sprite) { g.scene.remove(f.sprite); f.sprite.material.dispose(); } if (f.light) g.scene.remove(f.light); }
+      if (f.life <= 0) { this.fx.splice(this.fx.indexOf(f), 1); if (f.sprite) { g.scene.remove(f.sprite); f.sprite.material.dispose(); } if (f.light) f.light.intensity = 0; }
     }
   }
 
@@ -144,8 +159,9 @@ export class Grenades {
     return s;
   }
   flashLight(pos, color, power, life, dist = 18) {
-    const l = new THREE.PointLight(color, power, dist, 2);
-    l.position.copy(pos); this.g.scene.add(l);
+    const l = this.takeLight();
+    l.color.set(color); l.distance = dist; l.intensity = power;
+    l.position.copy(pos);
     this.fx.push({ light: l, life, max: life, power });
   }
 
@@ -273,7 +289,9 @@ export class Grenades {
       s.userData = { x: Math.cos(a) * rr, z: Math.sin(a) * rr, h: 0.6 + Math.random() * 0.9, ph: Math.random() * 10 };
       g.scene.add(s); f.flames.push(s);
     }
-    f.light = new THREE.PointLight(0xff7a20, 8, 9, 2); f.light.position.copy(ground).add(new THREE.Vector3(0, 0.8, 0)); g.scene.add(f.light);
+    f.light = this.takeLight(); f.light.userData.busy = true;
+    f.light.color.set(0xff7a20); f.light.distance = 9; f.light.intensity = 8;
+    f.light.position.copy(ground).add(new THREE.Vector3(0, 0.8, 0));
     g.decals.scorch(ground, new THREE.Vector3(0, 1, 0), f.r * 2.1);
     this.fires.push(f);
   }
@@ -306,7 +324,7 @@ export class Grenades {
   }
   endFire(f) {
     for (const s of f.flames) { this.g.scene.remove(s); s.material.dispose(); }
-    this.g.scene.remove(f.light);
+    f.light.intensity = 0; f.light.userData.busy = false;
     const i = this.fires.indexOf(f); if (i >= 0) this.fires.splice(i, 1);
   }
   // bots keep out of burning ground
@@ -336,7 +354,8 @@ export class Grenades {
     for (const s of this.smokes) for (const sp of s.sprites) { sc.remove(sp); sp.material.dispose(); }
     for (const f of [...this.fires]) this.endFire(f);
     for (const d of this.decoys) sc.remove(d.mesh);
-    for (const f of this.fx) { if (f.sprite) sc.remove(f.sprite); if (f.light) sc.remove(f.light); }
+    for (const f of this.fx) { if (f.sprite) sc.remove(f.sprite); }
+    for (const l of this.lights) { l.intensity = 0; l.userData.busy = false; }
     this.flying = []; this.smokes = []; this.fires = []; this.decoys = []; this.fx = [];
   }
 }

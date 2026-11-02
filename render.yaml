@@ -1,11 +1,11 @@
 # Render Blueprint: one web service that builds the client and runs the game
-# server (HTTP + WebSockets on the same port). A persistent disk keeps the
-# account/inventory database across deploys and restarts.
+# server (HTTP + WebSockets on the same port). Accounts and items are stored in
+# a Neon Postgres database, so the service needs no disk and can use the free plan.
 services:
   - type: web
     name: vantage
     runtime: node
-    plan: starter            # disks need a paid instance; see README for the free option
+    plan: free               # free instances sleep after 15 min idle; use starter to keep it awake
     region: oregon
     buildCommand: npm ci && npm run build
     startCommand: npm run server
@@ -13,9 +13,5 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
-      - key: DB_FILE
-        value: /var/data/db.json
-    disk:
-      name: vantage-data
-      mountPath: /var/data
-      sizeGB: 1
+      - key: DATABASE_URL
+        sync: false          # Render asks for this when you apply the Blueprint: paste Neon's connection string
