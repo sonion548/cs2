@@ -451,16 +451,41 @@ def combat():
 def karambit():
     M = mats()
     piv = empty('karambitPivot', (0, 0, 0))
-    b = blade('blade', [('M', 0.015, 0.012), ('Q', 0.09, 0.03, 0.13, -0.02), ('Q', 0.14, -0.05, 0.12, -0.075), ('Q', 0.11, -0.04, 0.085, -0.022), ('Q', 0.05, -0.004, 0.015, -0.012)],
-              lambda x, z: z < -0.006 and not (x > 0.11 and z > -0.03), 0.005, M['blade'])
-    h = puffy('handle', [('M', 0.016, 0.014), ('Q', -0.04, 0.02, -0.07, 0.0), ('L', -0.075, -0.012), ('Q', -0.04, 0.0, 0.016, -0.014)], 0.022, M['polymer'], r=0.0084, rings=3)
-    ring = torus('ring', 0.019, 0.0065, (-0.088, 0, -0.012), M['dark'])
-    for i, o in enumerate((b, h, ring)):
+    parts = []
+    # claw blade: convex spine sweeping down into a hooked tip, sharpened on the concave inside
+    spine = ((0.012, 0.016), (0.06, 0.036), (0.125, 0.026), (0.15, -0.06))
+    b = blade('blade', [('M', *spine[0]), ('C', *spine[1], *spine[2], *spine[3]), ('C', 0.125, -0.03, 0.075, -0.008, 0.03, -0.014),
+                        ('Q', 0.02, -0.016, 0.017, -0.009), ('L', 0.012, -0.009)],
+              lambda x, z: x > 0.026 and math.hypot(x - 0.07, z + 0.115) < 0.115, 0.0055, M['blade'], seg=20)
+    # thumb jimping along the spine
+    for i in range(6):
+        t = 0.07 + i * 0.03
+        u = 1 - t
+        px = u ** 3 * spine[0][0] + 3 * u * u * t * spine[1][0] + 3 * u * t * t * spine[2][0] + t ** 3 * spine[3][0]
+        pz = u ** 3 * spine[0][1] + 3 * u * u * t * spine[1][1] + 3 * u * t * t * spine[2][1] + t ** 3 * spine[3][1]
+        cut(b, cutter_box((0.0016, 0.02, 0.004), (px, 0, pz + 0.0008), rot=(0, -0.35, 0)))
+    parts.append(b)
+    # handle arching down to the ring (the knife's C shape), finger grooves and a guard hook
+    hp = [('M', 0.014, 0.016), ('C', -0.02, 0.021, -0.055, 0.01, -0.08, -0.02), ('L', -0.083, -0.03), ('L', -0.072, -0.044),
+          ('Q', -0.062, -0.03, -0.054, -0.028), ('Q', -0.046, -0.03, -0.04, -0.022), ('Q', -0.03, -0.014, -0.02, -0.016),
+          ('Q', -0.01, -0.018, -0.004, -0.022), ('Q', 0.006, -0.036, 0.014, -0.03), ('L', 0.016, -0.01)]
+    parts.append(puffy('handle', hp, 0.019, M['polymer'], r=0.006, rings=3))
+    # steel tang showing between the scales (handle outline grown slightly)
+    cx, cz = -0.034, -0.008
+    tp = [(c[0],) + tuple(cx + (v - cx) * 1.045 if i % 2 == 0 else cz + (v - cz) * 1.07 for i, v in enumerate(c[1:])) for c in hp]
+    parts.append(extrude('tang', tp, 0.006, M['dark'], bevel=0.0008))
+    # safety ring with a bolster joining it to the handle
+    parts.append(torus('ring', 0.019, 0.0058, (-0.097, 0, -0.045), M['dark'], segs=40))
+    parts.append(puffy('ring_bolster', [('M', -0.078, -0.016), ('L', -0.087, -0.022), ('L', -0.082, -0.052), ('L', -0.07, -0.046)], 0.015, M['dark'], r=0.003, rings=2))
+    # pivot screw at the blade root, two screws through the scales
+    for i, (x, z) in enumerate(((0.007, 0.003), (-0.02, 0.002), (-0.052, -0.01))):
+        parts.append(cyl(f'screw{i}', 0.0034 if i == 0 else 0.0028, 0.0215, (x, 0, z), M['steel'], axis='Y', segs=16))
+    for o in parts:
         o.parent = piv
-    for o in (b, h, ring):
         o.location.x += 0.03
-    for i in range(3):
-        cyl(f'screw{i}', 0.003, 0.024, (0.03 - i * 0.03 + 0.03, 0, 0.002), M['steel'], axis='Y').parent = piv
+    for o in scene().objects:   # boolean cutters move with the blade
+        if o.get('_cutter'):
+            o.location.x += 0.03
     return 0.17
 
 
