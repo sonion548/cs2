@@ -1,177 +1,196 @@
-// Procedural weapon and character models built from primitives.
-// Weapon parts are named ('body', 'accent', 'grip', ...) so later skin
-// finishes can be applied per part.
+// Characters and first-person arms, built from smooth primitives (capsules,
+// lathed shells, rounded boxes). Weapons live in gunmodels.js.
 import * as THREE from 'three';
-import { tex } from './textures.js';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { fbm, hexToRgb } from './noise.js';
+export { buildGun } from './gunmodels.js';
 
-const M = {
-  steel: () => new THREE.MeshStandardMaterial({ color: 0x4a4e54, metalness: 0.45, roughness: 0.42, map: tex('metal', 9) }),
-  darkSteel: () => new THREE.MeshStandardMaterial({ color: 0x2a2c2f, metalness: 0.35, roughness: 0.5 }),
-  polymer: () => new THREE.MeshStandardMaterial({ color: 0x34363a, metalness: 0.1, roughness: 0.7 }),
-  wood: () => new THREE.MeshStandardMaterial({ color: 0x8a4a22, roughness: 0.55, map: tex('crate', 4) }),
-  tan: () => new THREE.MeshStandardMaterial({ color: 0x5a6343, roughness: 0.7, metalness: 0.15 }),
-  glass: () => new THREE.MeshStandardMaterial({ color: 0x1d2a35, metalness: 0.6, roughness: 0.1 }),
-  blade: () => new THREE.MeshStandardMaterial({ color: 0xb8bcc2, metalness: 0.7, roughness: 0.22 }),
+// Woven fabric texture with optional camo tint, shared per palette.
+const fabricCache = new Map();
+function fabric(base, camo) {
+  const key = base + (camo || []).join();
+  if (fabricCache.has(key)) return fabricCache.get(key);
+  const S = 256, c = document.createElement('canvas'); c.width = c.height = S;
+  const x = c.getContext('2d'), img = x.createImageData(S, S);
+  // canvas pixels are sRGB, so use the raw hex values (THREE.Color would linearise them)
+  const b = hexToRgb(base);
+  const cam = (camo || []).map(h => hexToRgb(h));
+  for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
+    const weave = ((i >> 1) + (j >> 1)) % 2 ? 1.04 : 0.96;
+    const n = fbm(i / S * 6, j / S * 6, 3, 3, 6);
+    let col = b;
+    if (cam.length) {
+      const m = fbm(i / S * 3, j / S * 3, 11, 4, 3);
+      if (m > 0.58) col = cam[0]; else if (m < 0.4 && cam[1]) col = cam[1];
+    }
+    const k = (j * S + i) * 4, f = weave * (0.9 + n * 0.2);
+    img.data[k] = col[0] * f; img.data[k + 1] = col[1] * f; img.data[k + 2] = col[2] * f; img.data[k + 3] = 255;
+  }
+  x.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.repeat.set(3, 3);
+  fabricCache.set(key, t);
+  return t;
+}
+
+const PALETTE = {
+  T: { shirt: '#8b7a58', camo: ['#6d5d40', '#a39270'], pants: '#5d5240', vest: '#4a4536', head: '#3a342b', skin: 0xb98a68, glove: 0x2a2620 },
+  CT: { shirt: '#36435e', camo: ['#2a3449', '#4a5674'], pants: '#2b3243', vest: '#20283a', head: '#1e2533', skin: 0xc79c7c, glove: 0x18191c },
 };
 
-function box(w, h, d, mat, x = 0, y = 0, z = 0, part = 'body') {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-  m.position.set(x, y, z); m.userData.part = part; m.castShadow = true;
+function capsule(r, len, mat) {
+  const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 6, 14), mat);
+  m.castShadow = true; m.receiveShadow = true;
   return m;
 }
-function cyl(r, len, mat, x = 0, y = 0, z = 0, part = 'body', seg = 12) {
-  const g = new THREE.CylinderGeometry(r, r, len, seg);
-  g.rotateX(Math.PI / 2);
-  const m = new THREE.Mesh(g, mat);
-  m.position.set(x, y, z); m.userData.part = part; m.castShadow = true;
+function rbox(w, h, d, mat, r = 0.03) {
+  const m = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 3, Math.min(r, w / 2.1, h / 2.1, d / 2.1)), mat);
+  m.castShadow = true; m.receiveShadow = true;
   return m;
 }
-
-// Guns face -Z (forward). Origin is roughly at the grip. Units: metres.
-export function buildGun(id) {
+// Limb segment hanging down from its joint (joint at the group origin).
+function limb(r0, r1, len, mat) {
   const g = new THREE.Group();
-  const steel = M.steel(), dark = M.darkSteel(), poly = M.polymer();
-  let muzzle = new THREE.Vector3(0, 0.04, -0.5);
-  switch (id) {
-    case 'ak47': {
-      const wood = M.wood();
-      g.add(box(0.05, 0.07, 0.42, steel, 0, 0.03, -0.08));            // receiver
-      g.add(box(0.045, 0.02, 0.36, dark, 0, 0.075, -0.08, 'accent'));  // dust cover
-      g.add(box(0.055, 0.06, 0.24, wood, 0, 0.02, -0.38, 'grip'));     // handguard
-      g.add(box(0.04, 0.03, 0.2, wood, 0, 0.07, -0.38, 'grip'));       // upper handguard
-      g.add(cyl(0.011, 0.36, dark, 0, 0.035, -0.65));                   // barrel
-      g.add(cyl(0.008, 0.3, dark, 0, 0.075, -0.56, 'accent'));          // gas tube
-      g.add(box(0.012, 0.04, 0.012, dark, 0, 0.065, -0.8));             // front sight
-      g.add(box(0.03, 0.035, 0.05, dark, 0, 0.035, -0.83));             // muzzle brake
-      const mag = new THREE.Group();
-      mag.add(box(0.035, 0.12, 0.07, steel, 0, -0.06, 0, 'mag'));
-      const m2 = box(0.035, 0.1, 0.065, steel, 0, -0.15, 0.03, 'mag'); m2.rotation.x = -0.35; mag.add(m2);
-      mag.position.set(0, -0.01, -0.17); mag.name = 'mag'; g.add(mag);
-      const grip = box(0.035, 0.11, 0.05, wood, 0, -0.06, 0.06, 'grip'); grip.rotation.x = 0.3; g.add(grip);
-      const stock = box(0.045, 0.08, 0.3, wood, 0, -0.01, 0.27, 'grip'); stock.rotation.x = 0.12; g.add(stock);
-      muzzle.set(0, 0.035, -0.87);
-      break;
-    }
-    case 'm4a1': {
-      g.add(box(0.05, 0.075, 0.36, poly, 0, 0.03, -0.08));               // lower/upper
-      g.add(box(0.03, 0.02, 0.3, dark, 0, 0.08, -0.1, 'accent'));        // rail
-      g.add(box(0.012, 0.05, 0.03, dark, 0, 0.1, 0.04, 'accent'));       // rear sight
-      g.add(box(0.06, 0.06, 0.26, poly, 0, 0.03, -0.38));                // handguard
-      g.add(cyl(0.011, 0.3, dark, 0, 0.035, -0.64));
-      g.add(box(0.012, 0.07, 0.015, dark, 0, 0.08, -0.5));               // front sight post
-      g.add(cyl(0.017, 0.12, dark, 0, 0.035, -0.82, 'accent'));          // suppressor-like flash hider
-      const mag = new THREE.Group();
-      const m1 = box(0.03, 0.17, 0.065, steel, 0, -0.08, 0.01, 'mag'); m1.rotation.x = -0.12; mag.add(m1);
-      mag.position.set(0, -0.01, -0.15); mag.name = 'mag'; g.add(mag);
-      const grip = box(0.035, 0.11, 0.045, poly, 0, -0.06, 0.06, 'grip'); grip.rotation.x = 0.35; g.add(grip);
-      g.add(cyl(0.015, 0.2, dark, 0, 0.04, 0.2, 'accent'));             // buffer tube
-      g.add(box(0.045, 0.1, 0.12, poly, 0, 0.0, 0.3, 'grip'));           // stock
-      muzzle.set(0, 0.035, -0.9);
-      break;
-    }
-    case 'awp': {
-      const body = M.tan();
-      g.add(box(0.06, 0.09, 0.7, body, 0, 0.02, -0.05));
-      g.add(box(0.07, 0.13, 0.3, body, 0, -0.01, 0.42));                 // stock
-      g.add(box(0.03, 0.05, 0.05, dark, 0, -0.06, 0.62));                // butt pad
-      g.add(cyl(0.013, 0.55, dark, 0, 0.04, -0.68));
-      g.add(cyl(0.022, 0.1, dark, 0, 0.04, -0.98, 'accent'));
-      g.add(cyl(0.028, 0.34, dark, 0, 0.13, -0.05, 'accent'));           // scope tube
-      g.add(cyl(0.036, 0.07, dark, 0, 0.13, -0.24, 'accent'));
-      g.add(cyl(0.032, 0.06, dark, 0, 0.13, 0.12, 'accent'));
-      g.add(cyl(0.03, 0.005, M.glass(), 0, 0.13, -0.28, 'accent'));
-      g.add(box(0.015, 0.05, 0.02, dark, 0, 0.08, -0.12));
-      g.add(box(0.015, 0.05, 0.02, dark, 0, 0.08, 0.02));
-      const mag = box(0.04, 0.08, 0.08, dark, 0, -0.06, -0.05, 'mag'); mag.name = 'mag'; g.add(mag);
-      const bolt = cyl(0.008, 0.06, steel, 0.05, 0.05, 0.1, 'accent'); bolt.rotation.y = Math.PI / 2; g.add(bolt);
-      muzzle.set(0, 0.04, -1.04);
-      break;
-    }
-    case 'glock': case 'usp': case 'deagle': {
-      const big = id === 'deagle' ? 1.3 : 1;
-      const slideMat = id === 'deagle' ? M.steel() : dark;
-      const slide = box(0.032 * big, 0.04 * big, 0.2 * big, slideMat, 0, 0.04, -0.05);
-      slide.name = 'slide'; g.add(slide);
-      g.add(box(0.03 * big, 0.03, 0.15 * big, poly, 0, 0.005, -0.04, 'accent'));
-      const grip = box(0.03 * big, 0.11 * big, 0.05 * big, poly, 0, -0.05, 0.02, 'grip'); grip.rotation.x = 0.22; g.add(grip);
-      g.add(box(0.008, 0.012, 0.008, dark, 0, 0.066 * big, -0.14 * big));
-      const mag = box(0.024, 0.02, 0.04, steel, 0, -0.11 * big, 0.035, 'mag'); mag.name = 'mag'; g.add(mag);
-      if (id === 'usp') { g.add(cyl(0.017, 0.14, dark, 0, 0.04, -0.23, 'accent')); muzzle.set(0, 0.04, -0.3); }
-      else muzzle.set(0, 0.04, -0.17 * big);
-      break;
-    }
-    case 'knife': {
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.035, 0.19), M.blade());
-      blade.position.set(0, 0.01, -0.13); blade.userData.part = 'body'; g.add(blade);
-      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.018, 0.05, 4), M.blade());
-      tip.rotation.x = -Math.PI / 2; tip.position.set(0, 0.01, -0.245); tip.scale.x = 0.2; tip.userData.part = 'body'; g.add(tip);
-      g.add(box(0.03, 0.012, 0.012, dark, 0, 0.01, -0.03, 'accent'));
-      g.add(box(0.022, 0.03, 0.11, poly, 0, 0.005, 0.03, 'grip'));
-      muzzle.set(0, 0, -0.25);
-      break;
-    }
-  }
-  g.userData.muzzle = muzzle;
+  const geo = new THREE.CylinderGeometry(r0, r1, len, 16, 1);
+  geo.translate(0, -len / 2, 0);
+  const m = new THREE.Mesh(geo, mat); m.castShadow = true;
+  const capT = new THREE.Mesh(new THREE.SphereGeometry(r0, 16, 10), mat); capT.castShadow = true;
+  const capB = new THREE.Mesh(new THREE.SphereGeometry(r1, 16, 10), mat); capB.position.y = -len; capB.castShadow = true;
+  g.add(m, capT, capB);
   return g;
-}
-
-// Simple first-person arms holding the weapon.
-export function buildArms(team) {
-  const sleeve = new THREE.MeshStandardMaterial({ color: team === 'CT' ? 0x2a3550 : 0x5b4a33, roughness: 0.9 });
-  const glove = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.8 });
-  const arms = new THREE.Group();
-  const right = new THREE.Group();
-  const ra = box(0.07, 0.07, 0.4, sleeve, 0, 0, 0.2, 'arm'); right.add(ra);
-  right.add(box(0.06, 0.05, 0.08, glove, 0, 0, -0.02, 'arm'));
-  right.position.set(0.02, -0.07, 0.07); right.rotation.set(0.3, 0.2, 0);
-  const left = new THREE.Group();
-  left.add(box(0.07, 0.07, 0.45, sleeve, 0, 0, 0.22, 'arm'));
-  left.add(box(0.06, 0.05, 0.08, glove, 0, 0, -0.02, 'arm'));
-  left.position.set(-0.05, -0.03, -0.3); left.rotation.set(0.25, -0.45, 0);
-  left.name = 'left';
-  arms.add(right, left);
-  return arms;
 }
 
 // Third-person character. Origin at feet, facing -Z.
 export function buildCharacter(team) {
+  const pal = PALETTE[team] || PALETTE.T;
   const T = team === 'T';
-  const cloth = new THREE.MeshStandardMaterial({ color: T ? 0x7a6a4c : 0x2f3c5a, roughness: 0.9 });
-  const pants = new THREE.MeshStandardMaterial({ color: T ? 0x4b4234 : 0x252c3c, roughness: 0.9 });
-  const vest = new THREE.MeshStandardMaterial({ color: T ? 0x3c3a30 : 0x1c2433, roughness: 0.8 });
-  const skin = new THREE.MeshStandardMaterial({ color: 0xc69a7a, roughness: 0.7 });
-  const head = new THREE.MeshStandardMaterial({ color: T ? 0x2a2622 : 0x1b2130, roughness: 0.7 });
-  const boots = new THREE.MeshStandardMaterial({ color: 0x1b1814, roughness: 0.8 });
+  const shirt = new THREE.MeshStandardMaterial({ map: fabric(pal.shirt, pal.camo), roughness: 0.92 });
+  const pants = new THREE.MeshStandardMaterial({ map: fabric(pal.pants, T ? pal.camo : null), roughness: 0.92 });
+  const vest = new THREE.MeshStandardMaterial({ map: fabric(pal.vest), roughness: 0.8 });
+  const skin = new THREE.MeshStandardMaterial({ color: pal.skin, roughness: 0.6 });
+  const headMat = new THREE.MeshStandardMaterial({ map: fabric(pal.head), roughness: 0.85 });
+  const helmet = new THREE.MeshStandardMaterial({ color: T ? 0x4d4636 : 0x262d3b, roughness: 0.55, metalness: 0.1 });
+  const boots = new THREE.MeshStandardMaterial({ color: 0x1d1a16, roughness: 0.75 });
+  const glove = new THREE.MeshStandardMaterial({ color: pal.glove, roughness: 0.8 });
+  const strap = new THREE.MeshStandardMaterial({ color: 0x22201c, roughness: 0.9 });
+  const lensM = new THREE.MeshStandardMaterial({ color: 0x0f1418, roughness: 0.1, metalness: 0.6 });
 
   const root = new THREE.Group();
   const body = new THREE.Group(); root.add(body);
+
   const mkLeg = (side) => {
-    const hip = new THREE.Group(); hip.position.set(0.11 * side, 0.9, 0);
-    hip.add(box(0.15, 0.48, 0.17, pants, 0, -0.24, 0));
-    const knee = new THREE.Group(); knee.position.y = -0.46; hip.add(knee);
-    knee.add(box(0.14, 0.42, 0.15, pants, 0, -0.21, 0));
-    knee.add(box(0.15, 0.08, 0.26, boots, 0, -0.42, -0.04));
+    const hip = new THREE.Group(); hip.position.set(0.1 * side, 0.92, 0);
+    hip.add(limb(0.085, 0.07, 0.42, pants));
+    const kneePad = rbox(0.11, 0.1, 0.06, strap, 0.025); kneePad.position.set(0, -0.44, -0.06); hip.add(kneePad);
+    const knee = new THREE.Group(); knee.position.y = -0.44; hip.add(knee);
+    knee.add(limb(0.068, 0.055, 0.38, pants));
+    const boot = rbox(0.12, 0.11, 0.27, boots, 0.04); boot.position.set(0, -0.42, -0.04); knee.add(boot);
+    const sole = rbox(0.125, 0.025, 0.28, strap, 0.01); sole.position.set(0, -0.47, -0.04); knee.add(sole);
     hip.userData.knee = knee;
     return hip;
   };
   const legL = mkLeg(-1), legR = mkLeg(1);
   body.add(legL, legR);
-  const torso = new THREE.Group(); torso.position.y = 0.9; body.add(torso);
-  torso.add(box(0.42, 0.56, 0.24, cloth, 0, 0.3, 0));
-  torso.add(box(0.44, 0.38, 0.28, vest, 0, 0.34, 0));
-  const h = new THREE.Group(); h.position.y = 0.66; torso.add(h);
-  h.add(box(0.2, 0.24, 0.22, skin, 0, 0.12, 0));
-  h.add(box(0.215, 0.12, 0.235, head, 0, 0.2, 0.0));           // helmet / balaclava top
-  if (!T) h.add(box(0.23, 0.04, 0.25, head, 0, 0.14, 0));
-  else h.add(box(0.205, 0.08, 0.04, head, 0, 0.06, -0.1));      // face wrap
-  h.add(box(0.16, 0.035, 0.02, new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.3 }), 0, 0.13, -0.115));
-  const armR = new THREE.Group(); armR.position.set(0.26, 0.52, 0); torso.add(armR);
-  armR.add(box(0.11, 0.11, 0.42, cloth, 0, -0.05, -0.18));
-  const armL = new THREE.Group(); armL.position.set(-0.26, 0.52, 0); torso.add(armL);
-  armL.add(box(0.11, 0.11, 0.5, cloth, 0.12, -0.05, -0.24));
-  armL.rotation.y = -0.5;
-  const gunHolder = new THREE.Group(); gunHolder.position.set(0.16, 0.42, -0.32); torso.add(gunHolder);
-  root.userData = { body, legL, legR, torso, head: h, gunHolder };
+
+  // torso: lathed shell (wider chest, narrow waist)
+  const torso = new THREE.Group(); torso.position.y = 0.92; body.add(torso);
+  const shellPts = [[0.0, 0.0], [0.15, 0.0], [0.17, 0.08], [0.16, 0.2], [0.2, 0.36], [0.21, 0.46], [0.17, 0.56], [0.07, 0.6], [0.0, 0.6]]
+    .map(([r, y]) => new THREE.Vector2(r, y));
+  const shellGeo = new THREE.LatheGeometry(shellPts, 24);
+  shellGeo.scale(1, 1, 0.68);
+  torso.add(new THREE.Mesh(shellGeo, shirt));
+  const plate = rbox(0.36, 0.34, 0.26, vest, 0.05); plate.position.set(0, 0.36, 0); torso.add(plate);
+  for (let i = -1; i <= 1; i++) { const p = rbox(0.09, 0.11, 0.06, vest, 0.02); p.position.set(i * 0.1, 0.24, -0.15); torso.add(p); }
+  const belt = rbox(0.36, 0.06, 0.25, strap, 0.025); belt.position.set(0, 0.03, 0); torso.add(belt);
+  const holster = rbox(0.06, 0.16, 0.08, strap, 0.02); holster.position.set(0.19, -0.06, 0.02); torso.add(holster);
+  if (T) { const pack = rbox(0.28, 0.32, 0.12, vest, 0.05); pack.position.set(0, 0.36, 0.18); torso.add(pack); }
+  else { const radio = rbox(0.07, 0.18, 0.05, strap, 0.015); radio.position.set(-0.13, 0.44, 0.15); torso.add(radio); }
+
+  // head
+  const neck = new THREE.Group(); neck.position.y = 0.6; torso.add(neck);
+  const neckM = capsule(0.055, 0.05, T ? headMat : skin); neckM.position.y = 0.04; neck.add(neckM);
+  const h = new THREE.Group(); h.position.y = 0.1; neck.add(h);
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.105, 24, 18), T ? headMat : skin);
+  skull.scale.set(0.95, 1.1, 1.0); skull.position.y = 0.09; h.add(skull);
+  if (T) {
+    const eyes = new THREE.Mesh(new THREE.SphereGeometry(0.106, 24, 6, Math.PI * 0.62, Math.PI * 0.76, Math.PI * 0.42, Math.PI * 0.12), skin);
+    eyes.scale.set(0.96, 1.1, 1.01); eyes.position.y = 0.09; h.add(eyes);
+    const tail = capsule(0.03, 0.12, headMat); tail.position.set(0.04, 0.06, 0.1); tail.rotation.x = 0.6; h.add(tail);
+  } else {
+    const shellH = new THREE.Mesh(new THREE.SphereGeometry(0.125, 28, 14, 0, Math.PI * 2, 0, Math.PI * 0.55), helmet);
+    shellH.position.y = 0.11; shellH.scale.set(1, 0.95, 1.08); h.add(shellH);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.122, 0.008, 8, 32), helmet); rim.rotation.x = Math.PI / 2; rim.position.y = 0.095; rim.scale.set(1, 1.08, 1); h.add(rim);
+    for (const s of [-1, 1]) { const ear = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.03, 18), strap); ear.rotation.z = Math.PI / 2; ear.position.set(0.1 * s, 0.07, 0.0); h.add(ear); }
+    const mask = new THREE.Mesh(new THREE.SphereGeometry(0.104, 24, 8, Math.PI * 0.6, Math.PI * 0.8, Math.PI * 0.55, Math.PI * 0.35), headMat);
+    mask.scale.set(0.97, 1.1, 1.03); mask.position.y = 0.09; h.add(mask);
+  }
+  const goggle = rbox(0.16, 0.045, 0.04, strap, 0.018); goggle.position.set(0, 0.11, -0.09); h.add(goggle);
+  for (const s of [-1, 1]) { const l = new THREE.Mesh(new THREE.CircleGeometry(0.02, 18), lensM); l.position.set(0.04 * s, 0.11, -0.111); l.rotation.y = Math.PI; h.add(l); }
+
+  // arms (shoulder → elbow → hand), posed holding a rifle
+  const mkArm = (side) => {
+    const sh = new THREE.Group(); sh.position.set(0.22 * side, 0.52, 0);
+    sh.add(limb(0.06, 0.05, 0.28, shirt));
+    const pad = new THREE.Mesh(new THREE.SphereGeometry(0.07, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), vest); sh.add(pad);
+    const el = new THREE.Group(); el.position.y = -0.28; sh.add(el);
+    el.add(limb(0.05, 0.042, 0.26, shirt));
+    const hand = rbox(0.06, 0.09, 0.05, glove, 0.02); hand.position.y = -0.3; el.add(hand);
+    sh.userData.elbow = el;
+    return sh;
+  };
+  const armR = mkArm(1), armL = mkArm(-1);
+  torso.add(armR, armL);
+  armR.rotation.set(-0.75, 0, -0.1); armR.userData.elbow.rotation.x = -1.3;
+  armL.rotation.set(-1.15, 0, 0.55); armL.userData.elbow.rotation.x = -0.65;
+
+  const gunHolder = new THREE.Group(); gunHolder.position.set(0.12, 0.38, -0.3); torso.add(gunHolder);
+  root.userData = { body, legL, legR, torso, head: h, gunHolder, armL, armR };
   root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   return root;
+}
+
+// First-person arms: sleeve + glove stretched from an off-screen shoulder to
+// anchor points on the weapon (grip / foregrip), in the gun's parent space.
+export function buildArms(team, gun) {
+  const pal = PALETTE[team] || PALETTE.T;
+  const sleeve = new THREE.MeshStandardMaterial({ map: fabric(pal.shirt, pal.camo), roughness: 0.9 });
+  const cuff = new THREE.MeshStandardMaterial({ color: 0x1d1d1b, roughness: 0.85 });
+  const glove = new THREE.MeshStandardMaterial({ color: pal.glove, roughness: 0.75 });
+  const knuckle = new THREE.MeshStandardMaterial({ color: 0x3a3a36, roughness: 0.6 });
+  const arms = new THREE.Group();
+
+  const mkArm = (from, to, palmDown) => {
+    const a = new THREE.Group();
+    const dir = to.clone().sub(from), len = dir.length();
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+    const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.045, len, 18), sleeve);
+    fore.position.copy(from).addScaledVector(dir, 0.5); fore.quaternion.copy(q);
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.03, 18), cuff);
+    c.position.copy(to).addScaledVector(dir.clone().normalize(), -0.035); c.quaternion.copy(q);
+    const hand = new THREE.Group();
+    hand.position.copy(to); hand.quaternion.copy(q);
+    hand.add(rbox(0.05, 0.065, 0.028, glove, 0.012));
+    for (let i = 0; i < 4; i++) {
+      const f = capsule(0.0075, 0.03, glove); f.position.set(-0.018 + i * 0.012, 0.045, palmDown ? 0.012 : -0.012); f.rotation.x = palmDown ? 0.9 : -0.9; hand.add(f);
+      const k = rbox(0.011, 0.008, 0.012, knuckle, 0.003); k.position.set(-0.018 + i * 0.012, 0.03, palmDown ? -0.015 : 0.015); hand.add(k);
+    }
+    const th = capsule(0.008, 0.03, glove); th.position.set(0.028, 0.012, 0.0); th.rotation.z = -0.7; hand.add(th);
+    a.add(fore, c, hand);
+    a.traverse(o => { if (o.isMesh) o.castShadow = false; });
+    return a;
+  };
+
+  const ud = gun.userData;
+  const grip = ud.grip ? ud.grip.clone() : new THREE.Vector3(0, -0.04, 0.03);
+  const right = mkArm(new THREE.Vector3(0.2, -0.36, 0.5), grip.clone().add(new THREE.Vector3(0.012, -0.01, 0)), false);
+  right.name = 'right';
+  arms.add(right);
+  if (ud.fore) {
+    const left = mkArm(new THREE.Vector3(-0.34, -0.4, 0.25), ud.fore.clone().add(new THREE.Vector3(-0.02, -0.025, 0)), true);
+    left.name = 'left'; arms.add(left);
+  } else if (ud.pistol) {
+    const left = mkArm(new THREE.Vector3(-0.26, -0.38, 0.42), grip.clone().add(new THREE.Vector3(-0.022, -0.02, 0.01)), false);
+    left.name = 'left'; arms.add(left);
+  }
+  return arms;
 }

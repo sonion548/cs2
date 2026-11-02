@@ -1,6 +1,8 @@
 // First-person weapon rendering + animation (bob, sway, kick, reload, deploy, inspect).
 import * as THREE from 'three';
 import { buildGun, buildArms } from './models.js';
+import { applySkin } from './items/render.js';
+import { SKINS } from './items/catalog.js';
 import { radialTexture } from './textures.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
@@ -77,15 +79,16 @@ export class ViewModel {
     this.reloadT = -1; this.reloadDur = 1;
   }
 
-  setWeapon(id, type, deployTime = 0.5) {
+  // id: weapon id; item: equipped inventory item for this weapon (or null).
+  setWeapon(id, type, deployTime = 0.5, item = null) {
     if (this.gun) this.holder.remove(this.gun);
     if (this.arms) this.holder.remove(this.arms);
     this.id = id; this.type = type;
-    this.gun = buildGun(id);
+    const modelId = id === 'knife' ? `knife:${item ? SKINS[item.defId]?.knife || 'standard' : 'standard'}` : id;
+    this.gun = buildGun(modelId);
+    if (item) applySkin(this.gun, item);
     this.gun.traverse(o => { if (o.isMesh) o.castShadow = false; });
-    this.arms = buildArms(this.team);
-    if (type === 'pistol' || type === 'melee') this.arms.getObjectByName('left').visible = type === 'pistol';
-    if (type === 'pistol') this.arms.getObjectByName('left').position.set(-0.03, -0.06, 0.02);
+    this.arms = buildArms(this.team, this.gun);
     this.holder.add(this.gun, this.arms);
     this.gun.add(this.flash);
     this.flash.position.copy(this.gun.userData.muzzle);
@@ -93,7 +96,10 @@ export class ViewModel {
     this.mag = this.gun.getObjectByName('mag');
     this.magBase = this.mag ? this.mag.position.clone() : null;
     this.slide = this.gun.getObjectByName('slide');
-    this.slideBase = this.slide ? this.slide.position.z : 0;
+    this.slideBase = this.slide ? this.slide.position.x : 0;
+    this.bfA = this.gun.getObjectByName('bfA');
+    this.bfB = this.gun.getObjectByName('bfB');
+    this.kPivot = this.gun.getObjectByName('karambitPivot');
     this.deployT = 0; this.deployDur = Math.max(0.2, deployTime);
     this.inspectT = -1; this.reloadT = -1;
   }
@@ -144,7 +150,7 @@ export class ViewModel {
     this.kick *= Math.exp(-14 * dt);
     pos.z += this.kick * 0.02;
     rot.x += this.kick * 0.09;
-    if (this.slide) this.slide.position.z = this.slideBase + Math.min(this.kick, 0.6) * 0.06;
+    if (this.slide) this.slide.position.x = this.slideBase - Math.min(this.kick, 0.6) * 0.05;
     if (this.flashTime > 0) { this.flashTime -= dt; if (this.flashTime <= 0) this.flash.visible = false; }
     this.flashLight.intensity = this.flash.visible ? 6 : 0;
     if (this.flash.visible) this.flashLight.position.copy(this.gun.localToWorld(this.gun.userData.muzzle.clone()));
@@ -187,7 +193,16 @@ export class ViewModel {
       const k = sampleKeys(keys, this.inspectT);
       rot.x += k[0]; rot.y += k[1]; rot.z += k[2];
       pos.x += k[3] * 0.6; pos.y += k[4] * 0.6; pos.z += k[5] * 0.6;
-      if (this.inspectT > keys[keys.length - 1][0]) this.inspectT = -1;
+      const T = this.inspectT;
+      // balisong: swing the two handle halves open and closed around the pivot
+      if (this.bfA) {
+        const open = T < 2.8 ? Math.abs(Math.sin(T * Math.PI * 1.2)) : 0;
+        this.bfA.rotation.z = open * Math.PI;
+        this.bfB.rotation.z = -open * Math.PI;
+      }
+      // karambit: spin around the finger ring
+      if (this.kPivot) this.kPivot.rotation.z = T > 0.4 && T < 1.6 ? (T - 0.4) / 1.2 * Math.PI * 4 : 0;
+      if (this.inspectT > keys[keys.length - 1][0]) { this.inspectT = -1; if (this.bfA) { this.bfA.rotation.z = 0; this.bfB.rotation.z = 0; } }
     }
 
     this.root.position.copy(pos);

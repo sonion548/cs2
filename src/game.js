@@ -82,6 +82,7 @@ export class Game {
     this.roundTime = 0;
     this.spotted = { T: new Map(), CT: new Map() };
     this.specIndex = 0;
+    this.weaponKills = {};
     this.lastWeaponSlot = 2;
 
     this.bindInput();
@@ -115,13 +116,13 @@ export class Game {
     sky.position.copy(c);
     this.scene.add(sky);
     // outer ground + skyline of buildings beyond the walls
-    const sand = tex('sand', 2).clone(); sand.repeat.set(120, 120); sand.needsUpdate = true;
+    const sand = tex('sand', 1).clone(); sand.repeat.set(225, 225); sand.needsUpdate = true;
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(900, 900), new THREE.MeshStandardMaterial({ map: sand, roughness: 1 }));
     ground.rotation.x = -Math.PI / 2; ground.position.set(c.x, -0.02, c.z); ground.receiveShadow = true;
     this.scene.add(ground);
     const r = rng(77);
-    const mat = new THREE.MeshStandardMaterial({ map: tex('plaster', 5), roughness: 0.95 });
-    const mat2 = new THREE.MeshStandardMaterial({ map: tex('sandstone', 6), roughness: 0.95 });
+    const mat = new THREE.MeshStandardMaterial({ map: tex('plaster', 1), roughness: 0.95 });
+    const mat2 = new THREE.MeshStandardMaterial({ map: tex('sandstone', 1), roughness: 0.95 });
     for (let i = 0; i < 70; i++) {
       const side = i % 4;
       const along = r();
@@ -210,6 +211,8 @@ export class Game {
     if (code === 'KeyF') this.vm.inspect();
   }
 
+  skinFor(weaponId) { return this.opts.skins?.[weaponId] || null; }
+
   canBuy() { return this.player.alive && (this.state === 'freeze' || this.roundTime < 20); }
 
   switchWeapon(slot) {
@@ -217,7 +220,7 @@ export class Game {
     const prev = p.slot;
     if (p.switchTo(slot)) {
       this.lastWeaponSlot = prev;
-      this.vm.setWeapon(p.weapon.id, p.weapon.def.type, p.weapon.def.deployTime);
+      this.vm.setWeapon(p.weapon.id, p.weapon.def.type, p.weapon.def.deployTime, this.skinFor(p.weapon.id));
       this.hud.setScope(0);
     }
   }
@@ -254,7 +257,7 @@ export class Game {
   giveLoadout(primary, secondary) {
     this.loadout = { primary, secondary };
     this.player.giveLoadout(primary, secondary);
-    this.vm.setWeapon(this.player.weapon.id, this.player.weapon.def.type, 0.3);
+    this.vm.setWeapon(this.player.weapon.id, this.player.weapon.def.type, 0.3, this.skinFor(this.player.weapon.id));
     this.hud.setScope(0);
   }
 
@@ -446,6 +449,7 @@ export class Game {
     victim.alive = false; victim.health = 0;
     victim.stats.deaths++;
     killer.stats.kills++;
+    if (killer === this.player) { const w = weaponDef.id; this.weaponKills[w] = (this.weaponKills[w] || 0) + 1; }
     if (headshot) killer.stats.hs++;
     for (const [att, dmg] of victim.damageBy) if (att !== killer && dmg >= 40 && att.team !== victim.team) att.stats.assists++;
     if (victim.isBot) {
@@ -606,7 +610,8 @@ export class Game {
   loop(t) {
     if (!this.running) return;
     requestAnimationFrame(this.loop);
-    let dt = Math.min(0.05, (t - this.last) / 1000);
+    // rAF timestamps can precede performance.now() taken during setup, so clamp at 0
+    let dt = Math.max(0, Math.min(0.05, (t - this.last) / 1000));
     this.last = t;
     if (!this.paused) {
       // fixed sub-steps keep movement deterministic at low frame rates
@@ -659,6 +664,7 @@ export class Game {
       score: { ...this.score }, team: this.playerTeam,
       stats: { ...this.player.stats },
       rounds: this.round,
+      weaponKills: { ...this.weaponKills },
       players: this.characters.map(c => ({ name: c.name, team: c.team, ...c.stats, you: c === this.player })),
     };
     this.dispose();

@@ -1,0 +1,489 @@
+// Main menu / client shell: Play, Inventory, Cases, Career, Settings.
+import { Viewer, thumbnail } from './studio.js';
+import * as P from '../items/profile.js';
+import { SKINS, STICKERS, CASES, RARITY, RARITIES, CONDITIONS, condition, itemDef, itemTitle, KEY_PRICE, STICKER_CAPSULE, WEAPON_NAMES } from '../items/catalog.js';
+import { KNIFE_TYPES, buildGun } from '../gunmodels.js';
+import { stickerCanvas } from '../items/stickers.js';
+import { STICKER_SLOTS } from '../items/render.js';
+import { MAPS } from '../maps.js';
+import { audio } from '../audio.js';
+
+const h = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const fmt = (n) => n.toLocaleString('en-US');
+const CR = (n) => `<span class="cr">${fmt(n)}</span>`;
+
+export const MODES = [
+  { id: '5v5', label: 'Competitive', size: 5, win: 13, note: '5 v 5 · first to 13' },
+  { id: '3v3', label: 'Skirmish', size: 3, win: 9, note: '3 v 3 · first to 9' },
+  { id: '2v2', label: 'Wingman', size: 2, win: 9, note: '2 v 2 · first to 9' },
+  { id: '1v1', label: 'Duel', size: 1, win: 9, note: '1 v 1 · first to 9' },
+];
+export const DIFFS = [['Recruit', 0.05], ['Regular', 0.3], ['Veteran', 0.55], ['Expert', 0.78], ['Elite', 0.95]];
+
+function caseArt(def) {
+  const c = document.createElement('canvas'); c.width = 320; c.height = 200;
+  const x = c.getContext('2d');
+  x.translate(160, 108);
+  // body
+  x.fillStyle = '#2a2925'; x.fillRect(-110, -55, 220, 110);
+  x.fillStyle = def.color; x.fillRect(-110, -55, 220, 14); x.fillRect(-110, 41, 220, 14);
+  x.fillStyle = 'rgba(255,255,255,0.08)'; x.fillRect(-110, -41, 220, 3);
+  // latches
+  x.fillStyle = '#8a877e'; x.fillRect(-104, -8, 14, 16); x.fillRect(90, -8, 14, 16);
+  x.font = '700 22px "Barlow Condensed", sans-serif'; x.textAlign = 'center'; x.fillStyle = '#ebe7df';
+  x.fillText(def.name.replace(' Case', '').toUpperCase(), 0, 8);
+  return c.toDataURL();
+}
+const caseArtCache = {};
+function caseThumb(id) { return caseArtCache[id] ||= caseArt(id === 'capsule' ? STICKER_CAPSULE : CASES[id]); }
+const stickerThumbCache = {};
+function stickerThumb(id) { return stickerThumbCache[id] ||= stickerCanvas(STICKERS[id]).toDataURL(); }
+
+function rarityOf(item) {
+  const d = itemDef(item);
+  if (item.kind === 'case') return null;
+  return RARITY[d.rarity];
+}
+
+export class Menu {
+  constructor(root, settings, onPlay) {
+    this.root = root; this.settings = settings; this.onPlay = onPlay;
+    this.tab = 'play';
+    this.state = { mode: '5v5', diff: 2, side: 'random', map: 'dunehold' };
+    this.invFilter = 'all'; this.invSort = 'newest';
+    this.viewers = [];
+    P.onChange(() => this.updateBar());
+  }
+
+  show(result) {
+    this.root.style.display = 'block';
+    this.root.innerHTML = `
+      <div class="client">
+        <header class="bar">
+          <div class="mark"><i></i>VANTAGE</div>
+          <nav>${['play', 'inventory', 'cases', 'career', 'settings'].map(t => `<button data-tab="${t}">${t}</button>`).join('')}</nav>
+          <div class="who"><span class="lvl"></span><span class="credits"></span><span class="pname"></span></div>
+        </header>
+        <main class="page"></main>
+        <div class="modal-layer"></div>
+      </div>`;
+    this.$ = (s) => this.root.querySelector(s);
+    this.root.querySelector('nav').onclick = (e) => { const t = e.target.dataset.tab; if (t) { audio.init(); audio.ui(); this.go(t); } };
+    this.updateBar();
+    this.go(this.tab);
+    if (result) this.showResult(result);
+  }
+
+  hide() { this.disposeViewers(); this.root.style.display = 'none'; this.root.innerHTML = ''; }
+
+  updateBar() {
+    if (!this.$ || !this.$('.credits')) return;
+    const p = P.getProfile(), lv = P.level();
+    this.$('.credits').innerHTML = CR(p.credits);
+    this.$('.pname').textContent = p.name;
+    this.$('.lvl').innerHTML = `LV ${lv.level}<b style="--p:${(lv.progress * 100).toFixed(0)}%"></b>`;
+  }
+
+  disposeViewers() { for (const v of this.viewers) v.dispose(); this.viewers = []; }
+
+  go(tab) {
+    this.tab = tab;
+    this.disposeViewers();
+    for (const b of this.root.querySelectorAll('nav button')) b.classList.toggle('on', b.dataset.tab === tab);
+    const page = this.$('.page');
+    page.className = 'page page-' + tab;
+    this[`render_${tab}`](page);
+  }
+
+  // ------------------------------------------------------------- play
+  render_play(page) {
+    const s = this.state, map = MAPS[s.map];
+    const eq = (slot) => P.equippedFor(slot);
+    const slots = [['ak47', 'Rifle · Attack'], ['m4a1', 'Rifle · Defend'], ['awp', 'Sniper'], ['knife', 'Knife']];
+    page.innerHTML = `
+      <section class="showcase">
+        <div class="stage"></div>
+        <div class="stage-cap"><span class="k">Equipped</span><span class="v"></span></div>
+        <div class="loadout">${slots.map(([slot, label]) => {
+          const it = eq(slot);
+          const t = it ? itemTitle(it) : null;
+          return `<button class="slot" data-slot="${slot}"><span class="k">${label}</span><span class="v">${t ? h(t.name) : 'Stock'}</span><img alt=""></button>`;
+        }).join('')}</div>
+      </section>
+      <aside class="queue">
+        <h3>Matchmaking <small>vs bots</small></h3>
+        <div class="modes">${MODES.map(m => `<button class="mode ${s.mode === m.id ? 'on' : ''}" data-mode="${m.id}"><b>${m.id}</b><span>${m.label}<small>${m.note}</small></span></button>`).join('')}</div>
+        <div class="field"><label>Opponents</label><div class="steps">${DIFFS.map((d, i) => `<button data-diff="${i}" class="${i <= s.diff ? 'fill' : ''} ${i === s.diff ? 'on' : ''}" title="${d[0]}"></button>`).join('')}<em>${DIFFS[s.diff][0]}</em></div></div>
+        <div class="field"><label>Side</label><div class="tog">${[['T', 'Attack'], ['CT', 'Defend'], ['random', 'Any']].map(([v, l]) => `<button data-side="${v}" class="${s.side === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+        <div class="field map"><label>Map</label><div class="mapcard"><canvas width="88" height="66"></canvas><div><b>${h(map.name)}</b><small>${h(map.description)}</small></div></div></div>
+        <button class="go">Find match</button>
+      </aside>`;
+    // map mini radar
+    const mc = page.querySelector('.mapcard canvas').getContext('2d');
+    const g = map.grid, cs = Math.min(88 / g[0].length, 66 / g.length);
+    mc.fillStyle = '#121211'; mc.fillRect(0, 0, 88, 66);
+    g.forEach((row, z) => [...row].forEach((c, x) => { if (c !== '#') { mc.fillStyle = 'AB'.includes(c) ? '#8a6e45' : '#4a4944'; mc.fillRect(x * cs, z * cs, cs, cs); } }));
+
+    const v = new Viewer(page.querySelector('.stage'), { autoRotate: true });
+    this.viewers.push(v);
+    const showSlot = (slot) => {
+      const it = eq(slot);
+      if (it) v.setItem(it); else v.setObject(stockModel(slot));
+      const t = it ? itemTitle(it) : { weapon: slot === 'knife' ? 'Field Knife' : WEAPON_NAMES[slot], name: 'Stock' };
+      page.querySelector('.stage-cap .v').textContent = `${t.weapon} | ${t.name}`;
+      for (const b of page.querySelectorAll('.slot')) b.classList.toggle('on', b.dataset.slot === slot);
+    };
+    showSlot('ak47');
+    for (const b of page.querySelectorAll('.slot')) {
+      const it = eq(b.dataset.slot);
+      if (it) thumbnail(it, url => { b.querySelector('img').src = url; });
+    }
+    page.onclick = (e) => {
+      const t = e.target.closest('button'); if (!t) return;
+      audio.init(); audio.ui();
+      if (t.dataset.slot) return showSlot(t.dataset.slot);
+      if (t.dataset.mode) s.mode = t.dataset.mode;
+      if (t.dataset.diff) s.diff = +t.dataset.diff;
+      if (t.dataset.side) s.side = t.dataset.side;
+      if (t.classList.contains('go')) { const m = MODES.find(m => m.id === s.mode); return this.onPlay({ map: s.map, teamSize: m.size, winRounds: m.win, skill: DIFFS[s.diff][1], side: s.side }); }
+      this.go('play');
+    };
+  }
+
+  // ------------------------------------------------------------- inventory
+  render_inventory(page) {
+    const p = P.getProfile();
+    const cats = [['all', 'All'], ['rifle', 'Rifles'], ['pistol', 'Pistols'], ['sniper', 'Snipers'], ['knife', 'Knives'], ['sticker', 'Stickers'], ['case', 'Containers']];
+    const catOf = (it) => {
+      if (it.kind !== 'skin') return it.kind;
+      const d = SKINS[it.defId];
+      if (d.knife) return 'knife';
+      return { ak47: 'rifle', m4a1: 'rifle', awp: 'sniper' }[d.weapon] || 'pistol';
+    };
+    let items = p.items.filter(it => this.invFilter === 'all' || catOf(it) === this.invFilter);
+    const sorters = {
+      newest: (a, b) => b.acquired - a.acquired,
+      rarity: (a, b) => (rarityOf(b)?.tier ?? -1) - (rarityOf(a)?.tier ?? -1),
+      value: (a, b) => P.marketPrice(b) - P.marketPrice(a),
+    };
+    items.sort(sorters[this.invSort]);
+    const total = p.items.reduce((s, it) => s + P.marketPrice(it), 0);
+    page.innerHTML = `
+      <aside class="filters">
+        <h3>Inventory</h3>
+        <div class="count">${p.items.length} items · ${CR(total)} est.</div>
+        ${cats.map(([id, l]) => `<button data-cat="${id}" class="${this.invFilter === id ? 'on' : ''}">${l}<span>${id === 'all' ? p.items.length : p.items.filter(i => catOf(i) === id).length}</span></button>`).join('')}
+        <label class="sort">Sort <select>${[['newest', 'Newest'], ['rarity', 'Rarity'], ['value', 'Value']].map(([v, l]) => `<option value="${v}" ${this.invSort === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      </aside>
+      <section class="grid">${items.length ? items.map(it => this.tile(it)).join('') : '<p class="empty">Nothing here yet. Open a container or win a match to get drops.</p>'}</section>`;
+    page.querySelector('select').onchange = (e) => { this.invSort = e.target.value; this.go('inventory'); };
+    page.querySelector('.filters').onclick = (e) => { const c = e.target.closest('[data-cat]'); if (c) { this.invFilter = c.dataset.cat; this.go('inventory'); } };
+    page.querySelector('.grid').onclick = (e) => {
+      const t = e.target.closest('.tile'); if (!t) return;
+      audio.init(); audio.ui();
+      const it = P.findItem(t.dataset.uid);
+      if (it.kind === 'skin') this.inspect(it);
+      else if (it.kind === 'case') { this.go('cases'); this.openCaseView(it.defId); }
+      else this.stickerInfo(it);
+    };
+    this.loadThumbs(page);
+  }
+
+  tile(it) {
+    const r = rarityOf(it), t = itemTitle(it), p = P.getProfile();
+    const equipped = Object.values(p.equipped).includes(it.uid);
+    const cond = it.kind === 'skin' ? condition(it.float).id : '';
+    const img = it.kind === 'case' ? caseThumb(it.defId) : it.kind === 'sticker' ? stickerThumb(it.defId) : '';
+    return `<button class="tile ${it.kind}" data-uid="${it.uid}" style="--rc:${r ? r.color : '#6d6a62'}">
+      <img ${img ? `src="${img}"` : ''} alt="" ${it.kind === 'skin' ? 'data-thumb="1"' : ''}>
+      ${equipped ? '<i class="eq">Equipped</i>' : ''}
+      ${cond ? `<i class="cond">${cond}</i>` : ''}
+      ${it.tally != null ? `<i class="tally">${it.tally}</i>` : ''}
+      ${it.stickers?.length ? `<i class="stk">${it.stickers.map(s => `<img src="${stickerThumb(s.defId)}" alt="">`).join('')}</i>` : ''}
+      <span class="w">${h(t.weapon)}</span><span class="n">${h(t.name)}</span>
+    </button>`;
+  }
+
+  loadThumbs(scope) {
+    for (const el of scope.querySelectorAll('img[data-thumb]')) {
+      const it = P.findItem(el.closest('[data-uid]').dataset.uid);
+      if (it) thumbnail(it, url => { el.src = url; });
+    }
+  }
+
+  // ------------------------------------------------------------- inspect
+  inspect(it, { fromUnbox = false } = {}) {
+    const layer = this.$('.modal-layer');
+    const render = () => {
+      const d = SKINS[it.defId], r = RARITY[d.rarity], t = itemTitle(it), c = condition(it.float);
+      const p = P.getProfile();
+      const equipped = Object.values(p.equipped).includes(it.uid);
+      const stickersOwned = p.items.filter(x => x.kind === 'sticker');
+      const slots = d.knife ? [] : STICKER_SLOTS[d.weapon] || [];
+      layer.innerHTML = `
+        <div class="modal inspect" style="--rc:${r.color}">
+          <div class="view"><div class="vp"></div>
+            <div class="presets">${['left', 'right', 'top', 'muzzle'].map(v => `<button data-view="${v}">${v}</button>`).join('')}</div>
+            <p class="hint">Drag to rotate · scroll to zoom</p>
+          </div>
+          <div class="info">
+            <button class="x" data-act="close">Close</button>
+            <div class="rar"><i></i>${r.name}${d.knife ? ' · Knife' : ''}</div>
+            <h2><small>${h(t.weapon)}</small>${h(t.name)}</h2>
+            <dl>
+              <dt>Condition</dt><dd>${c.name}</dd>
+              <dt>Float</dt><dd class="mono">${it.float.toFixed(9)}</dd>
+              <dt>Pattern</dt><dd class="mono">${it.seed}</dd>
+              ${it.tally != null ? `<dt>Tally</dt><dd class="mono">${it.tally} confirmed kills</dd>` : ''}
+              <dt>Market</dt><dd>${CR(P.marketPrice(it))}</dd>
+            </dl>
+            <div class="wearbar">${CONDITIONS.map((cc, i) => { const lo = i ? CONDITIONS[i - 1].max : 0; return `<span style="flex:${cc.max - lo}" class="${cc === c ? 'on' : ''}">${cc.id}</span>`; }).join('')}<b style="left:${(it.float * 100).toFixed(2)}%"></b></div>
+            ${slots.length ? `<h4>Stickers</h4><div class="sslots">${slots.map((_, i) => {
+              const st = it.stickers.find(s => s.slot === i);
+              return st ? `<button class="ss full" data-scrape="${i}" title="Scrape (${Math.round((st.wear || 0) * 100)}% worn)"><img src="${stickerThumb(st.defId)}" style="opacity:${1 - (st.wear || 0) * 0.7}" alt=""></button>`
+                : `<button class="ss" data-apply="${i}" ${stickersOwned.length ? '' : 'disabled'}>+</button>`;
+            }).join('')}</div><p class="note">${stickersOwned.length ? 'Click + to apply a sticker, click a sticker to scrape it.' : 'Open a sticker capsule to get stickers.'}</p>` : ''}
+            <div class="acts">
+              ${fromUnbox ? '<button data-act="close" class="pri">Continue</button>' : ''}
+              <button data-act="equip" class="${fromUnbox ? '' : 'pri'}">${equipped ? 'Unequip' : 'Equip'}</button>
+              <button data-act="sell">Quick sell · ${CR(Math.floor(P.marketPrice(it) * 0.87))}</button>
+            </div>
+          </div>
+        </div>`;
+      const v = new Viewer(layer.querySelector('.vp'), { autoRotate: false });
+      v.setItem(it);
+      this.modalViewer?.dispose(); this.modalViewer = v;
+    };
+    render();
+    layer.onclick = (e) => {
+      const b = e.target.closest('button');
+      if (!b) { if (e.target === layer.firstElementChild) close(); return; }
+      audio.ui();
+      if (b.dataset.view) return this.modalViewer.view(b.dataset.view);
+      if (b.dataset.act === 'close') return close();
+      if (b.dataset.act === 'equip') { P.equip(it.uid); return render(); }
+      if (b.dataset.act === 'sell') {
+        if (!confirm(`Sell ${itemTitle(it).name} for ${Math.floor(P.marketPrice(it) * 0.87)} credits?`)) return;
+        P.sellItem(it.uid); return close();
+      }
+      if (b.dataset.scrape != null) { P.scrapeSticker(it.uid, +b.dataset.scrape); return render(); }
+      if (b.dataset.apply != null) return this.pickSticker(it, +b.dataset.apply, render);
+    };
+    const close = () => { this.modalViewer?.dispose(); this.modalViewer = null; layer.innerHTML = ''; layer.onclick = null; if (this.tab === 'inventory') this.go('inventory'); };
+  }
+
+  pickSticker(skin, slot, rerender) {
+    const p = P.getProfile();
+    const owned = p.items.filter(x => x.kind === 'sticker');
+    const box = document.createElement('div');
+    box.className = 'picker';
+    box.innerHTML = `<h4>Apply sticker to slot ${slot + 1}</h4><p class="note">Stickers are permanent until scraped off completely.</p>
+      <div class="pgrid">${owned.map(s => `<button data-s="${s.uid}"><img src="${stickerThumb(s.defId)}" alt=""><span>${h(STICKERS[s.defId].name)}</span></button>`).join('')}</div>
+      <button class="cancel">Cancel</button>`;
+    this.$('.modal-layer .info').appendChild(box);
+    box.onclick = (e) => {
+      e.stopPropagation();
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.s) { P.applySticker(skin.uid, b.dataset.s, slot); audio.ui(); }
+      rerender();
+    };
+  }
+
+  stickerInfo(it) {
+    const d = STICKERS[it.defId];
+    const layer = this.$('.modal-layer');
+    layer.innerHTML = `<div class="modal small" style="--rc:${RARITY[d.rarity].color}"><img class="big" src="${stickerThumb(it.defId)}" alt="">
+      <div class="info"><div class="rar"><i></i>${RARITY[d.rarity].name} sticker</div><h2>${h(d.name)}</h2><p class="note">Apply it from a weapon's inspect screen.</p>
+      <div class="acts"><button data-act="close" class="pri">Close</button><button data-act="sell">Quick sell · ${CR(Math.floor(P.marketPrice(it) * 0.87))}</button></div></div></div>`;
+    layer.onclick = (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.act === 'sell') P.sellItem(it.uid);
+      layer.innerHTML = ''; this.go('inventory');
+    };
+  }
+
+  // ------------------------------------------------------------- cases
+  render_cases(page) {
+    const p = P.getProfile();
+    const owned = {};
+    for (const it of p.items) if (it.kind === 'case') owned[it.defId] = (owned[it.defId] || 0) + 1;
+    const all = [...Object.values(CASES), STICKER_CAPSULE];
+    page.innerHTML = `
+      <div class="cases-head"><h3>Containers</h3><p>Keys cost ${CR(KEY_PRICE)}. Sticker capsules open without a key. Containers also drop at the end of matches.</p></div>
+      <div class="case-list">${all.map(c => `
+        <div class="case-card" data-case="${c.id}">
+          <img src="${caseThumb(c.id)}" alt="">
+          <div class="meta"><b>${h(c.name)}</b><small>${c.id === 'capsule' ? 'Paper · Holo · Foil · Gold' : `${CASES[c.id].skins.length} finishes + rare knives`}</small></div>
+          <div class="own">${owned[c.id] ? `<span>Owned × ${owned[c.id]}</span>` : '<span class="none">None owned</span>'}</div>
+          <div class="btns"><button data-buy="${c.id}">Buy · ${CR(c.price)}</button><button data-view="${c.id}" class="pri">${owned[c.id] ? 'Open' : 'Contents'}</button></div>
+        </div>`).join('')}</div>`;
+    page.onclick = (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      audio.init(); audio.ui();
+      if (b.dataset.buy) { const r = P.buyCase(b.dataset.buy); if (r.error) this.toast(r.error); else this.toast('Added to inventory'); this.go('cases'); }
+      if (b.dataset.view) this.openCaseView(b.dataset.view);
+    };
+  }
+
+  openCaseView(caseId) {
+    const layer = this.$('.modal-layer');
+    const def = caseId === 'capsule' ? STICKER_CAPSULE : CASES[caseId];
+    const ownedItem = P.getProfile().items.find(i => i.kind === 'case' && i.defId === caseId);
+    const contents = P.caseContents(caseId);
+    const knives = caseId === 'capsule' ? [] : CASES[caseId].knives;
+    const oddsRows = caseId === 'capsule'
+      ? [['Paper', '80%'], ['Holo', '15%'], ['Foil', '4%'], ['Gold', '1%']]
+      : RARITIES.map(r => [r.name, (r.odds * 100).toFixed(2) + '%', r.color]);
+    layer.innerHTML = `
+      <div class="modal casev">
+        <div class="ch"><div><small>Container</small><h2>${h(def.name)}</h2></div><button class="x" data-act="close">Close</button></div>
+        <div class="reel-wrap hidden"><div class="needle"></div><div class="reel"></div></div>
+        <div class="contents">
+          ${contents.map(d => `<div class="ci" style="--rc:${RARITY[d.rarity].color}"><img data-def="${d.id}" alt=""><span class="w">${WEAPON_NAMES[d.weapon]}</span><span class="n">${h(d.name)}</span></div>`).join('')}
+          ${knives.length ? `<div class="ci rare" style="--rc:${RARITY.legendary.color}"><div class="star">★</div><span class="w">Rare special item</span><span class="n">${knives.map(k => KNIFE_TYPES[k]).join(', ')}</span></div>` : ''}
+          ${caseId === 'capsule' ? Object.values(STICKERS).filter(s => s.finishType === 'paper').slice(0, 12).map(s => `<div class="ci" style="--rc:${RARITY.standard.color}"><img src="${stickerThumb(s.id)}" alt=""><span class="n">${h(s.name)}</span></div>`).join('') : ''}
+        </div>
+        <div class="cfoot">
+          <table class="odds">${oddsRows.map(([n, o, c]) => `<tr><td><i style="background:${c || '#888'}"></i>${n}</td><td>${o}</td></tr>`).join('')}</table>
+          <div class="unlock">${ownedItem ? `<button class="pri big" data-act="open">${caseId === 'capsule' ? 'Open capsule' : `Unlock · key ${CR(KEY_PRICE)}`}</button>` : `<button class="pri big" data-act="buyopen">Buy &amp; unlock · ${CR(def.price + (caseId === 'capsule' ? 0 : KEY_PRICE))}</button>`}</div>
+        </div>
+      </div>`;
+    // previews for contents
+    for (const img of layer.querySelectorAll('img[data-def]')) thumbnail({ defId: img.dataset.def, float: 0.05, seed: 1, stickers: [] }, url => { img.src = url; });
+    layer.onclick = (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.act === 'close') { layer.innerHTML = ''; layer.onclick = null; this.go(this.tab); return; }
+      if (b.dataset.act === 'buyopen') {
+        const r = P.buyCase(caseId); if (r.error) return this.toast(r.error);
+      }
+      if (b.dataset.act === 'open' || b.dataset.act === 'buyopen') {
+        const it = P.getProfile().items.find(i => i.kind === 'case' && i.defId === caseId);
+        const res = P.openCase(it.uid);
+        if (res.error) return this.toast(res.error);
+        this.spin(caseId, res.item);
+      }
+    };
+  }
+
+  // Horizontal reel that decelerates onto the won item.
+  spin(caseId, won) {
+    const layer = this.$('.modal-layer');
+    layer.querySelector('.contents').classList.add('hidden');
+    layer.querySelector('.cfoot').classList.add('hidden');
+    const wrap = layer.querySelector('.reel-wrap'); wrap.classList.remove('hidden');
+    const reel = layer.querySelector('.reel');
+    const N = 56, WIN = 48, TW = 168;
+    const filler = [];
+    for (let i = 0; i < N; i++) filler.push(i === WIN ? won : P.rollCase(caseId));
+    reel.innerHTML = filler.map((it, i) => {
+      const r = rarityOf(it), t = itemTitle(it);
+      const img = it.kind === 'sticker' ? stickerThumb(it.defId) : '';
+      const knife = it.kind === 'skin' && SKINS[it.defId].knife && i !== WIN;
+      return `<div class="rt" style="--rc:${r.color}">${knife ? '<div class="star">★</div>' : `<img src="${img}" ${it.kind === 'skin' ? `data-i="${i}"` : ''} alt="">`}<span class="w">${knife ? 'Rare special item' : h(t.weapon)}</span><span class="n">${knife ? '★' : h(t.name)}</span></div>`;
+    }).join('');
+    for (const img of reel.querySelectorAll('img[data-i]')) { const it = filler[+img.dataset.i]; thumbnail({ ...it, float: 0.1 }, url => { img.src = url; }); }
+    const vw = wrap.clientWidth;
+    const offset = WIN * TW - vw / 2 + TW / 2 + (Math.random() - 0.5) * (TW * 0.8);
+    reel.style.transition = 'none'; reel.style.transform = 'translateX(0)';
+    void reel.offsetWidth;
+    reel.style.transition = 'transform 6.5s cubic-bezier(0.12, 0.72, 0.1, 1)';
+    reel.style.transform = `translateX(${-offset}px)`;
+    // tick sound as tiles pass the needle
+    let last = -1;
+    const tick = () => {
+      const m = new DOMMatrix(getComputedStyle(reel).transform);
+      const idx = Math.floor((-m.m41 + vw / 2) / TW);
+      if (idx !== last) { last = idx; audio.ui(); }
+      if (reel.isConnected && reel.dataset.done !== '1') requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    reel.addEventListener('transitionend', () => {
+      reel.dataset.done = '1';
+      const r = rarityOf(won);
+      audio.ui(r.tier >= 2 ? 'win' : 'click');
+      setTimeout(() => {
+        if (won.kind === 'skin') this.inspect(won, { fromUnbox: true });
+        else this.stickerInfo(won);
+      }, 700);
+    }, { once: true });
+  }
+
+  // ------------------------------------------------------------- career
+  render_career(page) {
+    const p = P.getProfile(), s = p.stats, lv = P.level();
+    const kd = s.deaths ? (s.kills / s.deaths).toFixed(2) : s.kills.toFixed(2);
+    page.innerHTML = `
+      <section class="career">
+        <div class="stats">
+          ${[['Level', lv.level], ['Matches', s.matches], ['Wins', s.wins], ['Win rate', s.matches ? Math.round(s.wins / s.matches * 100) + '%' : '—'], ['Kills', s.kills], ['K/D', kd], ['Containers opened', s.casesOpened]]
+            .map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('')}
+        </div>
+        <h3>Recent activity</h3>
+        <table class="hist">${p.history.slice(0, 30).map(e => {
+          const d = SKINS[e.item] || STICKERS[e.item];
+          const name = d ? (d.knife ? '★ ' + KNIFE_TYPES[d.knife] : d.weapon ? WEAPON_NAMES[d.weapon] : 'Sticker') + ' | ' + d.name : e.item;
+          return `<tr><td>${new Date(e.t).toLocaleString()}</td><td>${e.type === 'unbox' ? 'Unboxed' : e.type === 'sell' ? 'Sold' : e.type}</td><td style="color:${d ? RARITY[d.rarity].color : ''}">${h(name)}</td><td>${e.value ? CR(e.value) : ''}</td></tr>`;
+        }).join('') || '<tr><td>No activity yet.</td></tr>'}</table>
+      </section>`;
+  }
+
+  // ------------------------------------------------------------- settings
+  render_settings(page) {
+    const s = this.settings;
+    page.innerHTML = `
+      <section class="settings">
+        <h3>Player</h3>
+        <div class="row"><label>Name</label><input type="text" maxlength="16" data-s="name" value="${h(P.getProfile().name)}"></div>
+        <h3>Mouse & view</h3>
+        <div class="row"><label>Sensitivity</label><input type="range" min="0.2" max="6" step="0.05" data-s="sensitivity" value="${s.sensitivity}"><output>${s.sensitivity}</output></div>
+        <div class="row"><label>Field of view</label><input type="range" min="60" max="90" step="1" data-s="fov" value="${s.fov}"><output>${s.fov}</output></div>
+        <h3>Audio</h3>
+        <div class="row"><label>Master volume</label><input type="range" min="0" max="1" step="0.01" data-s="volume" value="${s.volume}"><output>${s.volume}</output></div>
+        <h3>Crosshair</h3>
+        <div class="row"><label>Colour</label><input type="color" data-s="crosshairColor" value="${s.crosshairColor}"></div>
+        <div class="row"><label>Length</label><input type="range" min="2" max="14" step="1" data-s="crosshairSize" value="${s.crosshairSize}"><output>${s.crosshairSize}</output></div>
+        <div class="row"><label>Centre dot</label><input type="checkbox" data-s="crosshairDot" ${s.crosshairDot ? 'checked' : ''}></div>
+        <h3>Controls</h3>
+        <table class="keys">${[['W A S D', 'Move'], ['Shift', 'Walk (quiet)'], ['C / Ctrl', 'Crouch'], ['Space', 'Jump'], ['Mouse 1', 'Fire'], ['Mouse 2', 'Scope / heavy stab'], ['R', 'Reload'], ['F', 'Inspect weapon'], ['1 2 3 / wheel', 'Switch weapon'], ['Q', 'Last weapon'], ['B', 'Loadout'], ['Tab', 'Scoreboard'], ['Esc', 'Pause']]
+          .map(([k, a]) => `<tr><td><kbd>${k}</kbd></td><td>${a}</td></tr>`).join('')}</table>
+        <h3>Data</h3>
+        <div class="row"><label>Profile</label><button class="danger" data-reset>Reset inventory & credits</button></div>
+      </section>`;
+    for (const inp of page.querySelectorAll('[data-s]')) {
+      inp.oninput = () => {
+        const k = inp.dataset.s;
+        if (k === 'name') { P.setName(inp.value); this.settings.name = inp.value; }
+        else s[k] = inp.type === 'checkbox' ? inp.checked : inp.type === 'range' ? +inp.value : inp.value;
+        if (inp.nextElementSibling?.tagName === 'OUTPUT') inp.nextElementSibling.textContent = inp.value;
+        if (k === 'volume') audio.setVolume(s.volume);
+        s.save();
+      };
+    }
+    page.querySelector('[data-reset]').onclick = () => { if (confirm('Reset your inventory, credits and stats?')) { P.resetProfile(); this.go('settings'); } };
+  }
+
+  // ------------------------------------------------------------- misc
+  toast(msg) {
+    const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+    this.root.appendChild(t); setTimeout(() => t.remove(), 2600);
+  }
+
+  showResult(r) {
+    const layer = this.$('.modal-layer');
+    const rows = r.players.filter(p => p.team === r.team).sort((a, b) => b.kills - a.kills)
+      .map(p => `<tr class="${p.you ? 'me' : ''}"><td>${h(p.name)}</td><td>${p.kills}</td><td>${p.assists}</td><td>${p.deaths}</td></tr>`).join('');
+    layer.innerHTML = `<div class="modal small result ${r.won ? 'win' : 'lose'}">
+      <div class="info">
+        <div class="rar"><i></i>${r.won ? 'Victory' : 'Defeat'}</div>
+        <h2>${r.score[r.team]} <span>–</span> ${r.score[r.team === 'T' ? 'CT' : 'T']}</h2>
+        <table>${'<tr><th>Player</th><th>K</th><th>A</th><th>D</th></tr>' + rows}</table>
+        <h4>Rewards</h4>
+        <p class="reward">+${CR(r.reward.credits)} credits${r.reward.drops.map(d => ` · <b>${h(itemDef(d).name)}</b>`).join('')}</p>
+        <div class="acts"><button class="pri" data-act="close">Continue</button></div>
+      </div></div>`;
+    layer.onclick = (e) => { if (e.target.closest('[data-act=close]')) { layer.innerHTML = ''; layer.onclick = null; } };
+  }
+}
+
+// Stock (unskinned) weapon model for the showcase.
+function stockModel(slot) { return buildGun(slot === 'knife' ? 'knife:standard' : slot); }

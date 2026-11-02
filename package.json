@@ -18,6 +18,8 @@
   },
   "homepage": "https://github.com/sonion548/cs2#readme",
   "dependencies": {
+    "@fontsource/barlow": "^5.1.0",
+    "@fontsource/barlow-condensed": "^5.1.0",
     "three": "^0.170.0",
     "vite": "^5.4.11"
   },

@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { Character } from './character.js';
 import { findPath } from './level.js';
 import { buildCharacter, buildGun } from './models.js';
+import { applySkin, randomItemFor } from './items/render.js';
 
 const tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3();
 const DEG = Math.PI / 180;
@@ -56,7 +57,12 @@ export class Bot extends Character {
   equip() {
     const holder = this.model.userData.gunHolder;
     if (this.gunModel) holder.remove(this.gunModel);
-    this.gunModel = buildGun(this.weapon.id);
+    const id = this.weapon.id;
+    this.gunModel = buildGun(id === 'knife' ? 'knife:standard' : id);
+    // bots keep one random finish per weapon for the whole match
+    this.skins ||= {};
+    if (!(id in this.skins)) this.skins[id] = Math.random() < 0.55 && id !== 'knife' ? randomItemFor(id) : null;
+    if (this.skins[id]) applySkin(this.gunModel, this.skins[id], { size: 512 });
     holder.add(this.gunModel);
   }
 

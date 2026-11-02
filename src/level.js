@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Box, World } from './physics.js';
-import { tex, letterTexture, rng } from './textures.js';
+import { surface, letterTexture, rng } from './textures.js';
 
 // BoxGeometry whose UVs are scaled to world units so textures don't stretch.
 function worldBox(w, h, d, x, y, z, texScale = 4) {
@@ -119,26 +119,31 @@ export function buildLevel(map, scene) {
       if (at(x + 1, z) === '#') px += S / 2 - 0.6; else if (at(x - 1, z) === '#') px -= S / 2 - 0.6;
       else if (at(x, z + 1) === '#') pz += S / 2 - 0.6; else pz -= S / 2 - 0.6;
       // barrel
-      const g = new THREE.CylinderGeometry(0.42, 0.42, 1.2, 14);
+      const g = new THREE.CylinderGeometry(0.42, 0.42, 1.2, 24);
       g.translate(px, 0.6, pz);
       put('barrel', g);
       world.add(new Box(px - 0.42, 0, pz - 0.42, px + 0.42, 1.2, pz + 0.42, 'barrel'));
     }
   }
 
-  // Materials
-  const mats = {
-    sandstone: new THREE.MeshStandardMaterial({ map: tex('sandstone'), bumpMap: tex('sandstone'), bumpScale: 1.5, roughness: 0.92 }),
-    plaster: new THREE.MeshStandardMaterial({ map: tex('plaster'), bumpMap: tex('plaster'), bumpScale: 1, roughness: 0.95 }),
-    trim: new THREE.MeshStandardMaterial({ map: tex('wallTrim'), roughness: 0.85 }),
-    paving: new THREE.MeshStandardMaterial({ map: tex('paving'), bumpMap: tex('paving'), bumpScale: 1.2, roughness: 0.9 }),
-    sand: new THREE.MeshStandardMaterial({ map: tex('sand'), bumpMap: tex('sand'), bumpScale: 0.8, roughness: 1 }),
-    tiles: new THREE.MeshStandardMaterial({ map: tex('tiles'), bumpMap: tex('tiles'), bumpScale: 1, roughness: 0.75 }),
-    concrete: new THREE.MeshStandardMaterial({ map: tex('concrete'), roughness: 0.9 }),
-    crate: new THREE.MeshStandardMaterial({ map: tex('crate'), bumpMap: tex('crate'), bumpScale: 1.5, roughness: 0.85 }),
-    metal: new THREE.MeshStandardMaterial({ map: tex('metal'), roughness: 0.5, metalness: 0.6 }),
-    barrel: new THREE.MeshStandardMaterial({ color: 0x3f5a3a, map: tex('metal', 3), roughness: 0.55, metalness: 0.4 }),
+  // Materials (colour + generated normal maps)
+  const surf = (name, seed, opts = {}) => {
+    const t = surface(name, seed);
+    return new THREE.MeshStandardMaterial({ map: t.map, normalMap: t.normalMap, normalScale: new THREE.Vector2(1, 1).multiplyScalar(opts.ns ?? 1), roughness: opts.rough ?? 0.92, metalness: opts.metal ?? 0, color: opts.color ?? 0xffffff });
   };
+  const mats = {
+    sandstone: surf('sandstone', 1, { ns: 1.4 }),
+    plaster: surf('plaster', 1, { ns: 1.2 }),
+    trim: surf('wallTrim', 1, { ns: 1.2 }),
+    paving: surf('paving', 1, { ns: 1.4, rough: 0.88 }),
+    sand: surf('sand', 1, { ns: 1, rough: 1 }),
+    tiles: surf('tiles', 1, { ns: 1.1, rough: 0.7 }),
+    concrete: surf('concrete', 1, { ns: 1 }),
+    crate: surf('crate', 1, { ns: 1.3, rough: 0.85 }),
+    metal: surf('metal', 1, { rough: 0.5, metal: 0.5 }),
+    barrel: surf('metal', 3, { rough: 0.55, metal: 0.4, color: 0x5f8a58 }),
+  };
+
 
   const group = new THREE.Group();
   for (const [k, geos] of Object.entries(buckets)) {
