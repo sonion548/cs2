@@ -28,8 +28,8 @@ Server settings come from environment variables, or from a `.env` file next to `
 (copy `.env.example`; `.env` is never committed):
 
 - `DATABASE_URL`: a Postgres connection string (for example a free Neon database). When it's set,
-  accounts, inventories, market listings, sales and trades are saved there, in one table
-  (`vantage_kv`, created automatically).
+  accounts, inventories, market listings and trades are saved in the `vantage_kv` table and market
+  sales in `vantage_sales` (both created automatically).
 - `DB_FILE`: without `DATABASE_URL`, everything is saved to this JSON file instead (default
   `data/db.json`).
 - `PORT`: default 8080.
@@ -38,15 +38,19 @@ To check a running server end to end, run `node server/selftest.js ws://localhos
 
 ### Saving accounts in Neon (Postgres)
 
-1. Sign up at neon.tech and create a project (the free plan is enough).
+1. Sign up at neon.tech and create a project (the free plan is enough). Pick the region closest to
+   where the game server runs (for Render's Oregon region, AWS US West 2).
 2. In the project dashboard click **Connect** and copy the connection string. It looks like
-   `postgresql://user:password@ep-something.region.aws.neon.tech/neondb?sslmode=require`.
-3. Local server: create `.env` next to `package.json` with `DATABASE_URL=<that string>`, then
-   `npm run server`. The first line it prints says where it saves (Postgres or a file).
+   `postgresql://user:password@ep-something-pooler.region.aws.neon.tech/neondb?sslmode=require&channel_binding=require`.
+   Use it exactly as Neon shows it: the server reads `sslmode` and `channel_binding` and always uses a
+   verified TLS connection.
+3. Optional local check: put `DATABASE_URL=<that string>` in a `.env` file next to `package.json`
+   and run `npm run db:check`. It connects, creates the tables and prints how many accounts are stored.
 4. Already have accounts in `data/db.json`? Copy them across once with `npm run db:import`.
 
-Neon pauses the database after a few minutes without traffic and wakes it on the next request,
-so the first save after a quiet spell can take a second.
+Neon pauses the database after a few minutes without traffic and wakes it on the next request. The
+server retries for about a minute at startup while the database wakes up, and reconnects on its own
+if an idle connection is dropped.
 
 ### Hosting on Render
 

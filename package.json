@@ -8,7 +8,8 @@
     "preview": "vite preview",
     "server": "node server/index.js",
     "db:import": "node server/import-json.js",
-    "start": "vite build && node server/index.js"
+    "start": "vite build && node server/index.js",
+    "db:check": "node server/db-check.js"
   },
   "repository": {
     "type": "git",

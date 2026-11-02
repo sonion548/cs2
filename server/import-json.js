@@ -32,7 +32,9 @@ if (existing && !force) {
   await db.close();
   process.exit(1);
 }
-Object.assign(db.data, { users: src.users || {}, listings: src.listings || [], sales: src.sales || [], trades: src.trades || [], nextId: src.nextId || 1 });
+if (force) await db.clearSales();
+Object.assign(db.data, { users: src.users || {}, listings: src.listings || [], trades: src.trades || [], nextId: src.nextId || 1 });
+db.data.sales.push(...(src.sales || []));
 await db.flushNow();
 console.log(`Imported ${Object.keys(db.data.users).length} account(s) from ${file} into ${db.where}.`);
 await db.close();
