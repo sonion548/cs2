@@ -21,14 +21,24 @@ const POSE = {
   bomb: new THREE.Vector3(0.0, -0.13, -0.24),
 };
 const poseOf = (type) => POSE[type] || POSE.rifle;
-// which way each palm faces when holding a weapon (arm space: +x right, +y up, -z forward)
-const PALM_R = {
-  rifle: new THREE.Vector3(-1, -0.25, 0.1), sniper: new THREE.Vector3(-1, -0.25, 0.1), pistol: new THREE.Vector3(-1, -0.15, 0.1),
-  melee: new THREE.Vector3(-0.9, -0.3, 0.2), grenade: new THREE.Vector3(-0.6, -0.2, -0.8), bomb: new THREE.Vector3(-0.3, -1, 0),
+// How each hand holds each kind of weapon, in the weapon's own axes (+x right,
+// +y up, -z toward the muzzle): k is the knuckle direction (wrist to knuckles),
+// palm the way the palm faces. The same grips are used for third person (rig.js).
+const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
+const GRIP_R = {
+  rifle: [V3(0, -0.34, -0.94), V3(-1, 0, 0)],          // pistol grip: knuckles forward-down, palm on its right side
+  sniper: [V3(0, -0.34, -0.94), V3(-1, 0, 0)],
+  pistol: [V3(0, -0.34, -0.94), V3(-1, 0, 0)],
+  melee: [V3(0, 0.8, -0.6), V3(-1, 0, 0)],             // forward grip: a vertical fist, blade out of the thumb side
+  grenade: [V3(0, 0.6, -0.8), V3(-0.6, 0, -0.4)],
+  bomb: [V3(0, -0.2, -1), V3(-1, 0, 0)],
 };
-const PALM_L = {
-  rifle: new THREE.Vector3(0.55, 0.8, 0.1), sniper: new THREE.Vector3(0.55, 0.8, 0.1), pistol: new THREE.Vector3(0.9, 0.2, 0.2),
-  mag: new THREE.Vector3(0.6, 0.7, 0.2), bomb: new THREE.Vector3(0.3, -1, 0),
+const GRIP_L = {
+  rifle: [V3(0.75, 0.15, -0.6), V3(0.35, 0.95, 0)],    // under the handguard, fingers up its right side
+  sniper: [V3(0.75, 0.15, -0.6), V3(0.35, 0.95, 0)],
+  pistol: [V3(0.25, -0.4, -0.88), V3(1, 0.25, 0)],     // wrapped round the shooting hand, thumbs forward
+  mag: [V3(0.2, 0.9, 0.1), V3(1, 0, 0)],
+  bomb: [V3(0, -0.2, -1), V3(1, 0, 0)],
 };
 
 // Inspect keyframes: [t, rotX, rotY, rotZ, dx, dy, dz]
@@ -169,8 +179,9 @@ class SkinnedArm {
     for (const b of this.bones) b.scale.setScalar(v ? 1 : 1e-4);
   }
 
-  // S shoulder, T grip point, pole elbow direction, palm: which way the palm faces.
-  solve(S, T, pole, palm) {
+  // S shoulder, T the point the fingers close on, pole elbow direction,
+  // k knuckle direction (wrist to knuckles) and palm: the hand's frame.
+  solve(S, T, pole, k, palm) {
     const ik = (W) => {
       const to = W.clone().sub(S);
       let d = to.length();
@@ -186,11 +197,10 @@ class SkinnedArm {
       pv.normalize();
       return { E: S.clone().addScaledVector(dir, a).addScaledVector(pv, h), W: S.clone().addScaledVector(dir, d) };
     };
-    // first pass to the grip for the forearm's line, then put the wrist behind the grip
-    const first = ik(T);
-    const fd = T.clone().sub(first.E).normalize();
+    // the wrist sits behind and to the back of the hand from where the fingers close
+    const fd = k.clone().normalize();
     const pl = palm.clone().sub(fd.clone().multiplyScalar(palm.dot(fd))).normalize();
-    const Wt = T.clone().addScaledVector(fd, -0.062).addScaledVector(pl, -0.024);
+    const Wt = T.clone().addScaledVector(fd, -0.066).addScaledVector(pl, -0.025);
     const { E, W } = ik(Wt);
     const u = E.clone().sub(S).normalize(), v = W.clone().sub(E).normalize();
     let n = new THREE.Vector3().crossVectors(u, v);
@@ -411,8 +421,9 @@ export class ViewModel {
         rot.z += 0.35; pos.y -= 0.02;
         magReach = (Math.sin(this.reloadT * Math.PI * 2 / this.def.reloadTime) * 0.5 + 0.5);
       } else {
+        // roll the magazine well toward the support hand, muzzle dipping a little
         const tilt = Math.sin(Math.min(1, f * 1.1) * Math.PI);
-        rot.z += tilt * 0.55; rot.x += tilt * 0.25; pos.y -= tilt * 0.03;
+        rot.z -= tilt * 0.42; rot.x -= tilt * 0.1; pos.x -= tilt * 0.012; pos.y -= tilt * 0.028;
         if (this.mag) {
           const drop = f < 0.25 ? f / 0.25 : f < 0.45 ? 1 : f < 0.7 ? 1 - (f - 0.45) / 0.25 : 0;
           this.mag.position.copy(this.magBase); this.mag.position.y += (this.magUp ? 0.25 : -0.25) * drop;
@@ -458,22 +469,31 @@ export class ViewModel {
       this.shoulders ||= this.restShoulders();
       SR = this.shoulders.R; SL = this.shoulders.L;
     }
-    let R = local(world(grip.clone().add(new THREE.Vector3(0.012, -0.01, 0))));
+    let R = local(world(this.skinned ? grip.clone() : grip.clone().add(new THREE.Vector3(0.012, -0.01, 0))));
     if (handROverride) R.lerp(local(handROverride.clone()), 0.8);
     if (this.throwT >= 0 || (t === 'grenade' && !this.gun.visible)) R = local(world(grip.clone()));
-    if (this.skinned) this.armR.solve(SR, R, new THREE.Vector3(0.7, -1, 0.25), PALM_R[t] || PALM_R.rifle);
-    else this.armR.solve(SR, R, new THREE.Vector3(0.6, -1, 0.1), 0.2, t === 'melee' || t === 'grenade' ? 1 : 0.9);
+    // the gun's axes in arm space, so the hands turn with it (kick, reload, inspect, swing)
+    const gunQ = this.armSpace.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(this.gun.getWorldQuaternion(new THREE.Quaternion()));
+    const inGun = (v) => v.clone().applyQuaternion(gunQ);
+    if (this.skinned) {
+      const [k, palm] = GRIP_R[t] || GRIP_R.rifle;
+      this.armR.solve(SR, R, new THREE.Vector3(0.7, -1, 0.25), inGun(k), inGun(palm));
+    } else this.armR.solve(SR, R, new THREE.Vector3(0.6, -1, 0.1), 0.2, t === 'melee' || t === 'grenade' ? 1 : 0.9);
     // left hand: foregrip, pistol support, magazine during reloads, or out of view
     let L = null;
-    if (ud.fore && t !== 'melee' && t !== 'grenade') L = local(world(ud.fore.clone().add(new THREE.Vector3(-0.02, -0.025, 0))));
-    else if (t === 'pistol') L = local(world(grip.clone().add(new THREE.Vector3(-0.024, -0.022, 0.012))));
+    if (ud.fore && t !== 'melee' && t !== 'grenade') L = local(world(ud.fore.clone().add(this.skinned ? new THREE.Vector3(0, -0.006, 0) : new THREE.Vector3(-0.02, -0.025, 0))));
+    else if (t === 'pistol') L = local(world(grip.clone().add(this.skinned ? new THREE.Vector3(-0.03, -0.016, 0.004) : new THREE.Vector3(-0.024, -0.022, 0.012))));
     if (L && magReach > 0) {
       const magP = this.mag ? local(this.mag.getWorldPosition(new THREE.Vector3())) : L.clone().add(new THREE.Vector3(0, -0.15, 0.08));
       L.lerp(magP, magReach);
     }
     if (this.skinned) {
       this.armL.visible = !!L;
-      if (L) this.armL.solve(SL, L, new THREE.Vector3(-0.8, -1, 0.15), magReach > 0.3 ? PALM_L.mag : (PALM_L[t] || PALM_L.rifle));
+      if (L) {
+        const [k0, p0] = GRIP_L[t] || GRIP_L.rifle, [k1, p1] = GRIP_L.mag;
+        const f = Math.min(1, magReach * 1.4);
+        this.armL.solve(SL, L, new THREE.Vector3(-0.8, -1, 0.15), inGun(k0.clone().lerp(k1, f)), inGun(p0.clone().lerp(p1, f)));
+      }
       return;
     }
     this.armL.group.visible = !!L;
