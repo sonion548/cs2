@@ -259,6 +259,16 @@ export function buildLevel(map, scene) {
     for (const [x0, y0, z0, x1, y1, z1, tag] of assets.colliders[key]) world.add(new Box(x0, y0, z0, x1, y1, z1, tag));
   }
 
+  // Safety net: a solid boundary just outside the grid, full height, so no gap
+  // in a map's walls can ever let anyone walk out into the desert.
+  {
+    const X = W * S, Z = H * S, t = 2, top = WH + 30;
+    world.add(new Box(-t, -1, -t, X + t, top, 0, 'bounds'));
+    world.add(new Box(-t, -1, Z, X + t, top, Z + t, 'bounds'));
+    world.add(new Box(-t, -1, 0, 0, top, Z, 'bounds'));
+    world.add(new Box(X, -1, 0, X + t, top, Z, 'bounds'));
+  }
+
   // Navigation grid: one node per walkable cell.
   const nav = {
     W, H, S,

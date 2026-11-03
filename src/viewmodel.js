@@ -33,6 +33,20 @@ const GRIP_R = {
   grenade: [V3(0, 0.6, -0.8), V3(-0.6, 0, -0.4)],
   bomb: [V3(0, -0.2, -1), V3(-1, 0, 0)],
 };
+// Knives, CS-style: the blade angles across the lower right of the view with
+// its tip toward the centre (inward) and up, edge down, back of the hand to you.
+// tip / edge are view-space directions (+x right, +y up, -z ahead); k / palm the
+// hand frame in the knife's own axes. The karambit is held in a reverse grip
+// (blade out of the little-finger side), the push dagger punched forward.
+const KNIFE_HOLD = {
+  forward: { tip: V3(-0.66, 0.44, -0.6), edge: V3(-0.25, -0.8, -0.5), k: V3(0, -1, 0), palm: V3(-1, 0, 0), pos: V3(0.11, -0.115, -0.25) },
+  reverse: { tip: V3(-0.42, -0.62, -0.66), edge: V3(-0.5, 0.25, -0.8), k: V3(0, -1, 0), palm: V3(1, 0, 0), pos: V3(0.1, -0.08, -0.24) },
+  punch: { tip: V3(-0.42, 0.18, -0.89), edge: V3(0, -1, 0), k: V3(0, 0, -1), palm: V3(0, -1, 0), pos: V3(0.1, -0.11, -0.26) },
+};
+const KNIFE_STYLE = { karambit: 'reverse', push: 'punch' };
+// guns point a touch inward, toward the crosshair
+const GUN_YAW = { rifle: 0.05, sniper: 0.04, pistol: 0.04, grenade: 0.0, bomb: 0.0 };
+
 const GRIP_L = {
   rifle: [V3(0.75, 0.15, -0.6), V3(0.35, 0.95, 0)],    // under the handguard, fingers up its right side
   sniper: [V3(0.75, 0.15, -0.6), V3(0.35, 0.95, 0)],
@@ -281,9 +295,21 @@ export class ViewModel {
     if (this.gun) this.holder.remove(this.gun);
     this.id = id; this.type = type;
     this.def = WEAPONS[id];
-    const modelId = id === 'knife' ? `knife:${item ? SKINS[item.defId]?.knife || 'standard' : 'standard'}` : id;
+    const knifeType = item?.knife || (item ? SKINS[item.defId]?.knife : null) || 'standard';
+    const modelId = id === 'knife' ? `knife:${knifeType}` : id;
+    this.knifeType = id === 'knife' ? knifeType : null;
+    // resting orientation of the weapon in view (animations rotate on top of it)
+    if (type === 'melee') {
+      const h = this.knifeHold = KNIFE_HOLD[KNIFE_STYLE[knifeType] || 'forward'];
+      this.baseQ = mapFrame(V3(0, 0, -1), V3(0, -1, 0), h.tip, h.edge);
+      this.basePos = h.pos;
+    } else {
+      this.knifeHold = null;
+      this.baseQ = new THREE.Quaternion().setFromAxisAngle(V3(0, 1, 0), GUN_YAW[type] ?? 0.05);
+      this.basePos = null;
+    }
     this.gun = buildGun(modelId);
-    if (item) applySkin(this.gun, item);
+    if (item?.defId) applySkin(this.gun, item);
     this.gun.traverse(o => { if (o.isMesh) o.castShadow = false; });
     this.holder.add(this.gun);
     this.gun.add(this.flash);
@@ -333,7 +359,7 @@ export class ViewModel {
       const inv = cameraWorld.clone().invert();
       this.sun.position.set(0.55, 1, 0.35).transformDirection(inv);
     }
-    const pos = poseOf(this.type).clone();
+    const pos = (this.basePos || poseOf(this.type)).clone();
     const rot = new THREE.Euler(0, 0, 0);
 
     // bob
@@ -451,7 +477,7 @@ export class ViewModel {
     }
 
     this.root.position.copy(pos);
-    this.root.rotation.copy(rot);
+    this.root.quaternion.setFromEuler(rot).multiply(this.baseQ || new THREE.Quaternion());
     this.solveArms(handR, magReach);
   }
 
@@ -476,7 +502,7 @@ export class ViewModel {
     const gunQ = this.armSpace.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(this.gun.getWorldQuaternion(new THREE.Quaternion()));
     const inGun = (v) => v.clone().applyQuaternion(gunQ);
     if (this.skinned) {
-      const [k, palm] = GRIP_R[t] || GRIP_R.rifle;
+      const [k, palm] = t === 'melee' && this.knifeHold ? [this.knifeHold.k, this.knifeHold.palm] : (GRIP_R[t] || GRIP_R.rifle);
       this.armR.solve(SR, R, new THREE.Vector3(0.7, -1, 0.25), inGun(k), inGun(palm));
     } else this.armR.solve(SR, R, new THREE.Vector3(0.6, -1, 0.1), 0.2, t === 'melee' || t === 'grenade' ? 1 : 0.9);
     // left hand: foregrip, pistol support, magazine during reloads, or out of view
@@ -504,7 +530,7 @@ export class ViewModel {
   // them by most of the arm's length, out to the side and down.
   restShoulders() {
     const r = this.root, pos = r.position.clone(), rot = r.rotation.clone();
-    r.position.copy(poseOf(this.type)); r.rotation.set(0, 0, 0);
+    r.position.copy(this.basePos || poseOf(this.type)); r.quaternion.copy(this.baseQ || new THREE.Quaternion());
     r.updateMatrixWorld(true);
     const ud = this.gun.userData;
     const local = (v) => this.armSpace.worldToLocal(this.gun.localToWorld(v.clone()));

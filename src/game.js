@@ -515,6 +515,7 @@ export class Game {
       if (this.round === 1) ch.money = ECON.start;
       // survivors keep their guns, armour and grenades; everyone else starts fresh
       if (this.round === 1 || !ch.survived) ch.resetGear();
+      else this.refillAmmo(ch);
       ch.hasBomb = false;
     }
     const pp = place(this.player);
@@ -1102,9 +1103,19 @@ export class Game {
     this.net.send({ k: 'hello' });
     this.hud.roundStart();
   }
+  // Guns a survivor kept start the new round with a full magazine and reserve.
+  refillAmmo(ch) {
+    for (const w of Object.values(ch.weapons || {})) {
+      if (!w || !w.def?.pattern) continue;
+      w.ammo = w.def.magSize; w.reserve = w.def.reserve;
+      w.reloading = 0; w.shotIndex = 0; w.recoil = [0, 0];
+    }
+  }
+
   netRespawn(pos, yaw, fresh) {
     const p = this.player;
     if (fresh || !p.alive || !p.weapons[2] && !p.weapons[1]) p.resetGear();
+    else this.refillAmmo(p);
     p.reset(); p.pos.copy(pos); p.yaw = yaw; p.pitch = 0; p.crouch = 0; p.scoped = 0;
     this.deathCam = null; this.spec.target = null;
     p.slot = 0; p.switchTo(p.bestSlot());
