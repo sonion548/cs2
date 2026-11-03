@@ -4,6 +4,7 @@
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { GUN_IDS } from './weapons.js';
 import { KNIFE_TYPES } from './shared/knives.js';
+import { preloadSurfaces, MATCH_SURFACES } from './textures.js';
 
 const BASE = (import.meta.env?.BASE_URL || '/') + 'models/';
 const WEAPONS = GUN_IDS;
@@ -26,9 +27,11 @@ export async function loadAssets(onProgress = () => {}) {
     ...CHARACTERS.map(c => [`arms:${c}`, `characters/arms_${c}.glb`, (g) => { assets.arms[c] = g.scene; }]),
   ];
   let done = 0;
-  const total = jobs.length + MAPS.length;
+  const total = jobs.length + MAPS.length + MATCH_SURFACES.length;
   const tick = () => onProgress(++done / total);
   await Promise.all([
+    // the map's surface textures (baked files, generated if missing)
+    preloadSurfaces(MATCH_SURFACES, tick).catch((e) => console.warn('Textures will be generated on demand:', e)),
     ...jobs.map(([, path, store]) => loader.loadAsync(BASE + path).then(store).catch(() => {}).finally(tick)),
     ...MAPS.map(m => fetch(BASE + `maps/${m}.colliders.json`).then(r => (r.ok ? r.json() : null)).then(c => { if (c) assets.colliders[m] = c; }).catch(() => {}).finally(tick)),
   ]);

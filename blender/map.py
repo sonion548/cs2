@@ -43,6 +43,9 @@ class Builder:
     def __init__(self):
         self.bms = {}
         self.colliders = []
+        self.explicit = set()   # materials whose quads carry their own UVs (decals)
+        self.faces = {}         # facade feature per wall face: (axis, plane, mid) -> kind
+        self.occ = set()        # (x, z, dx, dz) wall faces that already have props in front
 
     def bm(self, mat):
         if mat not in self.bms:
@@ -111,17 +114,39 @@ class Builder:
         bm = self.bm(mat)
         bm.faces.new([bm.verts.new(self.g2b(*p)) for p in pts])
 
+    def uvquad(self, mat, pts, uvs):
+        """Quad with its own UVs (decals, posters, grime strips); pts go
+        counter-clockwise as seen from the side it faces."""
+        bm = self.bm(mat)
+        lay = bm.loops.layers.uv.verify()
+        f = bm.faces.new([bm.verts.new(self.g2b(*p)) for p in pts])
+        for loop, uv in zip(f.loops, uvs):
+            loop[lay].uv = uv
+        self.explicit.add(mat)
+
+    def obox(self, mat, c, ax, ay, az):
+        """Box at centre c with three half-axis vectors (any orientation)."""
+        bm = self.bm(mat)
+        v = []
+        for dx, dy, dz in [(-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1), (-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1)]:
+            v.append(bm.verts.new(self.g2b(*[c[i] + dx * ax[i] + dy * ay[i] + dz * az[i] for i in range(3)])))
+        for f in [(0, 1, 2, 3), (4, 7, 6, 5), (0, 4, 5, 1), (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 4, 0)]:
+            bm.faces.new([v[i] for i in f])
+
     def finish(self, tex_scale):
         objs = []
         for mat, bm in self.bms.items():
+            explicit = mat in self.explicit
             bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.0005)
-            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+            if not explicit:
+                bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
             me = bpy.data.meshes.new(mat)
             bm.to_mesh(me); bm.free()
             # world-space box-projected UVs so tiling textures line up everywhere
-            uv = me.uv_layers.new(name='UVMap')
+            # (decal quads keep the UVs they were made with)
+            uv = me.uv_layers.new(name='UVMap') if not explicit else None
             s = 1.0 / tex_scale.get(mat, 4.0)
-            for poly in me.polygons:
+            for poly in (me.polygons if not explicit else []):
                 n = poly.normal
                 ax = max(range(3), key=lambda i: abs(n[i]))
                 for li in poly.loop_indices:
@@ -228,6 +253,9 @@ def build(name):
             else:
                 base = fh(int(mid / S), int(f / S) if sgn > 0 else int(f / S) - 1)
 
+            B.faces[(axis, round(f, 2), round(mid, 2))] = ('window' if r < 0.45 and h > 6 else 'door' if r < 0.62 else
+                                                          'lantern' if r < 0.75 else 'pipe' if r < 0.85 else 'none')
+
             def put(mat, u0, y0, u1, y1, d0, d1, collide=None):
                 # u along the face, d outward from the face plane; heights from the floor in front
                 y0 += base; y1 += base
@@ -329,6 +357,7 @@ def build(name):
                 touching = [(dx, dz) for dx, dz in nb if at(x + dx, z + dz) == '#']
                 if touching and rnd.random() < 0.08:
                     dx, dz = touching[0]
+                    B.occ.add((x, z, dx, dz))
                     px, pz = cx + dx * (S / 2 - 0.6), cz + dz * (S / 2 - 0.6)
                     barrel(B, px, pz, fy)
                     B.colliders.append([px - 0.42, fy, pz - 0.42, px + 0.42, fy + 1.2, pz + 0.42, 'barrel'])
@@ -389,6 +418,8 @@ def build(name):
         raised(B, grid, S, at, lvl)
     interiors(B, grid, S, WH, at, random.Random(77))
     dress(B, grid, S, walls, at, street, fh)
+    from details import build_details
+    print('details:', build_details(B, grid, S, at, fh, lvl, B.faces, B.occ))
 
     tex_scale.update({'sand': 4.0, 'paving': 4.0, 'tiles': 4.0, 'concrete': 4.0, 'sandstone': 4.0, 'plaster': 4.0, 'terracotta': 2.0})
     B.finish(tex_scale)
@@ -607,6 +638,8 @@ def dress(B, grid, S, walls, at, walk, fh=lambda x, z: 0.0):
             r = rnd.random()
             if fy > 0:
                 continue   # keep raised walkways clear
+            if r < 0.2:
+                B.occ.add((x, z, dx, dz))
             if r < 0.05:
                 # palm tree in a corner of the cell, leaning away from the wall
                 px, pz = cx + dx * (S / 2 - 0.9) + (dz and (rnd.random() - 0.5) * 2), cz + dz * (S / 2 - 0.9) + (dx and (rnd.random() - 0.5) * 2)
@@ -655,12 +688,14 @@ def dress(B, grid, S, walls, at, walk, fh=lambda x, z: 0.0):
                 if walk(xs, zc) and rnd.random() < 0.12:  # walk = street here
                     f = x0 if side < 0 else x1
                     balcony(B, 'x', f, zc * S + S / 2, side)
+                    B.faces[('x', round(f, 2), round(zc * S + S / 2, 2))] = 'balcony'
         for xc in range(int(x0 / S), int(x1 / S)):
             for side in (-1, 1):
                 zs = int(z0 / S) - 1 if side < 0 else int(z1 / S)
                 if walk(xc, zs) and rnd.random() < 0.12:  # walk = street here
                     f = z0 if side < 0 else z1
                     balcony(B, 'z', f, xc * S + S / 2, side)
+                    B.faces[('z', round(f, 2), round(xc * S + S / 2, 2))] = 'balcony'
 
 
 def tower(B, cx, cz, h, rnd):
@@ -890,7 +925,10 @@ def main(argv):
                    'sand': (0.78, 0.66, 0.47, 1), 'paving': (0.55, 0.5, 0.44, 1), 'tiles': (0.7, 0.62, 0.5, 1), 'concrete': (0.5, 0.5, 0.48, 1),
                    'wood': (0.45, 0.3, 0.16, 1), 'darkwood': (0.22, 0.14, 0.08, 1), 'crate': (0.5, 0.35, 0.2, 1), 'iron': (0.12, 0.12, 0.13, 1),
                    'barrel': (0.3, 0.42, 0.28, 1), 'glass': (0.04, 0.05, 0.06, 1), 'lamp': (1.0, 0.75, 0.4, 1), 'cloth_red': (0.6, 0.12, 0.1, 1),
-                   'cloth_blue': (0.12, 0.22, 0.45, 1), 'cloth_sand': (0.75, 0.62, 0.42, 1), 'leaf': (0.2, 0.38, 0.12, 1), 'terracotta': (0.62, 0.3, 0.16, 1)}.items():
+                   'cloth_blue': (0.12, 0.22, 0.45, 1), 'cloth_sand': (0.75, 0.62, 0.42, 1), 'leaf': (0.2, 0.38, 0.12, 1), 'terracotta': (0.62, 0.3, 0.16, 1),
+                   'paint': (0.8, 0.78, 0.72, 1), 'paint_blue': (0.36, 0.48, 0.6, 1), 'paint_red': (0.6, 0.28, 0.22, 1), 'rubber': (0.08, 0.08, 0.08, 1),
+                   'cardboard': (0.62, 0.48, 0.3, 1), 'paper': (0.85, 0.82, 0.75, 1), 'grime': (0.2, 0.16, 0.12, 1), 'dirt': (0.25, 0.2, 0.15, 1),
+                   'decal': (0.2, 0.18, 0.15, 1), 'poster': (0.7, 0.5, 0.3, 1)}.items():
         mm = bpy.data.materials.get(m)
         if mm:
             mm.node_tree.nodes['Principled BSDF'].inputs['Base Color'].default_value = col

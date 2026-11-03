@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Box, World } from './physics.js';
-import { surface, letterTexture, rng } from './textures.js';
+import { surface, letterTexture, rng, grimeTexture, decalAtlas, posterAtlas } from './textures.js';
 import { assets } from './assets.js';
 import { passable, INTERIOR } from './maps.js';
 
@@ -30,12 +30,48 @@ function floorQuad(x0, z0, x1, z1, y, texScale = 4) {
   return g;
 }
 
+// Breaks up tiling: a broad world-space brightness/tint variation from the
+// macro texture, a little roughness variation, and (if given) fine grain from
+// the detail texture laid over the surface's own UVs.
+function vary(mat, macro, detail) {
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uMacro = { value: macro };
+    if (detail) sh.uniforms.uDetail = { value: detail };
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;')
+      .replace('#include <project_vertex>', `#include <project_vertex>
+#ifdef USE_BATCHING
+  vWPos = (modelMatrix * batchingMatrix * vec4(transformed, 1.0)).xyz;
+#else
+  vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+#endif`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+uniform sampler2D uMacro;${detail ? '\nuniform sampler2D uDetail;' : ''}
+varying vec3 vWPos;`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+{
+  vec2 wp = vWPos.xz + vWPos.y * vec2(0.37, 0.61);
+  vec3 m = texture2D(uMacro, wp * 0.017).rgb;
+  float m2 = texture2D(uMacro, wp * 0.061 + 0.5).g;
+  diffuseColor.rgb *= mix(0.8, 1.12, m.r * 0.65 + m2 * 0.35);
+  diffuseColor.rgb *= mix(vec3(1.04, 1.0, 0.95), vec3(0.96, 0.99, 1.04), m.b);
+${detail ? `#ifdef USE_MAP
+  diffuseColor.rgb *= mix(0.88, 1.1, texture2D(uDetail, vMapUv * 5.0).r);
+#endif` : ''}
+}`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+roughnessFactor = clamp(roughnessFactor * mix(0.86, 1.08, texture2D(uMacro, (vWPos.xz + vWPos.y * vec2(0.37, 0.61)) * 0.05).r), 0.04, 1.0);`);
+  };
+  mat.customProgramCacheKey = () => (detail ? 'vary-d' : 'vary');
+}
+
 // Cells bots can path through (crates and raised platforms are treated as obstacles).
 const WALKABLE = '.,usABTKhD';
 // One floor level (map.levels digit) is this tall: low enough to step up.
 export const STEP = 0.45;
 
-export function buildLevel(map, scene) {
+export function buildLevel(map, scene, q = {}) {
   const { grid, cell: S, wallHeight: WH } = map;
   const H = grid.length, W = grid[0].length;
   const world = new World();
@@ -186,10 +222,19 @@ export function buildLevel(map, scene) {
   }
 
   // Materials (colour + generated normal maps)
+  const aniso = q.anisotropy ?? 4;
+  const sharpen = (t) => { if (t && t.anisotropy !== aniso) { t.anisotropy = aniso; t.needsUpdate = true; } return t; };
   const surf = (name, seed, opts = {}) => {
     const t = surface(name, seed);
-    return new THREE.MeshStandardMaterial({ map: t.map, normalMap: t.normalMap, normalScale: new THREE.Vector2(1, 1).multiplyScalar(opts.ns ?? 1), roughness: opts.rough ?? 0.92, metalness: opts.metal ?? 0, color: opts.color ?? 0xffffff });
+    return new THREE.MeshStandardMaterial({ map: sharpen(t.map), normalMap: sharpen(t.normalMap), normalScale: new THREE.Vector2(1, 1).multiplyScalar(opts.ns ?? 1), roughness: opts.rough ?? 0.92, metalness: opts.metal ?? 0, color: opts.color ?? 0xffffff });
   };
+  const plain = (color, rough = 0.9, metal = 0, side = THREE.FrontSide) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal, side });
+  // stains, grime and paper on top of other surfaces: no depth writes, pulled
+  // toward the camera so they never flicker against what they sit on
+  const decalMat = (map, opacity = 1) => new THREE.MeshStandardMaterial({
+    map: sharpen(map), transparent: true, opacity, depthWrite: false, roughness: 0.95, side: THREE.DoubleSide,
+    polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4,
+  });
   const mats = {
     sandstone: surf('sandstone', 1, { ns: 1.4 }),
     plaster: surf('plaster', 1, { ns: 1.2 }),
@@ -201,19 +246,37 @@ export function buildLevel(map, scene) {
     crate: surf('crate', 1, { ns: 1.3, rough: 0.85 }),
     metal: surf('metal', 1, { rough: 0.55, metal: 0.15 }),
     barrel: surf('metal', 3, { rough: 0.6, metal: 0.1, color: 0x7aa070 }),
-    stone: surf('sandstone', 2, { ns: 1.6, color: 0xe8dccb }),
+    stone: surf('sandstone', 1, { ns: 1.6, color: 0xe8dccb }),
     wood: surf('crate', 2, { ns: 1.2, rough: 0.8, color: 0xd8b48a }),
     darkwood: surf('crate', 3, { ns: 1.2, rough: 0.85, color: 0x6a4a32 }),
-    iron: new THREE.MeshStandardMaterial({ color: 0x2a2b2d, roughness: 0.55, metalness: 0.6 }),
-    glass: new THREE.MeshStandardMaterial({ color: 0x0c1014, roughness: 0.15, metalness: 0.4 }),
+    iron: plain(0x2a2b2d, 0.55, 0.6),
+    glass: plain(0x0c1014, 0.15, 0.4),
     lamp: new THREE.MeshStandardMaterial({ color: 0xffd9a0, emissive: 0xffa040, emissiveIntensity: 1.6 }),
-    cloth_red: new THREE.MeshStandardMaterial({ color: 0x9a2a1e, roughness: 0.95, side: THREE.DoubleSide }),
-    cloth_blue: new THREE.MeshStandardMaterial({ color: 0x24406e, roughness: 0.95, side: THREE.DoubleSide }),
-    cloth_sand: new THREE.MeshStandardMaterial({ color: 0xb89a68, roughness: 0.95, side: THREE.DoubleSide }),
-    leaf: new THREE.MeshStandardMaterial({ color: 0x4f6b2a, roughness: 0.8, side: THREE.DoubleSide }),
-    terracotta: surf('plaster', 3, { ns: 0.8, rough: 0.85, color: 0xc0704a }),
+    cloth_red: plain(0x9a2a1e, 0.95, 0, THREE.DoubleSide),
+    cloth_blue: plain(0x24406e, 0.95, 0, THREE.DoubleSide),
+    cloth_sand: plain(0xb89a68, 0.95, 0, THREE.DoubleSide),
+    leaf: plain(0x4f6b2a, 0.8, 0, THREE.DoubleSide),
+    terracotta: surf('plaster', 1, { ns: 0.8, rough: 0.85, color: 0xc0704a }),
+    // street clutter and fixtures
+    paint: plain(0xd2cbbb, 0.6, 0.1),
+    paint_blue: plain(0x5d7d9c, 0.55, 0.15),
+    paint_red: plain(0xa04a3a, 0.55, 0.15),
+    rubber: plain(0x1c1c1e, 0.92),
+    cardboard: plain(0xa47d4c, 0.96),
+    paper: plain(0xa9a08b, 0.95, 0, THREE.DoubleSide),
+    grime: decalMat(grimeTexture(), 1),
+    dirt: decalMat(grimeTexture(), 1),
+    decal: decalMat(decalAtlas()),
+    poster: decalMat(posterAtlas()),
   };
-
+  // World-space variation (and close-up grain on better settings) over every
+  // solid surface, so repeated tiles don't line up into an obvious pattern.
+  const macro = surface('macro', 1).map, detail = q.key === 'low' ? null : surface('detail', 1).map;
+  for (const [k, m] of Object.entries(mats)) {
+    m.name = k;
+    if (m.transparent || k === 'lamp' || k === 'glass') continue;
+    vary(m, macro, detail);
+  }
 
   const group = new THREE.Group();
   for (const [k, geos] of Object.entries(buckets)) {
@@ -243,11 +306,17 @@ export function buildLevel(map, scene) {
   if (assets.maps[key] && assets.colliders[key]) {
     for (const ch of [...group.children]) if (!ch.userData.keep) { group.remove(ch); ch.geometry?.dispose(); }
     const model = assets.maps[key].clone(true);
+    // Low: leave out the biggest see-through layers (wall grime, floor dirt) to save fill rate
+    if (q.key === 'low') {
+      const drop = [];
+      model.traverse(o => { if (o.isMesh && /^(grime|dirt)(\.\d+)?$/.test(o.material?.name || '')) drop.push(o); });
+      drop.forEach(o => o.removeFromParent());
+    }
     model.traverse(o => {
       if (!o.isMesh) return;
       const name = (o.material?.name || '').replace(/\.\d+$/, '');
       o.material = mats[name] || mats.sandstone;
-      o.castShadow = !['sand', 'paving', 'tiles', 'concrete', 'glass', 'lamp'].includes(name);
+      o.castShadow = !['sand', 'paving', 'tiles', 'concrete', 'glass', 'lamp', 'grime', 'dirt', 'decal', 'poster', 'paper'].includes(name);
       o.receiveShadow = true;
     });
     const chunks = chunked(model, CHUNK, WH - 0.6);

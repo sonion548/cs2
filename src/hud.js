@@ -174,7 +174,7 @@ export class Hud {
       if (this.fpsT > 0.5) {
         this.fpsT = 0;
         if (!this.fpsEl) { this.fpsEl = document.createElement('div'); this.fpsEl.className = 'fps'; this.root.appendChild(this.fpsEl); }
-        this.setText(fpsEl, `${Math.round(g.dyn.fps)} FPS · ${g.q.label} · ${Math.round(g.dyn.scale * 100)}%`);
+        setText(this.fpsEl, `${Math.round(g.dyn.fps)} FPS · ${g.q.label} · ${Math.round(g.dyn.scale * 100)}%`);
       }
     }
     const planted = g.bomb?.state === 'planted';

@@ -64,7 +64,7 @@ export class Game {
     const size = opts.teamSize ?? opts.net?.room?.size ?? 5;
     if (map.small?.[size] && MAPS[map.small[size]]) map = MAPS[map.small[size]];
     this.map = map;
-    this.level = buildLevel(map, this.scene);
+    this.level = buildLevel(map, this.scene, q);
     this.strategy = new Strategy(this);
     this.buildEnvironment();
 

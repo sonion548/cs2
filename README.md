@@ -1,7 +1,8 @@
 # Vantage
 
 An original browser-based tactical shooter (Three.js + Vite). All maps, models,
-textures, sounds and spray patterns are generated in code for this project.
+textures, sounds and spray patterns are generated in code for this project
+(textures are baked once to `public/textures/` by `npm run bake:textures`).
 
 ## Run
 
@@ -184,6 +185,24 @@ dropped them.
   visibility culling, character and weapon levels of detail; an optional FPS readout
 - Weapons are held properly in third and first person (shouldered rifles, two-handed pistols, forward-grip knife,
   aim pitch shared down the body), the view no longer shakes, and bots aim, move and react like people
+
+## Stage 7 (this build)
+
+- **Tighter maps**: Dunehold's lanes are two to four cells wide and turn (S-shaped upper tunnels, bent CT ramp and B
+  doors, a site wall that stops long A at the front of the site); long A and mid are the only long sightlines. Only
+  13% of spots see further than 12 cells, down from 76%. Dunehold Market's courtyard is now a small fountain court.
+- **No walking out of the map**: every border is closed, and the game adds a solid boundary around the grid as a
+  safety net. `npm run check:maps` checks every map: closed border, every cell reachable from T spawn and back,
+  points on walkable cells, and a flood fill over the exported colliders that must never get outside.
+- **Map detail**: grime at the foot of every wall and dirt on the floor beside it, stains, cracks, scorch marks and
+  footprints on the ground, rubble, planks, sacks, pallets, tyres, boxes, gas bottles, hand carts, litter, manholes and
+  gutters, plus air conditioners, electrics, pipes, cables, vents, posters, shop signs, house numbers and spray paint
+  on the walls, and painted **A / B direction signs** at junctions pointing the shortest way to each site
+- **Richer textures** (chipped and cracked stone, rain streaks, tie holes in concrete, worn tile paint and more) with
+  world-space colour variation so repeats don't line up, and fine grain up close on Medium and above. They are baked
+  to `public/textures/` by `npm run bake:textures` (from `src/texgen.js`) and generated in web workers if missing.
+- Knives held like CS in first person (tip angled inward; reverse grip karambit, punch grip push dagger), and kept
+  weapons start each round with a full magazine and reserve
 
 ## Blender models
 

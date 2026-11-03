@@ -10,7 +10,8 @@
     "db:import": "node server/import-json.js",
     "start": "vite build && node server/index.js",
     "db:check": "node server/db-check.js",
-    "check:maps": "node scripts/check-maps.js"
+    "check:maps": "node scripts/check-maps.js",
+    "bake:textures": "node scripts/bake-textures.mjs"
   },
   "repository": {
     "type": "git",

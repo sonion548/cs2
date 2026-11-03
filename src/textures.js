@@ -2,203 +2,111 @@
 // plus height; the height field is turned into a normal map so surfaces show
 // mortar joints, chips and grain under the sun instead of looking flat.
 import * as THREE from 'three';
-import { fbm, voronoi, valueNoise, heightToNormal, clamp01, mix, smooth, rng } from './noise.js';
+import { fbm, valueNoise, clamp01, mix, smooth, rng } from './noise.js';
+import { GEN, generateArrays, MATCH_SURFACES } from './texgen.js';
 
 export { rng };
 
 const cache = new Map();
 
-function toTexture(canvas, srgb = true) {
-  const t = new THREE.CanvasTexture(canvas);
+// ---------------------------------------------------------------- surfaces
+// Generated per pixel (src/texgen.js). preloadSurfaces() spreads the work over
+// several workers while the game loads; surface() returns what's ready and
+// falls back to generating on the spot.
+let surfaceScale = 1;
+export function setSurfaceScale(s) { surfaceScale = s; }
+
+function dataTexture(size, data, srgb) {
+  const t = new THREE.DataTexture(data, size, size, THREE.RGBAFormat, THREE.UnsignedByteType);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.anisotropy = 8;
-  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
   t.generateMipmaps = true;
+  t.anisotropy = 4;
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
   t.needsUpdate = true;
   return t;
 }
 
-// Runs a per-pixel generator fn(u, v, out) where out = [r, g, b, height].
-function generate(size, fn, normalStrength) {
-  const col = document.createElement('canvas'); col.width = col.height = size;
-  const ctx = col.getContext('2d');
-  const img = ctx.createImageData(size, size);
-  const h = new Float32Array(size * size);
-  const o = [0, 0, 0, 0];
-  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
-    fn(x / size, y / size, o);
-    const i = y * size + x;
-    img.data[i * 4] = o[0]; img.data[i * 4 + 1] = o[1]; img.data[i * 4 + 2] = o[2]; img.data[i * 4 + 3] = 255;
-    h[i] = o[3];
-  }
-  ctx.putImageData(img, 0, 0);
-  const nc = document.createElement('canvas'); nc.width = nc.height = size;
-  const nctx = nc.getContext('2d');
-  const nimg = nctx.createImageData(size, size);
-  nimg.data.set(heightToNormal(h, size, size, normalStrength * size / 512));
-  nctx.putImageData(nimg, 0, 0);
-  return { map: toTexture(col), normalMap: toTexture(nc, false) };
+// detail and macro are data (not colour), so they stay linear
+const LINEAR = new Set(['detail', 'macro']);
+function store(name, seed, { size, rgba, normal }) {
+  const out = { map: dataTexture(size, rgba, !LINEAR.has(name)), normalMap: normal ? dataTexture(size, normal, false) : null };
+  cache.set(name + ':' + seed, out);
+  return out;
 }
-
-// Brick/block courses: returns {edge (0 at mortar → 1 inside), id, bx, by}.
-function blocks(u, v, rows, cols, offset = 0.5, mortar = 0.012) {
-  const r = Math.floor(v * rows);
-  const shift = (r % 2) * offset;
-  const cu = u * cols + shift;
-  const c = Math.floor(cu);
-  const fu = cu - c, fv = v * rows - r;
-  const ex = Math.min(fu, 1 - fu) / cols, ey = Math.min(fv, 1 - fv) / rows;
-  const e = Math.min(ex, ey);
-  return { edge: smooth(mortar * 0.4, mortar * 1.6, e), id: ((c % cols) + cols) % cols + r * 97, fu, fv };
-}
-
-const GEN = {
-  sandstone: { size: 1024, normal: 3.2, fn(seed) {
-    return (u, v, o) => {
-      const b = blocks(u, v, 6, 3, 0.5, 0.01);
-      const tint = valueNoise(b.id, 3, seed) - 0.5;
-      const n = fbm(u * 8, v * 8, seed, 5, 8);
-      const fine = fbm(u * 64, v * 64, seed + 9, 3, 64);
-      const erosion = smooth(0.55, 0.75, fbm(u * 4, v * 4, seed + 4, 4, 4));
-      const strata = Math.sin((v * 6 * 9 + n * 4) * Math.PI) * 0.5 + 0.5;
-      let r = 196 + tint * 40 + (n - 0.5) * 50 + strata * 8 - fine * 18;
-      let g = 160 + tint * 32 + (n - 0.5) * 42 + strata * 6 - fine * 16;
-      let bl = 112 + tint * 22 + (n - 0.5) * 30 - fine * 12;
-      // mortar
-      const m = b.edge;
-      r = mix(122, r, m); g = mix(104, g, m); bl = mix(82, bl, m);
-      // darker weathering toward the bottom of each block + soot
-      const shade = 1 - b.fv * 0.08 - erosion * 0.12;
-      o[0] = r * shade; o[1] = g * shade; o[2] = bl * shade;
-      o[3] = m * (0.75 + n * 0.25) - erosion * 0.25 - fine * 0.05;
-    };
-  } },
-  plaster: { size: 1024, normal: 1.6, fn(seed) {
-    return (u, v, o) => {
-      const n = fbm(u * 6, v * 6, seed, 5, 6);
-      const fine = fbm(u * 80, v * 80, seed + 3, 2, 80);
-      // patches where plaster has fallen off revealing brick
-      const patch = smooth(0.62, 0.66, fbm(u * 3, v * 3, seed + 11, 4, 3));
-      const br = blocks(u, v, 28, 9, 0.5, 0.006);
-      const btint = valueNoise(br.id, 1, seed) * 30;
-      const crackMask = smooth(0.6, 0.7, fbm(u * 4, v * 4, seed + 30, 3, 4));
-      const crack = smooth(0.0045, 0.0, Math.abs(fbm(u * 5, v * 5, seed + 20, 5, 5) - 0.5)) * crackMask;
-      let r = 214 + (n - 0.5) * 40 - fine * 14, g = 192 + (n - 0.5) * 36 - fine * 12, b = 158 + (n - 0.5) * 26 - fine * 10;
-      const brick = [mix(110, 150 + btint, br.edge), mix(96, 86 + btint * 0.5, br.edge), mix(80, 62, br.edge)];
-      r = mix(r, brick[0], patch); g = mix(g, brick[1], patch); b = mix(b, brick[2], patch);
-      r -= crack * 70; g -= crack * 66; b -= crack * 60;
-      // grime gradient (bottom of the tile is the bottom of the wall)
-      const grime = smooth(0.6, 1, v) * 0.18;
-      o[0] = r * (1 - grime); o[1] = g * (1 - grime); o[2] = b * (1 - grime * 1.2);
-      o[3] = (1 - patch) * 0.6 + patch * br.edge * 0.4 - crack * 0.3 + fine * 0.06 + n * 0.1;
-    };
-  } },
-  paving: { size: 1024, normal: 3.5, fn(seed) {
-    return (u, v, o) => {
-      const vo = voronoi(u * 7, v * 7, seed, 7);
-      const edge = smooth(0.0, 0.09, vo.d2 - vo.d1);
-      const n = fbm(u * 16, v * 16, seed + 2, 4, 16);
-      const tint = vo.id;
-      const sand = smooth(0.5, 0.75, fbm(u * 5, v * 5, seed + 8, 4, 5)) * (1 - edge * 0.6);
-      let r = 150 + tint * 45 + (n - 0.5) * 40, g = 138 + tint * 38 + (n - 0.5) * 36, b = 118 + tint * 30 + (n - 0.5) * 30;
-      r = mix(96, r, edge); g = mix(84, g, edge); b = mix(66, b, edge);
-      r = mix(r, 200, sand * 0.5); g = mix(g, 172, sand * 0.5); b = mix(b, 128, sand * 0.5);
-      o[0] = r; o[1] = g; o[2] = b;
-      o[3] = edge * (0.8 + vo.id * 0.2) + n * 0.12 - sand * 0.1;
-    };
-  } },
-  tiles: { size: 1024, normal: 3, fn(seed) {
-    return (u, v, o) => {
-      const b = blocks(u, v, 4, 4, 0, 0.008);
-      const n = fbm(u * 12, v * 12, seed, 4, 12);
-      const t = valueNoise(b.id, 5, seed);
-      const crack = (t > 0.75) ? smooth(0.01, 0, Math.abs(fbm(u * 10, v * 10, seed + b.id, 3, 10) - 0.5)) : 0;
-      // simple painted border motif on every tile
-      const fu = b.fu, fv = b.fv;
-      const border = Math.min(fu, 1 - fu, fv, 1 - fv);
-      const band = smooth(0.1, 0.11, border) * (1 - smooth(0.14, 0.15, border));
-      const centre = 1 - smooth(0.12, 0.14, Math.hypot(fu - 0.5, fv - 0.5));
-      let r = 184 + t * 30 + (n - 0.5) * 40, g = 160 + t * 24 + (n - 0.5) * 34, bl = 126 + t * 18 + (n - 0.5) * 26;
-      const motif = Math.max(band, centre) * 0.65 * (0.6 + n * 0.6);
-      r = mix(r, 86, motif); g = mix(g, 102, motif); bl = mix(bl, 116, motif);
-      r = mix(80, r, b.edge); g = mix(70, g, b.edge); bl = mix(58, bl, b.edge);
-      r -= crack * 70; g -= crack * 60; bl -= crack * 50;
-      o[0] = r; o[1] = g; o[2] = bl;
-      o[3] = b.edge * 0.9 + n * 0.05 - crack * 0.4;
-    };
-  } },
-  sand: { size: 1024, normal: 2.2, fn(seed) {
-    return (u, v, o) => {
-      const n = fbm(u * 6, v * 6, seed, 5, 6);
-      const ripple = Math.sin((u * 40 + fbm(u * 3, v * 3, seed + 5, 3, 3) * 10) * Math.PI * 2) * 0.5 + 0.5;
-      const grains = valueNoise(u * 512, v * 512, seed + 9, 512);
-      const pebbles = smooth(0.82, 0.86, valueNoise(u * 90, v * 90, seed + 3, 90));
-      let r = 205 + (n - 0.5) * 46 + (grains - 0.5) * 30, g = 172 + (n - 0.5) * 40 + (grains - 0.5) * 26, b = 124 + (n - 0.5) * 30 + (grains - 0.5) * 20;
-      r = mix(r, 130, pebbles * 0.6); g = mix(g, 114, pebbles * 0.6); b = mix(b, 92, pebbles * 0.6);
-      o[0] = r - ripple * 8; o[1] = g - ripple * 7; o[2] = b - ripple * 5;
-      o[3] = n * 0.4 + ripple * 0.15 + grains * 0.06 + pebbles * 0.3;
-    };
-  } },
-  crate: { size: 512, normal: 3, fn(seed) {
-    return (u, v, o) => {
-      const plank = Math.floor(v * 6), pv = v * 6 - plank;
-      const grain = fbm(u * 3, (v * 6 + plank * 3.7) * 6 + fbm(u * 6, v * 6, seed, 3, 6) * 2, seed + plank, 4, 0);
-      const ring = Math.sin((grain * 18) * Math.PI) * 0.5 + 0.5;
-      const t = valueNoise(plank, 1, seed) * 30;
-      let r = 150 + t + ring * 24 - 20, g = 108 + t * 0.7 + ring * 16 - 14, b = 64 + ring * 8;
-      const gap = smooth(0, 0.05, Math.min(pv, 1 - pv));
-      // frame and diagonal brace
-      const frame = Math.min(u, 1 - u, v, 1 - v) < 0.085;
-      const diag = Math.abs(u - v) < 0.06;
-      if (frame || diag) { r *= 0.78; g *= 0.74; b *= 0.7; }
-      const nail = [[0.04, 0.04], [0.96, 0.04], [0.04, 0.96], [0.96, 0.96]].some(([a, c]) => Math.hypot(u - a, v - c) < 0.014);
-      if (nail) { r = g = b = 60; }
-      o[0] = r * (0.55 + gap * 0.45); o[1] = g * (0.55 + gap * 0.45); o[2] = b * (0.55 + gap * 0.45);
-      o[3] = gap * 0.6 + ring * 0.08 + (frame || diag ? 0.35 : 0) + (nail ? 0.5 : 0);
-    };
-  } },
-  metal: { size: 512, normal: 1.5, fn(seed) {
-    return (u, v, o) => {
-      const n = fbm(u * 8, v * 8, seed, 4, 8);
-      const brushed = valueNoise(u * 2, v * 400, seed + 1, 0) * 0.5 + valueNoise(u * 4, v * 900, seed + 2, 0) * 0.5;
-      const rust = smooth(0.6, 0.72, fbm(u * 5, v * 5, seed + 3, 5, 5));
-      let r = 100 + n * 30 + brushed * 20, g = 104 + n * 30 + brushed * 20, b = 110 + n * 30 + brushed * 20;
-      r = mix(r, 120, rust); g = mix(g, 68, rust); b = mix(b, 38, rust);
-      o[0] = r; o[1] = g; o[2] = b; o[3] = brushed * 0.1 + rust * 0.3;
-    };
-  } },
-  wallTrim: { size: 512, normal: 3, fn(seed) {
-    return (u, v, o) => {
-      const n = fbm(u * 10, v * 10, seed, 4, 10);
-      const groove = smooth(0.02, 0.0, Math.abs(v - 0.3)) + smooth(0.02, 0.0, Math.abs(v - 0.7));
-      const b = blocks(u, v, 1, 4, 0, 0.01);
-      let r = 150 + (n - 0.5) * 40, g = 122 + (n - 0.5) * 34, bl = 86 + (n - 0.5) * 24;
-      r = mix(96, r, b.edge) - groove * 40; g = mix(80, g, b.edge) - groove * 36; bl = mix(60, bl, b.edge) - groove * 30;
-      o[0] = r; o[1] = g; o[2] = bl; o[3] = b.edge * 0.6 - groove * 0.4 + n * 0.1;
-    };
-  } },
-  concrete: { size: 1024, normal: 2, fn(seed) {
-    return (u, v, o) => {
-      const n = fbm(u * 6, v * 6, seed, 5, 6);
-      const pits = smooth(0.78, 0.8, valueNoise(u * 140, v * 140, seed + 4, 140));
-      const stain = smooth(0.55, 0.8, fbm(u * 3, v * 2, seed + 6, 4, 3));
-      const seam = Math.min(Math.abs(u - 0.5), Math.abs(v - 0.5)) < 0.003 ? 1 : 0;
-      const formwork = Math.sin(v * Math.PI * 16) * 0.5 + 0.5;
-      let c = 146 + (n - 0.5) * 50 - pits * 40 - stain * 36 - seam * 50 + formwork * 5;
-      o[0] = c; o[1] = c * 0.97; o[2] = c * 0.92;
-      o[3] = n * 0.3 - pits * 0.4 - seam * 0.5 + formwork * 0.05;
-    };
-  } },
-};
 
 // Returns { map, normalMap } for a named surface.
 export function surface(name, seed = 1) {
   const key = name + ':' + seed;
-  if (!cache.has(key)) {
-    const g = GEN[name];
-    cache.set(key, generate(g.size, g.fn(seed * 7919 + name.length), g.normal));
-  }
+  if (!cache.has(key)) store(name, seed, generateArrays(name, seed, surfaceScale));
   return cache.get(key);
+}
+
+export { MATCH_SURFACES };
+
+const TEX_BASE = (import.meta.env?.BASE_URL || '/') + 'textures/';
+
+function imageTexture(url, srgb) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.decoding = 'async';
+    img.onload = () => {
+      const t = new THREE.Texture(img);
+      t.flipY = false;   // baked with the same row order as the generated DataTextures
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.anisotropy = 4;
+      if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+      t.needsUpdate = true;
+      resolve(t);
+    };
+    img.onerror = () => reject(new Error('missing ' + url));
+    img.src = url;
+  });
+}
+
+// Loads the baked surfaces (public/textures/), generating any that are
+// missing in workers, or here if workers aren't available.
+export async function preloadSurfaces(list = MATCH_SURFACES, onEach = () => {}) {
+  let todo = list.filter(([n, s]) => !cache.has(n + ':' + s));
+  if (!todo.length) return;
+  const baked = await Promise.allSettled(todo.map(async ([name, seed]) => {
+    const base = `${TEX_BASE}${name}-${seed}`;
+    const [map, normalMap] = await Promise.all([
+      imageTexture(base + '.webp', !LINEAR.has(name)),
+      GEN[name].normal ? imageTexture(base + '-n.webp', false) : null,
+    ]);
+    cache.set(name + ':' + seed, { map, normalMap });
+    onEach();
+  }));
+  todo = todo.filter((_, i) => baked[i].status !== 'fulfilled');
+  if (!todo.length) return;
+  let workers = [];
+  try {
+    const n = Math.max(1, Math.min(6, (navigator.hardwareConcurrency || 4) - 1, todo.length));
+    for (let i = 0; i < n; i++) workers.push(new Worker(new URL('./texworker.js', import.meta.url), { type: 'module' }));
+  } catch { workers.forEach(w => w.terminate()); workers = []; }
+  if (!workers.length) {
+    // no workers: make them here, yielding between surfaces so the page stays responsive
+    for (const [n, s] of todo) { surface(n, s); onEach(); await new Promise(r => setTimeout(r, 0)); }
+    return;
+  }
+  // biggest first, so the pool finishes together
+  const order = [...todo].sort((a, b) => GEN[b[0]].size - GEN[a[0]].size);
+  let next = 0;
+  await Promise.all(workers.map(w => new Promise((resolve) => {
+    const run = () => {
+      if (next >= order.length) { w.terminate(); resolve(); return; }
+      const [name, seed] = order[next++];
+      w.onmessage = (e) => {
+        if (e.data.error) surface(name, seed); else store(name, seed, e.data);
+        onEach(); run();
+      };
+      w.onerror = () => { w.onerror = null; surface(name, seed); onEach(); run(); };
+      w.postMessage({ id: name + ':' + seed, name, seed, scale: surfaceScale });
+    };
+    run();
+  })));
 }
 
 export function tex(name, seed = 1) { return surface(name, seed).map; }
@@ -266,6 +174,190 @@ export function skyTexture() {
   x.putImageData(img, 0, 0);
   const t = canvasTex(c);
   t.wrapS = THREE.RepeatWrapping;
+  return t;
+}
+
+// ---------------------------------------------------------------- map decals
+// Canvas textures for the Blender map's decal quads. They use flipY = false:
+// the map's UVs come through glTF upside down, so canvas-up stays world-up.
+function decalCanvasTex(c) {
+  const t = new THREE.CanvasTexture(c);
+  t.flipY = false;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  t.wrapS = THREE.RepeatWrapping;
+  return t;
+}
+const fbm2 = (x, y, seed) => valueNoise(x, y, seed) * 0.62 + valueNoise(x * 2.1, y * 2.1, seed + 7) * 0.38;
+
+// Grime for the foot of walls and the floor along them: dark at the bottom of
+// the image, fading upward in ragged runs. Tiles left to right.
+export function grimeTexture() {
+  if (cache.has('grime')) return cache.get('grime');
+  const W = 512, H = 256, c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d');
+  const img = x.createImageData(W, H);
+  for (let py = 0; py < H; py++) for (let px = 0; px < W; px++) {
+    const u = px / W, t = 1 - (py + 0.5) / H;
+    const n = fbm(u * 8, t * 3, 41, 4, 8);
+    const drip = smooth(0.58, 0.85, fbm(u * 40, t * 1.2, 43, 3, 40));
+    const reach = 0.6 + n * 0.3 + drip * 0.35;
+    const fall = smooth(reach, 0, t);
+    const a = Math.max(Math.pow(fall, 0.7) * (0.62 + n * 0.38), smooth(0.3, 0, t) * 0.8);
+    const speck = smooth(0.8, 0.9, valueNoise(px * 0.25, py * 0.25, 47, W * 0.25)) * smooth(0.7, 0, t) * 0.3;
+    const i = (py * W + px) * 4;
+    img.data[i] = 58 + n * 22; img.data[i + 1] = 46 + n * 18; img.data[i + 2] = 33 + n * 12;
+    img.data[i + 3] = clamp01(a + speck) * 255;
+  }
+  x.putImageData(img, 0, 0);
+  const t = decalCanvasTex(c);
+  cache.set('grime', t);
+  return t;
+}
+
+// 4x4 atlas of floor and wall stains (tile = row * 4 + column, row 0 at the top):
+//  0-1 oil  2 water ring  3 sand drift  4-7 cracks  8-9 scorch  10 drain ring
+//  11 grit and leaves  12 rust run  13 dirt  14 dusty footprints  15 puddle
+export function decalAtlas() {
+  if (cache.has('decals')) return cache.get('decals');
+  const S = 1024, T = 256, c = document.createElement('canvas'); c.width = c.height = S;
+  const x = c.getContext('2d');
+  const img = x.createImageData(S, S);
+  const line = (n, w) => smooth(w, 0, Math.abs(n - 0.5));
+  for (let py = 0; py < S; py++) for (let px = 0; px < S; px++) {
+    const k = (py >> 8) * 4 + (px >> 8);
+    const s = ((px & 255) + 0.5) / T, t = 1 - ((py & 255) + 0.5) / T;
+    const dx = s - 0.5, dy = t - 0.5, r = Math.hypot(dx, dy);
+    const sd = 100 + k * 17;
+    const n = fbm2(s * 5, t * 5, sd);
+    let col = [30, 26, 22], a = 0;
+    if (k <= 1) {
+      a = smooth(0.42, 0.28, r + (n - 0.5) * 0.36) * (0.5 + n * 0.35);
+      if (k === 1) a = Math.max(a * 0.8, smooth(0.84, 0.9, valueNoise(s * 34, t * 34, sd + 3)) * smooth(0.48, 0.3, r) * 0.6);
+      col = [24, 21, 18];
+    } else if (k === 2) {
+      const ring = smooth(0.05, 0, Math.abs(r - (0.31 + (n - 0.5) * 0.12)));
+      a = ring * 0.45 + smooth(0.36, 0.2, r + (n - 0.5) * 0.2) * 0.22;
+      col = [40, 43, 44];
+    } else if (k === 3) {
+      a = smooth(0.48, 0.08, r + (n - 0.5) * 0.3) * 0.7 * (0.75 + valueNoise(s * 90, t * 90, sd) * 0.25);
+      col = [214, 186, 142];
+    } else if (k <= 7) {
+      const c1 = line(fbm2(s * 2.4, t * 2.4, sd), 0.008), c2 = line(fbm2(s * 6, t * 6, sd + 5), 0.005) * smooth(0.35, 0.65, fbm2(s * 3, t * 3, sd + 9));
+      a = Math.max(c1, c2 * 0.8) * smooth(0.5, 0.32, r) * 0.85;
+      col = [28, 24, 20];
+    } else if (k <= 9) {
+      const ang = (Math.atan2(dy, dx) / (Math.PI * 2) + 0.5) * (k === 8 ? 18 : 30);
+      const spike = valueNoise(ang, 0.5, sd, k === 8 ? 18 : 30);
+      a = smooth(0.5, 0.02, r / ((k === 8 ? 0.62 : 0.45) + spike * 0.5)) * (0.7 + n * 0.25);
+      col = [16, 14, 12];
+    } else if (k === 10) {
+      a = smooth(0.1, 0, Math.abs(r - 0.3 - (n - 0.5) * 0.06)) * 0.55 + smooth(0.34, 0.18, r) * 0.18;
+      col = [34, 30, 26];
+    } else if (k === 11) {
+      const grit = smooth(0.85, 0.9, valueNoise(s * 26, t * 26, sd)), leaf = smooth(0.9, 0.93, valueNoise(s * 11, t * 15, sd + 4));
+      a = Math.max(grit * 0.8, leaf * 0.9) * smooth(0.5, 0.3, r);
+      col = leaf > grit ? [78, 70, 36] : [96, 84, 68];
+    } else if (k === 12) {
+      a = smooth(0.42, 0.06, Math.abs(dx) * 2.2 + (n - 0.5) * 0.35) * smooth(0.0, 0.9, t) * smooth(0.5, 0.42, Math.abs(dx)) * 0.7;
+      col = [118, 62, 30];
+    } else if (k === 13) {
+      a = smooth(0.46, 0.12, r + (n - 0.5) * 0.4) * (0.35 + n * 0.3);
+      col = [72, 58, 42];
+    } else if (k === 14) {
+      for (let j = 0; j < 4; j++) {
+        const fx = j % 2 ? 0.62 : 0.38, fy = 0.13 + j * 0.245;
+        const ex = (s - fx) / 0.065, ey = (t - fy) / 0.12;
+        const e = Math.hypot(ex, ey * (ey > 0.2 ? 1 : 1.25));
+        a = Math.max(a, smooth(1.05, 0.85, e) * (0.35 + valueNoise(s * 60, t * 60, sd) * 0.3));
+      }
+      col = [150, 126, 96];
+    } else {
+      a = smooth(0.4, 0.33, r + (n - 0.5) * 0.3) * 0.6;
+      col = [30, 32, 34];
+    }
+    const i = (py * S + px) * 4;
+    img.data[i] = col[0]; img.data[i + 1] = col[1]; img.data[i + 2] = col[2];
+    img.data[i + 3] = clamp01(a) * 255;
+  }
+  x.putImageData(img, 0, 0);
+  const t = decalCanvasTex(c);
+  t.wrapS = THREE.ClampToEdgeWrapping;
+  cache.set('decals', t);
+  return t;
+}
+
+// 4x4 atlas of paper and paint on walls (row 0 at the top):
+//  row 0: posters   row 1: A <-, A ->, B <-, B -> painted direction signs
+//  row 2: shop boards and plates   row 3: spray paint and stencils
+export function posterAtlas() {
+  if (cache.has('posters')) return cache.get('posters');
+  const S = 1024, T = 256, c = document.createElement('canvas'); c.width = c.height = S;
+  const x = c.getContext('2d');
+  const r = rng(424242);
+  const font = (px, w = 700) => `${w} ${px}px "Barlow Condensed", Impact, "Arial Narrow", sans-serif`;
+  const tile = (col, row, draw) => { x.save(); x.translate(col * T, row * T); x.beginPath(); x.rect(0, 0, T, T); x.clip(); draw(); x.restore(); };
+  const bars = (x0, y0, w, n, h, gap, color) => { x.fillStyle = color; for (let i = 0; i < n; i++) x.fillRect(x0, y0 + i * (h + gap), w * (0.55 + r() * 0.45), h); };
+  // torn paper: a jagged outline inside the tile
+  const paper = (fill, x0 = 22, y0 = 10, x1 = 234, y1 = 246) => {
+    x.beginPath(); x.moveTo(x0, y0);
+    for (let k = 0; k <= 12; k++) x.lineTo(x0 + (x1 - x0) * k / 12, y0 + r() * 5);
+    for (let k = 0; k <= 12; k++) x.lineTo(x1 - r() * 5, y0 + (y1 - y0) * k / 12);
+    for (let k = 0; k <= 12; k++) x.lineTo(x1 - (x1 - x0) * k / 12, y1 - r() * 6 - (k > 8 ? (k - 8) * 7 * r() : 0));
+    for (let k = 0; k <= 12; k++) x.lineTo(x0 + r() * 5, y1 - (y1 - y0) * k / 12);
+    x.closePath(); x.fillStyle = fill; x.fill(); x.save(); x.clip();
+  };
+  const wear = (n, alpha = 0.55) => {
+    x.globalCompositeOperation = 'destination-out';
+    for (let i = 0; i < n; i++) { x.fillStyle = `rgba(0,0,0,${(r() * alpha).toFixed(2)})`; x.fillRect(r() * T, r() * T, 1 + r() * 4, 1 + r() * 4); }
+    x.globalCompositeOperation = 'source-over';
+  };
+  const fade = (color = 'rgba(235,220,190,0.22)') => { x.fillStyle = color; x.fillRect(0, 0, T, T); };
+  // posters
+  tile(0, 0, () => { paper('#d9772e'); x.fillStyle = '#f4e6c8'; x.beginPath(); x.arc(128, 104, 58, 0, 7); x.fill(); x.fillStyle = '#2a1d16'; x.font = font(46); x.textAlign = 'center'; x.fillText('FESTIVAL', 128, 206); bars(52, 218, 150, 2, 6, 6, '#2a1d16'); fade(); x.restore(); wear(500); });
+  tile(1, 0, () => { paper('#2d6f6a'); x.fillStyle = '#e9d9b0'; for (let i = 0; i < 3; i++) { x.save(); x.translate(60 + i * 36, 40); x.rotate(0.5); x.fillRect(0, 0, 22, 150); x.restore(); } x.font = font(110); x.textAlign = 'right'; x.fillText('07', 214, 214); bars(36, 36, 90, 3, 7, 7, '#e9d9b0'); fade(); x.restore(); wear(500); });
+  tile(2, 0, () => { paper('#eadfc6'); x.fillStyle = '#b3332a'; x.beginPath(); for (let k = 0; k < 10; k++) { const a = k * Math.PI / 5 - Math.PI / 2, rr = k % 2 ? 26 : 62; x.lineTo(128 + Math.cos(a) * rr, 100 + Math.sin(a) * rr); } x.fill(); x.fillStyle = '#3a2a20'; x.font = font(40); x.textAlign = 'center'; x.fillText('GRAND BAZAAR', 128, 200); bars(48, 214, 160, 2, 6, 7, '#7a6450'); fade(); x.restore(); wear(500); });
+  tile(3, 0, () => { paper('#26365c'); x.fillStyle = '#f1c64a'; x.font = font(64); x.textAlign = 'center'; x.fillText('MARKET', 128, 92); x.fillText('DAY', 128, 150); bars(44, 176, 168, 4, 7, 8, '#c9b48a'); fade('rgba(235,220,190,0.15)'); x.restore(); wear(700); });
+  // painted direction signs
+  [['A', -1], ['A', 1], ['B', -1], ['B', 1]].forEach(([L, d], i) => tile(i, 1, () => {
+    x.fillStyle = 'rgba(150,34,26,0.92)'; x.strokeStyle = 'rgba(150,34,26,0.92)';
+    x.font = font(170); x.textAlign = 'center'; x.textBaseline = 'middle';
+    const lx = d < 0 ? 168 : 88;
+    x.fillText(L, lx, 120);
+    // arrow
+    const ax = d < 0 ? 96 : 160;
+    x.lineWidth = 16; x.beginPath(); x.moveTo(ax - d * 0, 128); x.lineTo(ax - d * -0, 128); x.stroke();
+    x.beginPath(); x.moveTo(d < 0 ? 104 : 152, 128); x.lineTo(d < 0 ? 26 : 230, 128); x.stroke();
+    x.beginPath(); const tip = d < 0 ? 14 : 242; x.moveTo(tip, 128); x.lineTo(tip - d * 44, 98); x.lineTo(tip - d * 44, 158); x.closePath(); x.fill();
+    // drips
+    x.lineWidth = 3;
+    for (let k = 0; k < 7; k++) { const dxp = 30 + r() * 196, y0 = 150 + r() * 30; x.beginPath(); x.moveTo(dxp, y0); x.lineTo(dxp, y0 + 12 + r() * 40); x.stroke(); }
+    wear(1400, 0.8);
+  }));
+  // boards and plates
+  tile(0, 2, () => { x.fillStyle = '#6b4526'; x.fillRect(6, 52, 244, 152); for (let i = 0; i < 4; i++) { x.fillStyle = `rgba(0,0,0,${0.08 + r() * 0.1})`; x.fillRect(6, 52 + i * 38, 244, 3); } x.fillStyle = '#efe0bd'; x.font = font(104); x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('SOUK', 128, 132); wear(900); });
+  tile(1, 2, () => { x.fillStyle = '#244a3a'; x.fillRect(6, 52, 244, 152); x.strokeStyle = '#d9b54a'; x.lineWidth = 6; x.strokeRect(18, 64, 220, 128); x.fillStyle = '#d9b54a'; x.font = font(96); x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('CHAI', 128, 130); wear(900); });
+  tile(2, 2, () => { x.fillStyle = '#e8c02c'; x.beginPath(); x.moveTo(128, 30); x.lineTo(232, 214); x.lineTo(24, 214); x.closePath(); x.fill(); x.strokeStyle = '#1d1a16'; x.lineWidth = 10; x.stroke(); x.fillStyle = '#1d1a16'; x.beginPath(); x.moveTo(140, 82); x.lineTo(104, 150); x.lineTo(130, 150); x.lineTo(114, 196); x.lineTo(156, 126); x.lineTo(130, 126); x.closePath(); x.fill(); wear(500); });
+  tile(3, 2, () => { x.fillStyle = '#1f4f8c'; x.fillRect(40, 70, 176, 116); x.strokeStyle = '#f2efe6'; x.lineWidth = 6; x.strokeRect(50, 80, 156, 96); x.fillStyle = '#f2efe6'; x.font = font(84); x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('17', 128, 130); wear(400); });
+  // spray paint and stencils
+  const spray = (pts, w, color) => { x.strokeStyle = color; x.lineWidth = w; x.lineCap = 'round'; x.lineJoin = 'round'; x.beginPath(); pts.forEach(([a, b], k) => (k ? x.lineTo(a, b) : x.moveTo(a, b))); x.stroke(); };
+  tile(0, 3, () => {
+    const p = [[30, 170], [60, 80], [90, 170], [118, 96], [150, 176], [176, 84], [224, 150]];
+    spray(p, 30, 'rgba(25,25,30,0.9)'); spray(p, 18, 'rgba(46,158,170,0.92)');
+    x.filter = 'blur(2px)'; spray([[40, 200], [210, 196]], 6, 'rgba(240,240,240,0.7)'); x.filter = 'none'; wear(600);
+  });
+  tile(1, 3, () => {
+    x.save(); x.translate(128, 128); x.rotate(-0.12);
+    x.font = font(120, 800); x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.lineWidth = 14; x.strokeStyle = 'rgba(20,20,20,0.9)'; x.strokeText('ZEF', 0, 0);
+    x.fillStyle = 'rgba(214,72,52,0.95)'; x.fillText('ZEF', 0, 0);
+    x.restore(); wear(700);
+  });
+  tile(2, 3, () => { x.fillStyle = 'rgba(30,28,26,0.85)'; x.font = font(76, 700); x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('KEEP', 128, 92); x.fillText('OUT', 128, 164); x.globalCompositeOperation = 'destination-out'; for (let i = 0; i < 5; i++) x.fillRect(40 + i * 40, 40, 5, 180); x.globalCompositeOperation = 'source-over'; wear(1200, 0.8); });
+  tile(3, 3, () => { x.fillStyle = 'rgba(232,220,192,0.8)'; x.fillRect(8, 80, 240, 96); x.fillStyle = 'rgba(140,46,30,0.85)'; x.font = font(78); x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('BAKERY', 128, 130); wear(1600, 0.7); });
+  const t = decalCanvasTex(c);
+  t.wrapS = THREE.ClampToEdgeWrapping;
+  cache.set('posters', t);
   return t;
 }
 
