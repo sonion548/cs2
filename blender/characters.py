@@ -746,7 +746,7 @@ def decimate(obj, ratio):
     bpy.data.meshes.remove(old)
 
 
-def finish(team, arm, body, bake=True, size=2048, lift=None, bones=None, reduce=True):
+def finish(team, arm, body, bake=True, size=2048, lift=None, bones=None, reduce=True, lods=(0.32, 0.1)):
     """Weights, sole offset, one joined mesh, atlas UVs, baked textures."""
     vl = bpy.context.view_layer
     for obj, mat, bone in PARTS:
@@ -794,9 +794,20 @@ def finish(team, arm, body, bake=True, size=2048, lift=None, bones=None, reduce=
         me.uv_layers.remove(ph)
     for ca in list(me.color_attributes):
         me.color_attributes.remove(ca)
-    char.parent = arm
-    mod = char.modifiers.new('rig', 'ARMATURE')
-    mod.object = arm
+    out = [char]
+    if lods:
+        # simpler versions for distance, sharing the skeleton, UVs and textures
+        for k, ratio in enumerate(lods, 1):
+            o = bpy.data.objects.new(f'{char.name}_lod{k}', char.data.copy())
+            link(o)
+            for vg in char.vertex_groups:
+                o.vertex_groups.new(name=vg.name)
+            decimate(o, ratio)
+            out.append(o)
+    for o in out:
+        o.parent = arm
+        mod = o.modifiers.new('rig', 'ARMATURE')
+        mod.object = arm
     return char
 
 
@@ -842,7 +853,7 @@ def export_arms(team, path, size=1024):
         eb.head, eb.tail = Vector(h), Vector(t)
         eb.roll = 0
     bpy.ops.object.mode_set(mode='OBJECT')
-    char = finish(team, rig, body, bake=True, size=size, lift=0.0, bones=ARM_BONES, reduce=False)
+    char = finish(team, rig, body, bake=True, size=size, lift=0.0, bones=ARM_BONES, reduce=False, lods=())
     char.name = f'arms_{team}'
     for o in bpy.context.scene.objects:
         o.select_set(False)

@@ -308,7 +308,8 @@ export function stepRagdoll(ch, rig, dt) {
 // push a joint out of the floor and any box it sinks into, with friction
 function collide(j, world) {
   if (j.p.y < RAD) { j.p.y = RAD; j.o.x += (j.p.x - j.o.x) * 0.4; j.o.z += (j.p.z - j.o.z) * 0.4; }
-  for (const b of world.boxes) {
+  const p0 = j.p;
+  for (const b of world.near(p0.x - RAD, p0.z - RAD, p0.x + RAD, p0.z + RAD)) {
     const p = j.p;
     if (p.x > b.min.x - RAD && p.x < b.max.x + RAD && p.y > b.min.y - RAD && p.y < b.max.y + RAD && p.z > b.min.z - RAD && p.z < b.max.z + RAD) {
       const pen = [p.x - (b.min.x - RAD), (b.max.x + RAD) - p.x, p.y - (b.min.y - RAD), (b.max.y + RAD) - p.y, p.z - (b.min.z - RAD), (b.max.z + RAD) - p.z];

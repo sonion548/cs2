@@ -11,13 +11,16 @@ const KNIVES = Object.keys(KNIFE_TYPES);
 const MAPS = ['dunehold', 'dunehold_small'];
 const CHARACTERS = ['t', 'ct'];
 
-export const assets = { weapons: {}, maps: {}, colliders: {}, characters: {}, arms: {} };
+export const assets = { weapons: {}, weaponLods: {}, maps: {}, colliders: {}, characters: {}, arms: {} };
 
 export async function loadAssets(onProgress = () => {}) {
   const loader = new GLTFLoader();
   const jobs = [
     ...WEAPONS.map(id => [id, `weapons/${id}.glb`, (g) => { assets.weapons[id] = g.scene; }]),
     ...KNIVES.map(k => [`knife:${k}`, `weapons/knife_${k}.glb`, (g) => { assets.weapons[`knife:${k}`] = g.scene; }]),
+    // simplified copies for weapons seen in other players' hands and on the ground
+    ...WEAPONS.map(id => [`lod:${id}`, `weapons/lod/${id}.glb`, (g) => { assets.weaponLods[id] = g.scene; }]),
+    ...KNIVES.map(k => [`lod:knife:${k}`, `weapons/lod/knife_${k}.glb`, (g) => { assets.weaponLods[`knife:${k}`] = g.scene; }]),
     ...MAPS.map(m => [m, `maps/${m}.glb`, (g) => { assets.maps[m] = g.scene; }]),
     ...CHARACTERS.map(c => [`char:${c}`, `characters/${c}.glb`, (g) => { assets.characters[c] = g.scene; }]),
     ...CHARACTERS.map(c => [`arms:${c}`, `characters/arms_${c}.glb`, (g) => { assets.arms[c] = g.scene; }]),

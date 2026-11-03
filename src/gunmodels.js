@@ -565,8 +565,8 @@ const BUILDERS = { ak47, m4a1, awp, glock, usp, deagle, c4: bomb, he: () => nade
 
 // Blender-built model → the same structure the procedural builders produce.
 // Material names from Blender decide each part's role and game material.
-function fromAsset(key) {
-  const src = assets.weapons[key];
+function fromAsset(key, lod = false) {
+  const src = (lod && assets.weaponLods[key]) || assets.weapons[key];
   const M = mats();
   const inner = src.clone(true);
   const anchors = {};
@@ -596,9 +596,10 @@ function fromAsset(key) {
   });
 }
 
-export function buildGun(id) {
+// opts.lod: the simplified model (other players' hands, dropped weapons)
+export function buildGun(id, opts = {}) {
   const key = id.startsWith('knife') ? `knife:${id.split(':')[1] || 'standard'}` : id;
-  if (assets.weapons[key]) return fromAsset(key);
+  if (assets.weapons[key]) return fromAsset(key, !!opts.lod);
   if (id.startsWith('knife')) return knife(id.split(':')[1] || 'standard');
   return (BUILDERS[id] || ak47)();
 }

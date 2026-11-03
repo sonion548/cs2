@@ -19,6 +19,8 @@ import { Grenades } from './match/grenades.js';
 import { Drops } from './match/drops.js';
 import { Decals } from './decals.js';
 import { Strategy } from './match/strategy.js';
+import { qualityOf, DynamicResolution } from './gfx.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 const DEG = Math.PI / 180;
 const BOT_NAMES = ['Viper', 'Rook', 'Mako', 'Sable', 'Kestrel', 'Onyx', 'Drift', 'Talon', 'Ember', 'Quill',
@@ -39,10 +41,12 @@ export class Game {
     this.actions = actionMap(this.binds);
 
     // --- renderer ---
-    const r = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    r.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-    r.shadowMap.enabled = true;
-    r.shadowMap.type = THREE.PCFSoftShadowMap;
+    // graphics quality: preset (or the automatic pick) decides resolution, AA and shadows
+    const q = this.q = qualityOf(settings);
+    const r = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: q.msaa, powerPreference: 'high-performance' });
+    this.dyn = new DynamicResolution(r, q, settings.dynamicRes !== false);
+    r.shadowMap.enabled = q.shadows !== 'off';
+    r.shadowMap.type = q.shadowSize >= 4096 ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     r.toneMapping = THREE.ACESFilmicToneMapping;
     r.toneMappingExposure = 1.05;
     r.outputColorSpace = THREE.SRGBColorSpace;
@@ -90,7 +94,7 @@ export class Game {
     this.flashMat = new THREE.SpriteMaterial({ map: radialTexture(), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
     this.puffMat = new THREE.SpriteMaterial({ map: radialTexture('rgba(200,180,150,0.9)', 'rgba(200,180,150,0)'), transparent: true, depthWrite: false });
     this.bloodMat = new THREE.SpriteMaterial({ map: radialTexture('rgba(140,10,10,0.95)', 'rgba(90,0,0,0)'), transparent: true, depthWrite: false });
-    this.decals = new Decals(this.scene);
+    this.decals = new Decals(this.scene, q.decals);
     this.grenades = new Grenades(this);
     this.bomb = new Bomb(this);
     this.drops = new Drops(this);
@@ -109,6 +113,7 @@ export class Game {
     this.spec = { mode: 'first', target: null, yaw: 0, pitch: -0.2, pos: new THREE.Vector3(), vmFor: null };
 
     if (opts.net) { this.net = new NetMatch(this, opts.net); this.net.buildRoster(); }
+    this.setupCharacterShadows();
 
     this.bindInput();
     this.onResize = () => this.resize();
@@ -125,7 +130,7 @@ export class Game {
     this.ready = Promise.all([
       this.renderer.compileAsync(this.scene, this.camera),
       this.renderer.compileAsync(this.vm.scene, this.vm.camera),
-    ]).catch((e) => console.warn('Shader warm-up skipped:', e)).then(() => { this.loaded = true; this.last = performance.now(); });
+    ]).catch((e) => console.warn('Shader warm-up skipped:', e)).then(() => { this.bakeShadows(); this.loaded = true; this.last = performance.now(); });
     this.last = performance.now();
     this.running = true;
     this.loop = this.loop.bind(this);
@@ -150,11 +155,15 @@ export class Game {
     const c = new THREE.Vector3(W / 2, 0, D / 2);
     sun.position.set(c.x + s.x * 80, s.y * 80, c.z + s.z * 80);
     sun.target.position.copy(c);
-    sun.castShadow = true;
+    const q = this.q;
+    sun.castShadow = q.shadows !== 'off';
     const ext = Math.max(W, D) * 0.62;
     Object.assign(sun.shadow.camera, { left: -ext, right: ext, top: ext, bottom: -ext, near: 1, far: 260 });
-    sun.shadow.mapSize.set(4096, 4096);
+    if (sun.castShadow) sun.shadow.mapSize.set(q.shadowSize, q.shadowSize);
     sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
+    // static: the map's shadows are drawn once when the match loads (see bakeShadows)
+    sun.shadow.autoUpdate = q.shadows === 'dynamic';
+    this.sun = sun;
     this.scene.add(sun, sun.target);
     const sky = new THREE.Mesh(new THREE.SphereGeometry(450, 32, 16),
       new THREE.MeshBasicMaterial({ map: skyTexture(), side: THREE.BackSide, fog: false }));
@@ -165,9 +174,12 @@ export class Game {
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(900, 900), new THREE.MeshStandardMaterial({ map: sand, roughness: 1 }));
     ground.rotation.x = -Math.PI / 2; ground.position.set(c.x, -0.15, c.z); ground.receiveShadow = true;
     this.scene.add(ground);
+    if (!q.skyline) return;
     const r = rng(77);
     const mat = new THREE.MeshStandardMaterial({ map: tex('plaster', 1), roughness: 0.95 });
     const mat2 = new THREE.MeshStandardMaterial({ map: tex('sandstone', 1), roughness: 0.95 });
+    // all the skyline in two draw calls (one per material)
+    const parts = [[], []];
     for (let i = 0; i < 70; i++) {
       const side = i % 4;
       const along = r();
@@ -178,12 +190,83 @@ export class Game {
       else if (side === 1) { x = along * W; z = D + out + d / 2; }
       else if (side === 2) { x = -out - w / 2; z = along * D; }
       else { x = W + out + w / 2; z = along * D; }
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), r() < 0.5 ? mat : mat2);
-      m.position.set(x, h / 2, z); m.castShadow = false; m.receiveShadow = true;
-      this.scene.add(m);
+      const box = new THREE.BoxGeometry(w, h, d); box.translate(x, h / 2, z);
+      parts[r() < 0.5 ? 0 : 1].push(box);
       if (r() < 0.3) {
-        const dome = new THREE.Mesh(new THREE.SphereGeometry(Math.min(w, d) * 0.35, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), mat2);
-        dome.position.set(x, h, z); this.scene.add(dome);
+        const dome = new THREE.SphereGeometry(Math.min(w, d) * 0.35, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+        dome.translate(x, h, z); dome.deleteAttribute('normal'); dome.computeVertexNormals();
+        parts[1].push(dome.toNonIndexed());
+      }
+    }
+    parts.forEach((list, k) => {
+      if (!list.length) return;
+      const geo = mergeGeometries(list.map(g => (g.index ? g.toNonIndexed() : g)));
+      const m = new THREE.Mesh(geo, k ? mat2 : mat);
+      m.receiveShadow = q.shadows !== 'off';
+      this.scene.add(m);
+    });
+  }
+
+  // Characters: real shadows only when they're redrawn every frame (Ultra);
+  // otherwise a soft contact shadow on the ground under each one.
+  setupCharacterShadows() {
+    const dynamic = this.q.shadows === 'dynamic';
+    const c = document.createElement('canvas'); c.width = c.height = 64;
+    const x = c.getContext('2d'), gr = x.createRadialGradient(32, 32, 2, 32, 32, 31);
+    gr.addColorStop(0, 'rgba(0,0,0,0.55)'); gr.addColorStop(0.55, 'rgba(0,0,0,0.3)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    x.fillStyle = gr; x.fillRect(0, 0, 64, 64);
+    const blobMat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, fog: true });
+    const blobGeo = new THREE.PlaneGeometry(1.15, 1.15); blobGeo.rotateX(-Math.PI / 2);
+    for (const ch of this.characters) {
+      if (!ch.model || ch.blob) continue;
+      ch.model.traverse(o => { if (o.isMesh) o.castShadow = dynamic; });
+      if (!dynamic) {
+        ch.blob = new THREE.Mesh(blobGeo, blobMat);
+        ch.blob.renderOrder = 1;
+        this.scene.add(ch.blob);
+      }
+    }
+  }
+
+  // Static shadows: draw the shadow map once with only the map in view, so
+  // nothing that moves (players, guns, drops) gets frozen into it.
+  bakeShadows() {
+    if (this.q.shadows !== 'static' || !this.sun) return;
+    const hidden = [];
+    for (const o of this.scene.children) if (o.visible && o !== this.level.group && !o.isLight && o !== this.sun.target) { o.visible = false; hidden.push(o); }
+    this.sun.shadow.needsUpdate = true;
+    this.renderer.render(this.scene, this.camera);
+    for (const o of hidden) o.visible = true;
+    this.renderer.clear();
+  }
+
+  // Per frame: contact shadows under the characters, simpler models further away.
+  updateCharacterLooks() {
+    const cam = this.camera.position;
+    const bias = this.q.lodBias;
+    const down = this._down ||= new THREE.Vector3(0, -1, 0);
+    const from = this._from ||= new THREE.Vector3();
+    for (const ch of this.characters) {
+      const m = ch.model;
+      if (!m) continue;
+      const lods = m.userData.lods;
+      if (lods && m.visible) {
+        const d = cam.distanceTo(ch.pos) * (1 + bias);
+        const k = d < 10 ? 0 : d < 28 ? 1 : 2;
+        for (let i = 0; i < lods.length; i++) lods[i].visible = i === Math.min(k, lods.length - 1);
+      }
+      if (ch.blob) {
+        const show = m.visible && ch.alive && !ch.despawned;
+        ch.blob.visible = show;
+        if (show) {
+          from.set(ch.pos.x, ch.pos.y + 0.4, ch.pos.z);
+          const hit = this.level.world.raycast(from, down, 3);
+          const gy = hit ? from.y - hit.dist : ch.pos.y;
+          ch.blob.position.set(ch.pos.x, gy + 0.015, ch.pos.z);
+          const lift = Math.max(0, ch.pos.y - gy);
+          ch.blob.scale.setScalar(Math.max(0.3, 1 - lift * 0.6) * (1 - ch.crouch * 0.1));
+          ch.blob.material.opacity = Math.max(0, 1 - lift);
+        }
       }
     }
   }
@@ -957,8 +1040,10 @@ export class Game {
     requestAnimationFrame(this.loop);
     if (!this.loaded) return;   // shaders still compiling behind the loading screen
     // rAF timestamps can precede performance.now() taken during setup, so clamp at 0
-    let dt = Math.max(0, Math.min(0.05, (t - this.last) / 1000));
+    const raw = Math.max(0, (t - this.last) / 1000);
+    let dt = Math.min(0.05, raw);
     this.last = t;
+    this.dyn.frame(Math.min(raw, 0.25));
     try {
       if (!this.paused || this.net) {
         // fixed sub-steps keep movement deterministic at low frame rates
@@ -1054,6 +1139,9 @@ export class Game {
       this.vm.update(dt, t.speed2D(), t.onGround, this.camera.aspect, this.camera.matrixWorld);
     }
     if (p.alive) this.spec.vmFor = null;
+    this.updateCharacterLooks();
+    // Ultra redraws shadows every frame, and hidden chunks would lose theirs: draw everything there
+    if (this.q.shadows !== 'dynamic') this.level.pvs?.update(this.camera.position);
     const r = this.renderer;
     r.clear();
     r.render(this.scene, this.camera);

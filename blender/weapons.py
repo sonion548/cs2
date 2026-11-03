@@ -1248,6 +1248,49 @@ def build(name):
         empty('grip', (-0.04, 0, 0))
 
 
+def lod_export(path, target=2500):
+    """Third-person version of the weapon just exported: one mesh per material,
+    decimated to about `target` triangles, with the muzzle/grip/fore anchors."""
+    import bmesh as _bm  # noqa: F401  (bpy is loaded)
+    sc = scene()
+    vl = bpy.context.view_layer
+    # everything into world space, flat (joining needs unparented parts)
+    for o in list(sc.objects):
+        if o.parent:
+            mw = o.matrix_world.copy(); o.parent = None; o.matrix_world = mw
+    for o in list(sc.objects):
+        if o.type == 'EMPTY' and o.name.split('.')[0] not in ANCHORS:
+            bpy.data.objects.remove(o)
+    groups = {}
+    for o in sc.objects:
+        if o.type == 'MESH' and o.data.materials and o.data.materials[0]:
+            groups.setdefault(o.data.materials[0].name, []).append(o)
+        elif o.type == 'MESH':
+            bpy.data.objects.remove(o)
+    joined = []
+    for name, objs in groups.items():
+        for o in sc.objects:
+            o.select_set(False)
+        for o in objs:
+            o.select_set(True)
+        vl.objects.active = objs[0]
+        if len(objs) > 1:
+            bpy.ops.object.join()
+        o = vl.objects.active
+        o.name = f'lod_{name}'
+        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+        joined.append(o)
+    total = stats()
+    ratio = min(1.0, target / max(1, total))
+    if ratio < 0.98:
+        for o in joined:
+            mod = o.modifiers.new('dec', 'DECIMATE')
+            mod.ratio = ratio
+    apply_all()
+    export_glb(path)
+    return stats()
+
+
 def main(argv):
     out = argv[argv.index('--out') + 1] if '--out' in argv else os.path.join(ROOT, 'public', 'models', 'weapons')
     only = argv[argv.index('--only') + 1].split(',') if '--only' in argv else list(GUNS) + [f'knife_{k}' for k in KNIVES]
@@ -1265,6 +1308,9 @@ def main(argv):
         export_glb(os.path.join(out, f'{name}.glb'))
         report[name] = stats()
         print(f'{name}: {report[name]} tris')
+        if '--lod' in argv or '--lod-only' in argv:
+            os.makedirs(os.path.join(out, 'lod'), exist_ok=True)
+            print(f'  third-person: {lod_export(os.path.join(out, "lod", f"{name}.glb"))} tris')
     return report
 
 

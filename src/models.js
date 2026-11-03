@@ -72,18 +72,24 @@ function limb(r0, r1, len, mat) {
 // materials (baked colour, normal and roughness atlas) come with the file.
 function characterFromAsset(team, src) {
   const root = cloneSkinned(src);
+  const lods = [];
   root.traverse(o => {
     if (!o.isMesh) return;
     o.castShadow = true; o.receiveShadow = true;
     o.frustumCulled = false;   // skinned bounds don't follow the pose
+    if (o.isSkinnedMesh) lods.push(o);
   });
+  // level-of-detail versions (name_lod1, name_lod2) share the skeleton; the
+  // game shows one of them depending on distance
+  lods.sort((a, b) => (+(a.name.match(/lod(\d)/)?.[1] || 0)) - (+(b.name.match(/lod(\d)/)?.[1] || 0)));
+  lods.forEach((m, i) => { m.visible = i === 0; });
   const rig = new Rig(root);
   const gunHolder = new THREE.Group();
   root.add(gunHolder);
   const backBomb = buildGun('c4');
   backBomb.scale.setScalar(0.85); backBomb.visible = false;
   root.add(backBomb);
-  root.userData = { rig, gunHolder, backBomb, skinned: true };
+  root.userData = { rig, gunHolder, backBomb, skinned: true, lods: lods.length > 1 ? lods : null };
   return root;
 }
 

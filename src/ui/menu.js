@@ -1,5 +1,6 @@
 // Main menu / client shell: Play, Inventory, Cases, Career, Settings.
 import { Viewer, thumbnail, previewItem, warmThumbnails } from './studio.js';
+import { QUALITY, QUALITY_ORDER, detectQuality } from '../gfx.js';
 import * as P from '../items/profile.js';
 import { SKINS, STICKERS, CASES, RARITY, RARITIES, CONDITIONS, condition, itemDef, itemTitle, KEY_PRICE, STICKER_CAPSULE, WEAPON_NAMES } from '../items/catalog.js';
 import { KNIFE_TYPES, buildGun } from '../gunmodels.js';
@@ -506,6 +507,11 @@ export class Menu {
         <h3>Mouse & view</h3>
         <div class="row"><label>Sensitivity</label><input type="range" min="0.2" max="6" step="0.05" data-s="sensitivity" value="${s.sensitivity}"><output>${s.sensitivity}</output></div>
         <div class="row"><label>Field of view</label><input type="range" min="60" max="90" step="1" data-s="fov" value="${s.fov}"><output>${s.fov}</output></div>
+        <h3>Graphics</h3>
+        <div class="row"><label>Quality</label><select data-s="quality">${[['auto', `Auto (${QUALITY[detectQuality().tier].label})`], ...QUALITY_ORDER.map(k => [k, QUALITY[k].label])].map(([v, l]) => `<option value="${v}" ${(s.quality || 'auto') === v ? 'selected' : ''}>${l}</option>`).join('')}</select><output></output></div>
+        <p class="note">Low: no shadows, lower resolution, simpler models. Medium: shadows drawn once, no anti-aliasing. High: sharper shadows and anti-aliasing. Ultra: shadows from players too, full resolution. Applies from the next match.</p>
+        <div class="row"><label>Dynamic resolution</label><input type="checkbox" data-s="dynamicRes" ${s.dynamicRes !== false ? 'checked' : ''}><output></output></div>
+        <div class="row"><label>Show FPS</label><input type="checkbox" data-s="showFps" ${s.showFps ? 'checked' : ''}><output></output></div>
         <h3>Audio</h3>
         <div class="row"><label>Master volume</label><input type="range" min="0" max="1" step="0.01" data-s="volume" value="${s.volume}"><output>${s.volume}</output></div>
         <h3>Crosshair</h3>

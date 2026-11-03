@@ -463,3 +463,6 @@ img:not([src]) { visibility: hidden; }
 .match-loading span { color: var(--muted); letter-spacing: 2px; text-transform: uppercase; animation: loadpulse 1.2s infinite; }
 @keyframes loadpulse { 50% { opacity: .4; } }
 .errtext { width: 100%; min-height: 140px; margin: 10px 0; background: #0e1216; color: var(--muted); border: 1px solid #2c3540; border-radius: 4px; font: 12px/1.4 ui-monospace, Consolas, monospace; padding: 8px; resize: vertical; }
+
+.hud .fps { position: absolute; right: 12px; top: 8px; font: 600 12px/1 'Barlow', sans-serif; color: rgba(255,255,255,0.75); text-shadow: 0 1px 2px #000; pointer-events: none; }
+.settings select { background: var(--panel, #1c1d20); color: inherit; border: 1px solid var(--line); padding: 6px 8px; font: inherit; }

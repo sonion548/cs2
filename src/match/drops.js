@@ -11,7 +11,7 @@ export class Drops {
   // ws: WeaponState (keeps its ammo); skin: inventory item for the finish (or null)
   add(ws, pos, vel = new THREE.Vector3(), skin = null) {
     if (!ws || ws.def.type === 'melee') return null;
-    const mesh = buildGun(ws.id);
+    const mesh = buildGun(ws.id, { lod: true });
     if (skin) applySkin(mesh, skin, { size: 512 });
     mesh.traverse(o => { if (o.isMesh) o.castShadow = true; });
     mesh.rotation.set(0, Math.random() * Math.PI * 2, Math.PI / 2);

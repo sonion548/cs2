@@ -239,6 +239,7 @@ export function buildLevel(map, scene) {
   // Blender-built map: swap in its detailed meshes and its exported colliders
   // (same layout as the grid, so nav/spawns/sites above still apply).
   const key = (map.id || map.name || '').toLowerCase();
+  let pvs = null;
   if (assets.maps[key] && assets.colliders[key]) {
     for (const ch of [...group.children]) if (!ch.userData.keep) { group.remove(ch); ch.geometry?.dispose(); }
     const model = assets.maps[key].clone(true);
@@ -249,7 +250,11 @@ export function buildLevel(map, scene) {
       o.castShadow = !['sand', 'paving', 'tiles', 'concrete', 'glass', 'lamp'].includes(name);
       o.receiveShadow = true;
     });
-    group.add(model);
+    const chunks = chunked(model, CHUNK, WH - 0.6);
+    group.add(chunks);
+    const t0 = performance.now();
+    pvs = buildPVS(grid, S, chunks);
+    pvs.ms = Math.round(performance.now() - t0);
     world.boxes.length = 0;
     for (const [x0, y0, z0, x1, y1, z1, tag] of assets.colliders[key]) world.add(new Box(x0, y0, z0, x1, y1, z1, tag));
   }
@@ -268,7 +273,7 @@ export function buildLevel(map, scene) {
   };
 
   const heightAt = (p) => fh(Math.floor(p.x / S), Math.floor(p.z / S));
-  return { world, group, spawns, sites, nav, heightAt, width: W * S, depth: H * S };
+  return { world, group, spawns, sites, nav, heightAt, pvs, width: W * S, depth: H * S };
 }
 
 // A* on the nav grid (8-connected, no corner cutting).
@@ -276,14 +281,38 @@ export function findPath(nav, from, to) {
   const [sx, sz] = nav.cellOf(from), [tx, tz] = nav.cellOf(to);
   const key = (x, z) => z * nav.W + x;
   if (!nav.walkable(tx, tz)) return null;
-  const open = [[0, sx, sz]];
+  // A* with a binary heap of [f, key]; stale entries are skipped when popped
+  const heap = [[0, key(sx, sz)]];
+  const push = (e) => {
+    heap.push(e);
+    let i = heap.length - 1;
+    while (i > 0) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; }
+  };
+  const pop = () => {
+    const top = heap[0], last = heap.pop();
+    if (heap.length) {
+      heap[0] = last;
+      let i = 0;
+      for (;;) {
+        const l = i * 2 + 1, r = l + 1;
+        let m = i;
+        if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+        if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+        if (m === i) break;
+        [heap[m], heap[i]] = [heap[i], heap[m]]; i = m;
+      }
+    }
+    return top;
+  };
   const g = new Map([[key(sx, sz), 0]]);
+  const done = new Set();
   const came = new Map();
   const h = (x, z) => Math.hypot(x - tx, z - tz);
-  while (open.length) {
-    let bi = 0;
-    for (let i = 1; i < open.length; i++) if (open[i][0] < open[bi][0]) bi = i;
-    const [, x, z] = open.splice(bi, 1)[0];
+  while (heap.length) {
+    const [, kk] = pop();
+    if (done.has(kk)) continue;
+    done.add(kk);
+    const x = kk % nav.W, z = Math.floor(kk / nav.W);
     if (x === tx && z === tz) break;
     for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
       if (!dx && !dz) continue;
@@ -293,11 +322,12 @@ export function findPath(nav, from, to) {
       // building walls: only cross between inside and outside through doorways, and never diagonally
       if (nav.passable && !nav.passable(x, z, nx, nz)) continue;
       if (dx && dz && nav.passable && (!nav.passable(x, z, x + dx, z) || !nav.passable(x, z, x, z + dz) || !nav.passable(x + dx, z, nx, nz) || !nav.passable(x, z + dz, nx, nz))) continue;
-      const ng = g.get(key(x, z)) + Math.hypot(dx, dz) * nav.cost(nx, nz);
       const k = key(nx, nz);
+      if (done.has(k)) continue;
+      const ng = g.get(kk) + Math.hypot(dx, dz) * nav.cost(nx, nz);
       if (!g.has(k) || ng < g.get(k)) {
-        g.set(k, ng); came.set(k, key(x, z));
-        open.push([ng + h(nx, nz), nx, nz]);
+        g.set(k, ng); came.set(k, kk);
+        push([ng + h(nx, nz), k]);
       }
     }
   }
@@ -311,4 +341,160 @@ export function findPath(nav, from, to) {
   path.reverse();
   if (path.length) path[path.length - 1] = to.clone();
   return path;
+}
+
+
+// Split a model's meshes into square chunks (per material), so the renderer
+// can skip whatever is outside the view instead of drawing the whole map
+// every frame. Geometry stays indexed; each chunk keeps only the vertices it uses.
+const CHUNK = 24;
+
+function chunked(model, size, highY = Infinity) {
+  model.updateMatrixWorld(true);
+  const out = new THREE.Group();
+  const meshes = [];
+  model.traverse(o => { if (o.isMesh) meshes.push(o); });
+  for (const mesh of meshes) {
+    const geo = mesh.geometry.clone();
+    geo.applyMatrix4(mesh.matrixWorld);
+    if (!geo.index) {
+      const n = geo.attributes.position.count;
+      const idx = new (n > 65535 ? Uint32Array : Uint16Array)(n);
+      for (let i = 0; i < n; i++) idx[i] = i;
+      geo.setIndex(new THREE.BufferAttribute(idx, 1));
+    }
+    const index = geo.index.array, pos = geo.attributes.position.array;
+    const tris = index.length / 3;
+    // small materials (lamps, glass, cloth, leaves) aren't worth extra draw calls: keep them whole
+    if (tris < 6000) {
+      const m = new THREE.Mesh(geo, mesh.material);
+      m.castShadow = mesh.castShadow; m.receiveShadow = mesh.receiveShadow;
+      m.matrixAutoUpdate = false; m.userData.high = true;
+      out.add(m);
+      continue;
+    }
+    const buckets = new Map();
+    for (let t = 0; t < tris; t++) {
+      const a = index[t * 3] * 3, b = index[t * 3 + 1] * 3, c = index[t * 3 + 2] * 3;
+      const cx = (pos[a] + pos[b] + pos[c]) / 3, cz = (pos[a + 2] + pos[b + 2] + pos[c + 2]) / 3;
+      const cy = (pos[a + 1] + pos[b + 1] + pos[c + 1]) / 3;
+      // parts above the wall tops (roofs, domes, towers) stay drawn from anywhere, and so do
+      // triangles that reach across chunk borders (long wall faces, big floors)
+      const fx0 = Math.floor(Math.min(pos[a], pos[b], pos[c]) / size), fx1 = Math.floor(Math.max(pos[a], pos[b], pos[c]) / size);
+      const fz0 = Math.floor(Math.min(pos[a + 2], pos[b + 2], pos[c + 2]) / size), fz1 = Math.floor(Math.max(pos[a + 2], pos[b + 2], pos[c + 2]) / size);
+      const always = cy > highY || fx0 !== fx1 || fz0 !== fz1;
+      const k = ((Math.floor(cx / size) + 64) * 4096 + (Math.floor(cz / size) + 64)) * 2 + (always ? 1 : 0);
+      let list = buckets.get(k);
+      if (!list) buckets.set(k, list = []);
+      list.push(t);
+    }
+    const names = Object.keys(geo.attributes);
+    const parts = [];
+    for (const [bk, list] of buckets) {
+      const remap = new Map();
+      const newIndex = new Uint32Array(list.length * 3);
+      let nv = 0;
+      for (let i = 0; i < list.length; i++) {
+        for (let j = 0; j < 3; j++) {
+          const v = index[list[i] * 3 + j];
+          let m = remap.get(v);
+          if (m === undefined) { m = nv++; remap.set(v, m); }
+          newIndex[i * 3 + j] = m;
+        }
+      }
+      const part = new THREE.BufferGeometry();
+      for (const name of names) {
+        const src = geo.attributes[name], isz = src.itemSize;
+        const arr = new src.array.constructor(nv * isz);
+        for (const [o, m] of remap) for (let k = 0; k < isz; k++) arr[m * isz + k] = src.array[o * isz + k];
+        part.setAttribute(name, new THREE.BufferAttribute(arr, isz, src.normalized));
+      }
+      part.setIndex(new THREE.BufferAttribute(newIndex, 1));
+      const cell = Math.floor(bk / 2);
+      parts.push({ geo: part, chunk: [Math.floor(cell / 4096) - 64, cell % 4096 - 64], high: bk % 2 === 1, nv, ni: newIndex.length });
+    }
+    // all the chunks of this material in one batched mesh: one draw call,
+    // and each chunk can be hidden on its own
+    const totalV = parts.reduce((a, p) => a + p.nv, 0), totalI = parts.reduce((a, p) => a + p.ni, 0);
+    const batch = new THREE.BatchedMesh(parts.length, totalV, totalI, mesh.material);
+    batch.castShadow = mesh.castShadow; batch.receiveShadow = mesh.receiveShadow;
+    batch.userData.instances = [];
+    for (const p of parts) {
+      const gid = batch.addGeometry(p.geo);
+      const iid = batch.addInstance(gid);
+      batch.userData.instances.push({ id: iid, chunk: p.chunk, high: p.high });
+      p.geo.dispose();
+    }
+    out.add(batch);
+    geo.dispose();
+  }
+  return out;
+}
+
+
+// Potentially visible sets for a grid map: from every walkable cell, a fan of
+// rays through the grid (walls '#' stop them) finds the cells that can be
+// seen; the map chunks holding those cells (and their neighbours, to be
+// safe) are drawn, the rest skipped. Things above the wall tops are never
+// culled this way, so the skyline doesn't pop.
+function buildPVS(grid, S, chunks) {
+  const H = grid.length, W = grid[0].length;
+  const CW = Math.ceil(W * S / CHUNK), CH = Math.ceil(H * S / CHUNK);
+  const nC = CW * CH;
+  const blocks = (x, z) => x < 0 || z < 0 || x >= W || z >= H || grid[z][x] === '#';
+  const open = (x, z) => !blocks(x, z);
+  const chunkOf = (x, z) => Math.floor(z * S / CHUNK) * CW + Math.floor(x * S / CHUNK);
+  const sets = new Array(W * H).fill(null);
+  const RAYS = 540;
+  const dirs = [];
+  for (let i = 0; i < RAYS; i++) { const a = (i / RAYS) * Math.PI * 2; dirs.push([Math.cos(a), Math.sin(a)]); }
+  const seen = new Uint8Array(W * H);
+  for (let z = 0; z < H; z++) for (let x = 0; x < W; x++) {
+    if (!open(x, z)) continue;
+    seen.fill(0);
+    for (const [ox, oz] of [[0.5, 0.5], [0.12, 0.12], [0.88, 0.12], [0.12, 0.88], [0.88, 0.88]]) {
+      const px = x + ox, pz = z + oz;
+      for (const [dx, dz] of dirs) {
+        // grid traversal (Amanatides & Woo)
+        let cx = x, cz = z;
+        const sx = dx > 0 ? 1 : -1, sz = dz > 0 ? 1 : -1;
+        const tdx = Math.abs(1 / dx), tdz = Math.abs(1 / dz);
+        let tx = dx > 0 ? (cx + 1 - px) * tdx : (px - cx) * tdx;
+        let tz = dz > 0 ? (cz + 1 - pz) * tdz : (pz - cz) * tdz;
+        for (let n = 0; n < 400; n++) {
+          if (cx >= 0 && cz >= 0 && cx < W && cz < H) seen[cz * W + cx] = 1;
+          if (blocks(cx, cz)) break;
+          if (tx < tz) { tx += tdx; cx += sx; } else { tz += tdz; cz += sz; }
+        }
+      }
+    }
+    const vis = new Uint8Array(nC);
+    for (let zz = 0; zz < H; zz++) for (let xx = 0; xx < W; xx++) {
+      if (!seen[zz * W + xx]) continue;
+      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+        const nx = xx + a, nz = zz + b;
+        if (nx >= 0 && nz >= 0 && nx < W && nz < H) vis[chunkOf(nx, nz)] = 1;
+      }
+    }
+    sets[z * W + x] = vis;
+  }
+  const parts = [];
+  chunks.traverse(o => {
+    // geometry just outside the grid (outer faces of the boundary walls) belongs to the edge chunks
+    const cl = (v, n) => Math.max(0, Math.min(n - 1, v));
+    for (const it of o.userData.instances || []) if (!it.high) parts.push([o, it.id, cl(it.chunk[1], CH) * CW + cl(it.chunk[0], CW)]);
+  });
+  let last = -2;
+  return {
+    // camera position -> which chunks to draw (all of them from outside the walkable grid)
+    update(pos) {
+      const x = Math.floor(pos.x / S), z = Math.floor(pos.z / S);
+      const k = x >= 0 && z >= 0 && x < W && z < H && sets[z * W + x] ? z * W + x : -1;
+      if (k === last) return;
+      last = k;
+      const vis = k >= 0 ? sets[k] : null;
+      for (const [b, id, c] of parts) b.setVisibleAt(id, !vis || !!vis[c]);
+    },
+    stats() { return { cells: sets.filter(Boolean).length, chunks: nC }; },
+  };
 }

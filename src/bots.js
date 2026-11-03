@@ -77,7 +77,7 @@ export class Bot extends Character {
     const w = this.weapon;
     if (!w) return;
     const id = w.id;
-    this.gunModel = buildGun(id === 'knife' ? 'knife:standard' : id);
+    this.gunModel = buildGun(id === 'knife' ? 'knife:standard' : id, { lod: true });
     // bots keep one random finish per weapon for the whole match
     this.skins ||= {};
     if (!(id in this.skins)) this.skins[id] = Math.random() < 0.55 && w.def.pattern ? randomItemFor(id) : null;

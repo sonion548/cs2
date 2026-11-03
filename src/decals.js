@@ -91,11 +91,11 @@ function scorchTex(seed) {
 const mat = (map) => new THREE.MeshStandardMaterial({ map, transparent: true, depthWrite: false, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
 
 export class Decals {
-  constructor(scene) {
+  constructor(scene, cap = 220) {
     this.scene = scene;
     this.kinds = {
-      bullet: { mats: [0, 1, 2].map(i => mat(bulletHoleTex(11 + i))), max: 220, list: [], pool: [] },
-      blood: { mats: [0, 1, 2, 3].map(i => mat(bloodTex(31 + i))), max: 90, list: [], pool: [] },
+      bullet: { mats: [0, 1, 2].map(i => mat(bulletHoleTex(11 + i))), max: cap, list: [], pool: [] },
+      blood: { mats: [0, 1, 2, 3].map(i => mat(bloodTex(31 + i))), max: Math.round(cap * 0.4), list: [], pool: [] },
       slash: { mats: [0, 1].map(i => mat(slashTex(51 + i))), max: 40, list: [], pool: [] },
       scorch: { mats: [mat(scorchTex(71))], max: 20, list: [], pool: [] },
     };

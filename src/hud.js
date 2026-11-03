@@ -11,6 +11,13 @@ export const TEAM_NAME = { T: 'Attackers', CT: 'Defenders' };
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 const NADE_ICON = { he: 'HE', flash: 'FL', smoke: 'SM', molotov: 'MO', incendiary: 'IN', decoy: 'DC' };
 
+// Only write text that changed: every write makes the browser restyle the page.
+function setText(el, v) {
+  if (!el) return;
+  const t = String(v);
+  if (el.textContent !== t) el.textContent = t;
+}
+
 export class Hud {
   constructor(game) {
     this.g = game;
@@ -55,7 +62,13 @@ export class Hud {
         </div>
       </div>`;
     document.body.appendChild(root);
-    this.$ = (s) => root.querySelector(s);
+    // element lookups are cached (and re-queried if an element was replaced)
+    const found = new Map();
+    this.$ = (s) => {
+      let el = found.get(s);
+      if (!el || !el.isConnected) { el = root.querySelector(s); found.set(s, el); }
+      return el;
+    };
     this.radar = this.$('.radar').getContext('2d');
     this.xh = this.$('.xhair');
     this.bloomV = 0;
@@ -142,32 +155,40 @@ export class Hud {
 
   update(dt) {
     const g = this.g, p = g.player;
+    if (g.settings.showFps) {
+      this.fpsT = (this.fpsT || 0) + dt;
+      if (this.fpsT > 0.5) {
+        this.fpsT = 0;
+        if (!this.fpsEl) { this.fpsEl = document.createElement('div'); this.fpsEl.className = 'fps'; this.root.appendChild(this.fpsEl); }
+        this.setText(fpsEl, `${Math.round(g.dyn.fps)} FPS · ${g.q.label} · ${Math.round(g.dyn.scale * 100)}%`);
+      }
+    }
     const planted = g.bomb?.state === 'planted';
     const time = this.$('.time');
-    time.textContent = planted ? '💣 ' + this.fmtTime(g.bomb.timer) : this.fmtTime(g.stateTimer);
+    setText(time, planted ? '💣 ' + this.fmtTime(g.bomb.timer) : this.fmtTime(g.stateTimer));
     time.classList.toggle('freeze', g.state === 'freeze');
     time.classList.toggle('bomb', planted);
-    this.$('.round').textContent = g.state === 'freeze' && g.canBuy() ? `Buy time · press ${keyLabel(g.binds.buy[0])}` : `Round ${g.round} · first to ${g.winRounds}`;
-    this.$('.team-score.t .sc').textContent = g.score.T;
-    this.$('.team-score.ct .sc').textContent = g.score.CT;
-    this.$('.team-score.t .alive').textContent = '●'.repeat(g.aliveCount('T'));
-    this.$('.team-score.ct .alive').textContent = '●'.repeat(g.aliveCount('CT'));
+    setText(this.$('.round'), g.state === 'freeze' && g.canBuy() ? `Buy time · press ${keyLabel(g.binds.buy[0])}` : `Round ${g.round} · first to ${g.winRounds}`);
+    setText(this.$('.team-score.t .sc'), g.score.T);
+    setText(this.$('.team-score.ct .sc'), g.score.CT);
+    setText(this.$('.team-score.t .alive'), '●'.repeat(g.aliveCount('T')));
+    setText(this.$('.team-score.ct .alive'), '●'.repeat(g.aliveCount('CT')));
     const shown = p.alive ? p : g.spec.target;
     if (shown && shown.weapon) {
-      this.$('.hp b').textContent = Math.max(0, shown.health);
-      this.$('.ap b').textContent = shown.armor;
-      this.$('.ap .helm').textContent = shown.armor > 0 && shown.helmet ? '+H' : '';
+      setText(this.$('.hp b'), Math.max(0, shown.health));
+      setText(this.$('.ap b'), shown.armor);
+      setText(this.$('.ap .helm'), shown.armor > 0 && shown.helmet ? '+H' : '');
       this.$('.hp').classList.toggle('low', shown.health <= 25);
       const w = shown.weapon, d = w.def;
-      this.$('.wname').textContent = d.name;
+      setText(this.$('.wname'), d.name);
       const gun = !!d.pattern;
-      this.$('.mag').textContent = gun ? w.ammo : d.type === 'grenade' ? shown.nades.filter(n => n === w.id).length : '';
-      this.$('.res').textContent = gun ? ' / ' + w.reserve : '';
+      setText(this.$('.mag'), gun ? w.ammo : d.type === 'grenade' ? shown.nades.filter(n => n === w.id).length : '');
+      setText(this.$('.res'), gun ? ' / ' + w.reserve : '');
       this.$('.mag').classList.toggle('low', gun && w.ammo <= Math.ceil(d.magSize * 0.2));
       this.$('.nades').innerHTML = shown.nades.map(n => `<i class="${shown.slot === 4 && shown.weapon.id === n ? 'on' : ''}">${NADE_ICON[n]}</i>`).join('') + (shown.hasBomb ? '<i class="bombi">C4</i>' : '');
-      this.$('.kit').textContent = shown.team === 'CT' && shown.hasKit ? 'KIT' : '';
+      setText(this.$('.kit'), shown.team === 'CT' && shown.hasKit ? 'KIT' : '');
     }
-    this.$('.money b').textContent = '$' + (p.money ?? 0);
+    setText(this.$('.money b'), '$' + (p.money ?? 0));
     // crosshair: gap opens with inaccuracy and firing
     this.bloomV *= Math.exp(-8 * dt);
     const showX = p.alive && !p.scoped && p.weapon.def.type !== 'sniper';
@@ -199,7 +220,7 @@ export class Hud {
       // context hints
       const hint = this.contextHint();
       const n = this.$('.notice');
-      n.textContent = hint || ''; n.classList.toggle('show', !!hint); n.classList.add('soft');
+      setText(n, hint || ''); n.classList.toggle('show', !!hint); n.classList.add('soft');
     }
     this.drawRadar();
     if (!this.$('.scoreboard').classList.contains('hidden')) this.renderScoreboard();
