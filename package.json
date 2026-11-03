@@ -9,7 +9,8 @@
     "server": "node server/index.js",
     "db:import": "node server/import-json.js",
     "start": "vite build && node server/index.js",
-    "db:check": "node server/db-check.js"
+    "db:check": "node server/db-check.js",
+    "check:maps": "node scripts/check-maps.js"
   },
   "repository": {
     "type": "git",
