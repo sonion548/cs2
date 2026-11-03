@@ -1,374 +1,653 @@
-"""Third-person characters for Vantage (one per team), built in Blender and
-exported as public/models/characters/<team>.glb.
+"""Third-person soldiers for Vantage, one per team, built headless in Blender.
 
-Each soldier is a set of smooth lofted body and gear parts bound to one
-skeleton, so joints bend instead of hinging rigid blocks. Body parts blend
-between neighbouring bones by distance; gear (pouches, helmet, boots) follows
-a single bone. The game poses the bones itself (walk cycle, crouch, aim, arm
-IK onto the weapon, ragdolls).
+    Defenders (ct): police tactical unit. Navy-grey combat uniform, charcoal
+        plate carrier with an open-top triple magazine pouch, admin and radio
+        pouches, high-cut helmet with rails and a comms headset, knit
+        balaclava, tinted ballistic glasses, battle belt with a drop-leg
+        holster, hard-cap knee pads, synthetic gloves and laced boots.
+    Attackers (t): irregular militia in civilian layers. Faded field jacket,
+        work trousers, a wrapped shemagh and sunglasses, a canvas AK chest rig
+        (three magazine pouches between two grenade pouches, crossed back
+        straps), leather belt, leather work gloves and suede desert boots.
 
-Bones (no dots in names, so three.js keeps them as-is):
-  hips > spine > chest > neck > head
-  chest > upperarm_L|R > forearm_L|R > hand_L|R
-  hips > thigh_L|R > shin_L|R > foot_L|R
+How it's made
+  body      the CC0 MakeHuman base mesh, shaped and posed by human.py
+  clothing  shells grown off the body: eased away from the skin, relaxed over
+            hollows so cloth bridges them, then folded where cloth bunches
+            (inside of the elbow, behind the knee, at cuffs and boot tops)
+  gear      modelled the way it is sewn: plate bags with binding, webbing rows
+            with bar-tacks, pouch flaps, buckles, laces, rails
+  textures  procedural Cycles materials baked into one atlas per team
+            (colour with ambient occlusion, normal, roughness)
+  rig       the game's 17 bones (src/rig.js). Skin keeps MakeHuman's own
+            weights; clothing takes them from the nearest point on the body.
 
-Blender space: +Z up, +Y = the direction the character faces (glTF export
-turns that into the game's -Z forward), character's left = -X. Feet at Z=0.
-Material names (char_*) tell the game which shared material to use.
+Blender space: +Z up, the character faces +Y, its left is -X, feet on Z = 0.
 """
 import math
 import os
 import sys
-sys.path.insert(0, os.path.dirname(__file__))
-import bpy
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import bpy  # noqa: E402  (first: it provides bmesh and mathutils)
 import bmesh
+import numpy as np
 from mathutils import Matrix, Vector
-from lib import reset, material, link, scene, stats
+from mathutils.bvhtree import BVHTree
+
+import cloth as C
+import human as H
+from lib import reset, link, stats
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PI = math.pi
-
-TEAMS = {
-    't': dict(shirt=(0.45, 0.39, 0.27), pants=(0.33, 0.29, 0.21), vest=(0.27, 0.25, 0.18), head=(0.22, 0.2, 0.16),
-              helmet=(0.3, 0.27, 0.2), glove=(0.13, 0.12, 0.1), skin=(0.62, 0.43, 0.31)),
-    'ct': dict(shirt=(0.16, 0.2, 0.29), pants=(0.13, 0.15, 0.21), vest=(0.1, 0.12, 0.18), head=(0.09, 0.1, 0.13),
-               helmet=(0.12, 0.14, 0.2), glove=(0.06, 0.06, 0.07), skin=(0.68, 0.5, 0.39)),
-}
+BONES = H.GAME_BONES
+BI = {b: i for i, b in enumerate(BONES)}
 
 
-def mats(team):
-    c = TEAMS[team]
-    m = lambda n, col, metal=0.0, rough=0.85: material(n, (*col, 1), metal, rough)
-    return {
-        'shirt': m('char_shirt', c['shirt']), 'pants': m('char_pants', c['pants']), 'vest': m('char_vest', c['vest']),
-        'head': m('char_head', c['head']), 'helmet': m('char_helmet', c['helmet'], 0.1, 0.55), 'skin': m('char_skin', c['skin'], 0, 0.6),
-        'glove': m('char_glove', c['glove'], 0, 0.75), 'boots': m('char_boots', (0.1, 0.09, 0.08), 0, 0.7),
-        'strap': m('char_strap', (0.12, 0.11, 0.1)), 'lens': m('char_lens', (0.05, 0.07, 0.08), 0.6, 0.1),
-        'metal': m('char_metal', (0.3, 0.3, 0.32), 0.9, 0.35),
-    }
+# ---------------------------------------------------------------- body
+class Body:
+    """The posed body with lookups for building clothes on it."""
+
+    def __init__(self, **params):
+        b = H.soldier_body(**params)
+        self.V = b['V']
+        self.skel = b['skeleton']
+        self.mh = b['bones']
+        _, self.UVs, F = H.base()
+        self.faces = [f for f, _, g in F if g == 'body']
+        self.face_uv = [t for f, t, g in F if g == 'body']
+        self.W = H.game_weights(len(self.V))
+        self.tris = []
+        for f in self.faces:
+            for k in range(1, len(f) - 1):
+                self.tris.append((f[0], f[k], f[k + 1]))
+        self.tris = np.array(self.tris)
+        self.bvh = BVHTree.FromPolygons([Vector(v) for v in self.V], self.tris.tolist())
+        # area-weighted vertex normals
+        a, b_, c = self.V[self.tris[:, 0]], self.V[self.tris[:, 1]], self.V[self.tris[:, 2]]
+        fn = np.cross(b_ - a, c - a)
+        N = np.zeros_like(self.V)
+        for k in range(3):
+            np.add.at(N, self.tris[:, k], fn)
+        ln = np.linalg.norm(N, axis=1, keepdims=True); ln[ln == 0] = 1
+        self.N = N / ln
+        self.used = np.zeros(len(self.V), bool)
+        self.used[np.unique(self.tris)] = True
+
+    def nearest(self, p):
+        loc, nrm, idx, dist = self.bvh.find_nearest(Vector(p))
+        return np.array(loc), np.array(nrm), idx, dist
+
+    def weights_at(self, p):
+        """Bone weights at a point, interpolated across the nearest body triangle."""
+        loc, _, idx, _ = self.bvh.find_nearest(Vector(p))
+        t = self.tris[idx]
+        A, B, C = (self.V[i] for i in t)
+        bc = _bary(np.array(loc), A, B, C)
+        return bc[0] * self.W[t[0]] + bc[1] * self.W[t[1]] + bc[2] * self.W[t[2]]
+
+    def bone_frame(self, bone):
+        h, t = self.skel[bone]
+        return h, t, (t - h) / np.linalg.norm(t - h)
+
+    def joint(self, name):
+        return np.array(self.mh[name][0])
 
 
-# ---------------------------------------------------------------- skeleton (rest pose: arms hanging, slight A)
-def _bones():
-    b = [('hips', None, (0, 0, 0.92), (0, 0, 1.08)),
-         ('spine', 'hips', (0, 0, 1.08), (0, 0, 1.27)),
-         ('chest', 'spine', (0, 0, 1.27), (0, 0, 1.5)),
-         ('neck', 'chest', (0, 0, 1.5), (0, 0, 1.61)),
-         ('head', 'neck', (0, 0, 1.61), (0, 0, 1.86))]
-    for s, L in ((-1, 'L'), (1, 'R')):
-        b += [(f'upperarm_{L}', 'chest', (s * 0.215, 0, 1.44), (s * 0.225, 0, 1.16)),
-              (f'forearm_{L}', f'upperarm_{L}', (s * 0.225, 0, 1.16), (s * 0.228, 0.01, 0.92)),
-              (f'hand_{L}', f'forearm_{L}', (s * 0.228, 0.01, 0.92), (s * 0.23, 0.015, 0.8)),
-              (f'thigh_{L}', 'hips', (s * 0.1, 0, 0.92), (s * 0.1, 0, 0.48)),
-              (f'shin_{L}', f'thigh_{L}', (s * 0.1, 0, 0.48), (s * 0.1, 0, 0.08)),
-              (f'foot_{L}', f'shin_{L}', (s * 0.1, 0, 0.08), (s * 0.1, 0.13, 0.02))]
-    return b
+def _bary(p, a, b, c):
+    v0, v1, v2 = b - a, c - a, p - a
+    d00, d01, d11 = v0 @ v0, v0 @ v1, v1 @ v1
+    d20, d21 = v2 @ v0, v2 @ v1
+    den = d00 * d11 - d01 * d01
+    if abs(den) < 1e-14:
+        return np.array([1.0, 0, 0])
+    v = (d11 * d20 - d01 * d21) / den
+    w = (d00 * d21 - d01 * d20) / den
+    out = np.clip(np.array([1 - v - w, v, w]), 0, 1)
+    return out / out.sum()
 
 
-BONES = _bones()
-SEG = {n: (Vector(h), Vector(t)) for n, _, h, t in BONES}
-PARTS = []   # (object, candidate bones, rigid)
+# ---------------------------------------------------------------- parts
+PARTS = []   # (object, material key, rigid bone or None)
 
 
-def build_armature():
+def new_obj(name, verts, faces, mat, bone=None, smooth=True, uv=None):
+    """uv: optional per-vertex (u, v) in metres, stored as the 'phys' UV map
+    the material bake uses for patterns at real-world scale."""
+    me = bpy.data.meshes.new(name)
+    me.from_pydata([tuple(map(float, v)) for v in verts], [], [list(map(int, f)) for f in faces])
+    me.update()
+    if uv is not None:
+        lay = me.uv_layers.new(name='phys')
+        uvv = np.asarray(uv, float)
+        for loop in me.loops:
+            lay.data[loop.index].uv = tuple(uvv[loop.vertex_index])
+    for p in me.polygons:
+        p.use_smooth = smooth
+    obj = bpy.data.objects.new(name, me)
+    link(obj)
+    obj['mat'] = mat
+    PARTS.append((obj, mat, bone))
+    return obj
+
+
+def obj_from_bm(name, bm, mat, bone=None, smooth=True):
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me); bm.free()
+    for p in me.polygons:
+        p.use_smooth = smooth
+    obj = bpy.data.objects.new(name, me)
+    link(obj)
+    obj['mat'] = mat
+    PARTS.append((obj, mat, bone))
+    return obj
+
+
+def mesh_arrays(obj):
+    me = obj.data
+    V = np.array([v.co[:] for v in me.vertices])
+    F = [list(p.vertices) for p in me.polygons]
+    return V, F
+
+
+# ---------------------------------------------------------------- skeleton
+def build_armature(skel):
     data = bpy.data.armatures.new('rig')
     arm = bpy.data.objects.new('rig', data)
     link(arm)
-    make_active(arm, [arm])
+    vl = bpy.context.view_layer
+    for o in bpy.context.scene.objects:
+        o.select_set(False)
+    arm.select_set(True)
+    vl.objects.active = arm
     bpy.ops.object.mode_set(mode='EDIT')
-    for name, parent, h, t in BONES:
+    for name in BONES:
+        h, t = skel[name]
         eb = data.edit_bones.new(name)
-        eb.head, eb.tail = h, t
+        eb.head, eb.tail = Vector(h), Vector(t)
         eb.roll = 0
-        if parent:
-            eb.parent = data.edit_bones[parent]
-            eb.use_connect = False
+    for name in BONES:
+        p = H.GAME_PARENT[name]
+        if p:
+            data.edit_bones[name].parent = data.edit_bones[p]
+            data.edit_bones[name].use_connect = False
     bpy.ops.object.mode_set(mode='OBJECT')
     return arm
 
 
-def make_active(obj, selected):
-    vl = scene().view_layers[0]
-    for o in scene().objects:
-        o.select_set(False, view_layer=vl)
-    for o in selected:
-        o.select_set(True, view_layer=vl)
-    vl.objects.active = obj
-
-
-# ---------------------------------------------------------------- shapes
-def ring(rx, ry, cx=0.0, cy=0.0, p=2.0, n=24):
-    """Superellipse: p=2 is an ellipse, larger p is squarer."""
-    pts = []
+def bind(obj, body, bone=None, smooth_iters=0):
+    """Vertex groups for a part: rigid to one bone, or taken from the body."""
+    me = obj.data
+    n = len(me.vertices)
+    if bone:
+        W = np.zeros((n, len(BONES))); W[:, BI[bone]] = 1
+    else:
+        W = np.array([body.weights_at(v.co[:]) for v in me.vertices])
+        if smooth_iters:
+            nb = [[] for _ in range(n)]
+            for e in me.edges:
+                a, b = e.vertices
+                nb[a].append(b); nb[b].append(a)
+            for _ in range(smooth_iters):
+                W = np.array([(W[i] + W[nb[i]].mean(axis=0)) / 2 if nb[i] else W[i] for i in range(n)])
+    # four strongest influences, normalised
+    top = np.argsort(-W, axis=1)[:, :4]
+    groups = {b: obj.vertex_groups.new(name=b) for b in BONES}
     for i in range(n):
-        a = i / n * PI * 2
-        c, s = math.cos(a), math.sin(a)
-        pts.append((cx + rx * math.copysign(abs(c) ** (2 / p), c), cy + ry * math.copysign(abs(s) ** (2 / p), s)))
-    return pts
+        ws = W[i, top[i]]
+        s = ws.sum()
+        if s <= 0:
+            continue
+        for j, w in zip(top[i], ws / s):
+            if w > 0.004:
+                groups[BONES[j]].add([i], float(w), 'REPLACE')
 
 
-def _mesh(name, bm, mat):
-    me = bpy.data.meshes.new(name)
-    bm.to_mesh(me); bm.free()
-    me.materials.append(mat)
-    for p in me.polygons:
-        p.use_smooth = True
-    obj = bpy.data.objects.new(name, me)
-    link(obj)
-    return obj
+# ---------------------------------------------------------------- build
+PROFILES = {
+    'ct': dict(body=dict(muscle=0.82, weight=0.55, height=0.55, proportions=0.85, ethnic=(0.25, 0.15, 0.6)), window=(0.064, 0.022, 0.004)),
+    't': dict(body=dict(muscle=0.7, weight=0.45, height=0.5, proportions=0.75, ethnic=(0.3, 0.3, 0.4)), window=(0.066, 0.025, 0.006)),
+}
 
 
-def zloft(name, secs, mat, bones, n=24, cap=True, crease=55, rigid=False):
-    """Skin a solid through horizontal sections [(z, rx, ry, cx, cy, p), ...]
-    listed bottom to top, with cylindrical UVs."""
-    bm = bmesh.new()
-    uv = bm.loops.layers.uv.new('UVMap')
-    rings = []
-    for s in secs:
-        z, rx, ry = s[:3]
-        cx, cy, p = (list(s[3:]) + [0.0, 0.0, 2.0][len(s) - 3:])[:3]
-        rings.append([bm.verts.new((x, y, z)) for x, y in ring(rx, ry, cx, cy, p, n)])
-    vlen = [0.0]
-    for a, b in zip(secs, secs[1:]):
-        vlen.append(vlen[-1] + abs(b[0] - a[0]) + 1e-4)
-    for k, (a, b) in enumerate(zip(rings, rings[1:])):
-        for i in range(n):
-            j = (i + 1) % n
-            f = bm.faces.new((a[i], a[j], b[j], b[i]))
-            for loop, (u, v) in zip(f.loops, ((i, vlen[k]), (i + 1, vlen[k]), (i + 1, vlen[k + 1]), (i, vlen[k + 1]))):
-                loop[uv].uv = (u / n * 1.5, v * 4)
-    if cap:
-        for r, top in ((rings[0], False), (rings[-1], True)):
-            c = bm.verts.new((sum(v.co.x for v in r) / n, sum(v.co.y for v in r) / n, r[0].co.z))
-            for i in range(n):
-                j = (i + 1) % n
-                f = bm.faces.new((r[i], r[j], c) if top else (r[j], r[i], c))
-                for loop in f.loops:
-                    loop[uv].uv = (loop.vert.co.x * 4, loop.vert.co.y * 4)
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    obj = _mesh(name, bm, mat)
-    obj.data.set_sharp_from_angle(angle=math.radians(crease))
-    PARTS.append((obj, bones if isinstance(bones, (list, tuple)) else [bones], rigid or isinstance(bones, str)))
-    return obj
-
-
-def blob(name, size, loc, mat, bones, p=3.0, n=20, rot=(0, 0, 0)):
-    """Rounded box (padded pouch, pad, block): a superellipse loft, rigid to one bone."""
-    sx, sy, sz = size
-    k = 7
-    secs = []
-    for i in range(k + 1):
-        t = -1 + 2 * i / k
-        w = (1 - abs(t) ** p) ** (1 / p)
-        secs.append((t * sz / 2, max(0.002, sx / 2 * w), max(0.002, sy / 2 * w), 0, 0, p))
-    o = zloft(name, secs, mat, bones, n=n, cap=True)
-    o.location = loc
-    o.rotation_euler = rot
-    return o
-
-
-def oriented(obj, rot, loc):
-    obj.rotation_euler = rot; obj.location = loc
-    return obj
-
-
-def box_uv(obj, scale=4.0):
+def eyeballs(body, mat='eye'):
+    """MakeHuman's eye helpers, coloured by angle from straight ahead (pupil, iris, white)."""
+    _, _, F = H.base()
+    faces = [f for f, _, g in F if g in ('helper-l-eye', 'helper-r-eye')]
+    used = sorted({i for f in faces for i in f})
+    remap = {o: i for i, o in enumerate(used)}
+    obj = new_obj('eyes', body.V[used], [[remap[i] for i in f] for f in faces], mat)
     me = obj.data
-    if me.uv_layers:
-        return
-    uv = me.uv_layers.new(name='UVMap')
-    for poly in me.polygons:
-        n = poly.normal
-        ax = max(range(3), key=lambda i: abs(n[i]))
-        for li in poly.loop_indices:
-            co = me.vertices[me.loops[li].vertex_index].co
-            a, b = [(co.y, co.z), (co.x, co.z), (co.x, co.y)][ax]
-            uv.data[li].uv = (a * scale, b * scale)
+    colr = me.color_attributes.new('eyecol', 'FLOAT_COLOR', 'POINT')
+    V = body.V[used]
+    for side in (-1, 1):
+        m = np.sign(V[:, 0]) == side
+        c = V[m].mean(axis=0)
+        d = V - c
+        cosang = d[:, 1] / np.maximum(np.linalg.norm(d, axis=1), 1e-9)
+        for i in np.where(m)[0]:
+            a = cosang[i]
+            rgb = (0.02, 0.02, 0.02) if a > 0.975 else (0.16, 0.1, 0.06) if a > 0.9 else (0.78, 0.74, 0.7)
+            colr.data[i].color = (*rgb, 1)
+    return obj
 
 
-# ---------------------------------------------------------------- body parts
-def leg(M, s, L, T):
-    hx = 0.1 * s
-    th, sh, ft = f'thigh_{L}', f'shin_{L}', f'foot_{L}'
-    # trousers: hip → knee → bloused cuff over the boot
-    zloft(f'thigh{L}', [(0.46, 0.062, 0.066, hx), (0.6, 0.074, 0.08, hx), (0.75, 0.084, 0.09, hx), (0.88, 0.09, 0.094, hx), (0.96, 0.095, 0.098, hx * 0.8)],
-          M['pants'], ['hips', th, sh])
-    blob(f'cargo{L}', (0.04, 0.11, 0.13), (hx + s * 0.08, 0.0, 0.72), M['pants'], th)
-    blob(f'cargo_flap{L}', (0.045, 0.115, 0.03), (hx + s * 0.082, 0.0, 0.79), M['pants'], th)
-    if s > 0:
-        blob('holster', (0.05, 0.1, 0.17), (hx + 0.1, 0.0, 0.8), M['strap'], th)
-        blob('holster_grip', (0.034, 0.06, 0.06), (hx + 0.1, -0.02, 0.9), M['metal'], th, rot=(0.3, 0, 0))
-        for z in (0.72, 0.84):
-            zloft(f'thigh_strap{z}', [(z - 0.012, 0.092, 0.096, hx), (z + 0.012, 0.092, 0.096, hx)], M['strap'], th, cap=False)
-    blob(f'kneepad{L}', (0.11, 0.05, 0.11), (hx, 0.06, 0.48), M['strap'], sh, p=2.6)
-    zloft(f'shin{L}', [(0.12, 0.052, 0.055, hx), (0.16, 0.06, 0.064, hx), (0.3, 0.056, 0.06, hx, -0.005), (0.42, 0.062, 0.064, hx), (0.52, 0.064, 0.066, hx)],
-          M['pants'], [th, sh, ft])
-    zloft(f'boot{L}', [(0.0, 0.058, 0.14, hx, 0.045, 2.6), (0.04, 0.06, 0.14, hx, 0.045, 2.6), (0.06, 0.058, 0.12, hx, 0.035, 2.4),
-                       (0.085, 0.056, 0.085, hx, 0.012), (0.12, 0.056, 0.064, hx), (0.165, 0.058, 0.062, hx)], M['boots'], [sh, ft])
-    zloft(f'sole{L}', [(-0.012, 0.062, 0.145, hx, 0.045, 3.0), (0.012, 0.064, 0.147, hx, 0.045, 3.0)], M['strap'], ft)
-    for k in range(3):
-        z = 0.1 + k * 0.022
-        zloft(f'lace{L}{k}', [(z - 0.004, 0.035, 0.008, hx, 0.058 - k * 0.004), (z + 0.004, 0.035, 0.008, hx, 0.058 - k * 0.004)], M['strap'], ft, n=8)
+def body_mesh(body, keep=None, name='skin', mat='skin'):
+    """The body itself (or the faces where keep(face centre) is true), with MakeHuman UVs."""
+    faces = body.faces if keep is None else [f for f in body.faces if keep(body.V[f].mean(axis=0))]
+    used = sorted({i for f in faces for i in f})
+    remap = {o: i for i, o in enumerate(used)}
+    obj = new_obj(name, body.V[used], [[remap[i] for i in f] for f in faces], mat)
+    return obj
 
 
-def torso(M, T):
-    Z = lambda z: 0.92 + z
-    # shirt body: hips → waist → chest → shoulders, with deltoid caps
-    zloft('shirt', [(Z(-0.06), 0.165, 0.11), (Z(0.06), 0.158, 0.1), (Z(0.2), 0.168, 0.108), (Z(0.36), 0.2, 0.118), (Z(0.46), 0.212, 0.12),
-                    (Z(0.53), 0.19, 0.11), (Z(0.58), 0.13, 0.085), (Z(0.62), 0.06, 0.055)], M['shirt'], ['hips', 'spine', 'chest', 'neck'])
-    for s, L in ((-1, 'L'), (1, 'R')):
-        oriented(zloft(f'deltoid{L}', [(-0.07, 0.05, 0.06), (-0.02, 0.066, 0.07), (0.03, 0.06, 0.064), (0.06, 0.03, 0.04)], M['shirt'], ['chest', f'upperarm_{L}']),
-                 (0, 0, 0), (s * 0.205, 0, 1.4))
-    zloft('belt', [(Z(-0.01), 0.172, 0.116), (Z(0.045), 0.172, 0.116)], M['strap'], 'hips', cap=False)
-    blob('buckle', (0.06, 0.016, 0.04), (0, 0.118, Z(0.018)), M['metal'], 'hips')
-    # plate carrier with cummerbund and shoulder straps
-    zloft('carrier', [(Z(0.14), 0.19, 0.136, 0, 0, 3.2), (Z(0.2), 0.195, 0.14, 0, 0, 3.2), (Z(0.42), 0.198, 0.142, 0, 0, 3.2),
-                      (Z(0.48), 0.185, 0.134, 0, 0, 3.2)], M['vest'], ['spine', 'chest'])
-    for sx in (-1, 1):
-        blob(f'carrier_strap{sx}', (0.07, 0.27, 0.05), (sx * 0.12, 0.0, Z(0.5)), M['vest'], 'chest', p=2.4)
-    for i in (-1, 0, 1):
-        blob(f'mag_pouch{i}', (0.075, 0.05, 0.12), (i * 0.08, 0.16, Z(0.27)), M['vest'], 'spine', p=2.8)
-        blob(f'mag_flap{i}', (0.078, 0.054, 0.025), (i * 0.08, 0.162, Z(0.335)), M['strap'], 'spine', p=2.8)
-    blob('admin_pouch', (0.17, 0.04, 0.08), (0, 0.155, Z(0.41)), M['vest'], 'chest', p=3.2)
-    for sx in (-1, 1):
-        blob(f'side_pouch{sx}', (0.05, 0.09, 0.11), (sx * 0.2, 0.02, Z(0.24)), M['vest'], 'spine', p=2.8)
-    if T:
-        blob('pack', (0.27, 0.12, 0.32), (0, -0.2, Z(0.34)), M['vest'], 'chest', p=3.0)
-        blob('pack_pocket', (0.2, 0.05, 0.13), (0, -0.265, Z(0.26)), M['vest'], 'chest', p=2.8)
-        oriented(zloft('bedroll', [(-0.15, 0.045, 0.045), (0.15, 0.045, 0.045)], M['shirt'], 'chest', n=16), (0, PI / 2, 0), (0, -0.2, Z(0.53)))
-    else:
-        blob('radio', (0.075, 0.05, 0.17), (-0.12, -0.17, Z(0.36)), M['strap'], 'chest', p=3.4)
-        zloft('antenna', [(Z(0.44), 0.005, 0.005, -0.14, -0.175), (Z(0.78), 0.003, 0.003, -0.14, -0.175)], M['strap'], 'chest', n=8)
-        blob('hydration', (0.2, 0.06, 0.26), (0.03, -0.17, Z(0.3)), M['vest'], 'chest', p=2.8)
+# ---------------------------------------------------------------- landmarks
+class Marks:
+    """Heights and points on this body that the garments are cut to."""
+
+    def __init__(self, b):
+        S = b.skel
+        self.hip = S['hips'][0][2]
+        self.waist = self.hip + 0.06            # where a belt sits, on the hip bones
+        self.knee = S['shin_L'][0][2]
+        self.ankle = S['foot_L'][0][2]
+        self.shoulder = S['upperarm_L'][0][2]
+        self.elbow = S['forearm_L'][0][2]
+        self.wrist = S['hand_L'][0][2]
+        self.neck = S['neck'][0][2]
+        self.chin = S['head'][0][2] - 0.005
+        self.crotch = self.hip - 0.1
+        eyes = [i for f, _, g in H.base()[2] if g in ('helper-l-eye', 'helper-r-eye') for i in f]
+        self.eye = b.V[eyes].mean(axis=0)
 
 
-def head(M, T):
-    z0 = 0.92 + 0.6
-    zloft('neck_skin', [(z0 - 0.02, 0.058, 0.054), (z0 + 0.1, 0.05, 0.05)], M['head'] if T else M['skin'], ['chest', 'neck', 'head'])
-    hz = z0 + 0.1
-    face, skull = M['skin'], (M['head'] if T else M['skin'])
-    H = 'head'
-    zloft('skull', [(hz - 0.01, 0.03, 0.035, 0, 0.01), (hz + 0.01, 0.068, 0.078, 0, 0.012), (hz + 0.05, 0.088, 0.1, 0, 0.008), (hz + 0.1, 0.095, 0.106),
-                    (hz + 0.15, 0.09, 0.1, 0, -0.004), (hz + 0.19, 0.07, 0.08, 0, -0.008), (hz + 0.215, 0.03, 0.04, 0, -0.008)], skull, H, n=28)
-    blob('nose', (0.022, 0.03, 0.04), (0, 0.1, hz + 0.08), face if not T else M['head'], H, p=2.2)
-    blob('brow', (0.13, 0.03, 0.02), (0, 0.09, hz + 0.115), skull, H, p=2.4)
-    blob('jaw', (0.12, 0.08, 0.05), (0, 0.045, hz + 0.02), skull, H, p=2.2)
-    for sx in (-1, 1):
-        blob(f'ear{sx}', (0.018, 0.034, 0.05), (sx * 0.093, -0.004, hz + 0.095), skull, H, p=2.2)
-    if T:
-        # balaclava eye opening, goggles pushed up, scarf around the neck
-        band = zloft('eye_band', [(hz + 0.09, 0.08, 0.098, 0, 0.012), (hz + 0.125, 0.081, 0.098, 0, 0.012)], face, H, cap=False, n=28)
-        bm = bmesh.new(); bm.from_mesh(band.data)
-        bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.calc_center_median().y < 0.04], context='FACES')
-        bm.to_mesh(band.data); bm.free()
-        for sx in (-1, 1):
-            blob(f'eye{sx}', (0.018, 0.006, 0.01), (sx * 0.032, 0.098, hz + 0.108), M['lens'], H, p=2)
-        zloft('scarf', [(z0 - 0.03, 0.1, 0.09), (z0 + 0.01, 0.085, 0.08, 0, 0.006), (z0 + 0.05, 0.068, 0.068, 0, 0.01), (z0 + 0.08, 0.06, 0.064, 0, 0.012)],
-              M['shirt'], ['chest', 'neck'])
-        gz, gy = hz + 0.17, 0.085
-        zloft('goggle_strap', [(gz - 0.012, 0.097, 0.1), (gz + 0.012, 0.094, 0.097)], M['strap'], H, cap=False, n=28)
-    else:
-        zloft('helmet', [(hz + 0.075, 0.118, 0.13, 0, -0.008), (hz + 0.12, 0.122, 0.132, 0, -0.006), (hz + 0.17, 0.11, 0.12, 0, -0.004),
-                         (hz + 0.21, 0.085, 0.094), (hz + 0.235, 0.05, 0.055), (hz + 0.245, 0.01, 0.01)], M['helmet'], H, n=32)
-        zloft('helmet_rim', [(hz + 0.07, 0.122, 0.134, 0, -0.008), (hz + 0.082, 0.123, 0.135, 0, -0.008)], M['strap'], H, cap=False, n=32)
-        for sx in (-1, 1):
-            oriented(zloft(f'earcup{sx}', [(-0.018, 0.04, 0.046), (0.018, 0.04, 0.046), (0.024, 0.03, 0.036)], M['strap'], H, n=20), (0, sx * PI / 2, 0), (sx * 0.1, 0, hz + 0.085))
-            blob(f'helmet_rail{sx}', (0.012, 0.09, 0.018), (sx * 0.12, -0.01, hz + 0.115), M['strap'], H, p=3)
-            blob(f'eye{sx}', (0.018, 0.006, 0.01), (sx * 0.032, 0.1, hz + 0.106), M['lens'], H, p=2)
-        blob('nvg_mount', (0.05, 0.03, 0.04), (0, 0.13, hz + 0.15), M['strap'], H, p=3)
-        blob('mouth', (0.04, 0.006, 0.008), (0, 0.098, hz + 0.045), M['strap'], H, p=2)
-        gz, gy = hz + 0.112, 0.098
-        gz = hz + 0.165   # CT wears the goggles up on the helmet brim
-        gy = 0.108
-    blob('goggles', (0.17, 0.045, 0.05), (0, gy, gz), M['strap'], H, p=3.2)
-    for sx in (-1, 1):
-        oriented(zloft(f'lens{sx}', [(-0.004, 0.032, 0.022), (0.004, 0.03, 0.02)], M['lens'], H, n=20), (PI / 2, 0, 0), (sx * 0.04, gy + 0.022, gz))
+def col(W, *names):
+    return sum(W[:, BI[n]] for n in names)
 
 
-def arm(M, s, L, T):
-    sx = 0.218 * s
-    sz = 1.44
-    ua, fa, hd = f'upperarm_{L}', f'forearm_{L}', f'hand_{L}'
-    blob(f'shoulder_pad{L}', (0.12, 0.13, 0.07), (sx + s * 0.01, 0, sz + 0.005), M['vest'] if not T else M['shirt'], ua, p=2.4)
-    zloft(f'upper{L}', [(sz - 0.3, 0.05, 0.052, sx), (sz - 0.2, 0.056, 0.058, sx), (sz - 0.08, 0.062, 0.064, sx), (sz + 0.03, 0.064, 0.066, sx)], M['shirt'], ['chest', ua, fa])
-    blob(f'patch{L}', (0.012, 0.06, 0.07), (sx + s * 0.06, 0, sz - 0.1), M['vest'], ua, p=3.5)
-    ez = sz - 0.28
-    zloft(f'fore{L}', [(ez - 0.25, 0.04, 0.042, sx), (ez - 0.12, 0.048, 0.05, sx), (ez + 0.03, 0.052, 0.054, sx)], M['skin'] if T else M['shirt'], [ua, fa, hd])
-    if T:
-        zloft(f'sleeve_roll{L}', [(ez - 0.06, 0.056, 0.058, sx), (ez + 0.03, 0.058, 0.06, sx)], M['shirt'], [ua, fa], cap=False)
-    zloft(f'cuff{L}', [(ez - 0.26, 0.044, 0.046, sx), (ez - 0.22, 0.046, 0.048, sx)], M['glove'], [fa, hd], cap=False)
-    # glove: palm, four curled fingers and a thumb
-    hz = ez - 0.25
-    zloft(f'hand{L}', [(hz - 0.085, 0.022, 0.034, sx, 0.004, 2.6), (hz - 0.05, 0.03, 0.045, sx, 0.004, 2.6), (hz - 0.01, 0.03, 0.044, sx, 0, 2.6),
-                       (hz + 0.01, 0.026, 0.038, sx)], M['glove'], hd)
-    blob(f'knuckles{L}', (0.018, 0.07, 0.026), (sx + s * 0.024, 0.004, hz - 0.06), M['strap'], hd, p=3)
-    for k in range(4):
-        y = -0.026 + k * 0.017
-        f = zloft(f'finger{L}{k}', [(0, 0.0085, 0.0085), (0.025, 0.008, 0.008), (0.045, 0.0072, 0.0072)], M['glove'], hd, n=10)
-        oriented(f, (-0.5, s * 0.15, 0), (sx - s * 0.004, y, hz - 0.08))
-        f.rotation_euler = (PI + 0.35, 0, 0)
-    th = zloft(f'thumb{L}', [(0, 0.011, 0.011), (0.05, 0.009, 0.009)], M['glove'], hd, n=10)
-    oriented(th, (-0.6, 0, -s * 0.3), (sx - s * 0.014, 0.034, hz - 0.03))
+def shell_obj(name, sh, mat, bone=None):
+    return new_obj(name, sh.P, sh.F, mat, bone)
 
 
-# ---------------------------------------------------------------- skinning
-def seg_dist(p, a, b):
-    ab = b - a
-    t = max(0.0, min(1.0, (p - a).dot(ab) / max(ab.length_squared, 1e-9)))
-    return (a + ab * t - p).length
+# ---------------------------------------------------------------- garments
+def trousers(b, M, *, bottom, ease_leg=0.016, ease_seat=0.012, blouse=None, flare=0.0, seed=11, mat='pants'):
+    """Trousers from the waistband down: bloused into boots, or hanging over them."""
+    arms = ('upperarm_L', 'forearm_L', 'hand_L', 'upperarm_R', 'forearm_R', 'hand_R')
+
+    def test(V, W):
+        return (V[:, 2] < M.waist + 0.012) & (V[:, 2] > bottom) & (col(W, 'foot_L', 'foot_R') < 0.5) & (col(W, *arms) < 0.2)
+
+    def ease(P, W):
+        z = P[:, 2]
+        e = 0.012 + (ease_seat - 0.012) * C.smoothstep(M.waist, M.waist - 0.12, z)
+        e = e + (ease_leg - ease_seat) * C.smoothstep(M.crotch, M.knee + 0.1, z)
+        # less on the inside of the thigh, where the legs nearly touch
+        inner = np.abs(P[:, 0]) < 0.07
+        e = np.where(inner & (z > M.knee), e * 0.55, e)
+        if blouse:
+            # puffed out and hanging over the boot top, then tucked tight inside it
+            e = e + 0.016 * C.smoothstep(blouse + 0.11, blouse + 0.03, z)
+            e = np.where(z < blouse + 0.002, 0.004 + (e - 0.004) * C.smoothstep(blouse - 0.016, blouse + 0.002, z), e)
+        if flare:
+            e = e + flare * C.smoothstep(M.ankle + 0.25, bottom, z)
+        return e
+    sh = C.Shell(b, C.region(b, test), ease, relax=6)
+    sh.trim((0, 0, M.waist + 0.012), (0, 0, 1))
+    sh.trim((0, 0, bottom), (0, 0, 1), reach=0.03)
+    for side, sd in (('L', 1), ('R', 2)):
+        th, sn = f'thigh_{side}', f'shin_{side}'
+        legs = [th, sn]
+        kn = b.skel[sn][0]
+        # behind the knee: compression folds, and a couple of softer ones in front
+        sh.rings(sn, legs, -0.07, 0.07, 4, 0.006, 0.016, arc=(math.pi * 0.55, math.pi * 1.45), seed=seed + sd)
+        sh.rings(sn, legs, -0.12, -0.02, 2, 0.004, 0.02, arc=(-0.9, 0.9), slope=0.6, seed=seed + 10 + sd)
+        # down the shin: long shallow drape folds, and the stack at the bottom
+        sh.pleats(sn, legs, 0.12, 0.34, 5, 0.003, phase=sd, sharp=3, seed=seed + 20 + sd)
+        if blouse:
+            ub = kn[2] - blouse        # distance down the shin to the boot top
+            sh.pleats(sn, legs, ub - 0.11, ub + 0.005, 7, 0.008, phase=sd * 1.3, sharp=2.4, seed=seed + 30 + sd)
+            sh.rings(sn, legs, ub - 0.09, ub - 0.025, 3, 0.005, 0.012, seed=seed + 40 + sd)
+        else:
+            sh.rings(sn, legs, (kn[2] - bottom) - 0.16, (kn[2] - bottom) - 0.02, 4, 0.006, 0.014, slope=0.5, seed=seed + 40 + sd)
+        # crotch: pulls running from the crotch toward the outside of the knee
+        hip = b.skel[th][0]
+        sgn = -1 if side == 'L' else 1
+        c0 = np.array([sgn * 0.035, hip[1] + 0.06, M.crotch + 0.02])
+        for k in range(2):
+            c1 = np.array([sgn * (0.12 + 0.02 * k), kn[1] + 0.07, kn[2] + 0.17 + 0.07 * k])
+            sh.pull(c0, c1, 0.018, 0.0035 - k * 0.001, members=legs + ['hips'])
+        # seat: folds under the buttock where the leg meets it
+        sh.rings(th, legs, 0.07, 0.13, 2, 0.003, 0.018, arc=(math.pi * 0.6, math.pi * 1.4), seed=seed + 50 + sd)
+    # gathered under the belt
+    sh.pleats('spine', ['hips', 'spine'], -0.11, -0.03, 14, 0.0025, sharp=2, seed=seed + 60)
+    sh.push_out(0.35, 0.002)
+    sh.hem(0.005, 0.012)
+    return shell_obj('trousers', sh, mat)
 
 
-def bind(obj, bones, rigid):
-    """Vertex groups for a part: one bone (gear) or a distance blend across its bones."""
-    bpy.context.view_layer.update()
-    mw = obj.matrix_world.copy()
-    me = obj.data
-    me.transform(mw)                     # bake placement so rest positions are world/rest space
-    obj.matrix_world = Matrix.Identity(4)
-    groups = {b: obj.vertex_groups.get(b) or obj.vertex_groups.new(name=b) for b in bones}
-    if rigid:
-        groups[bones[0]].add(list(range(len(me.vertices))), 1.0, 'REPLACE')
-        return
-    for v in me.vertices:
-        p = v.co
-        ws = [(b, 1.0 / (seg_dist(p, *SEG[b]) ** 6 + 1e-10)) for b in bones]
-        ws.sort(key=lambda x: -x[1])
-        ws = ws[:3]
-        tot = sum(w for _, w in ws)
-        for b, w in ws:
-            if w / tot > 0.01:
-                groups[b].add([v.index], w / tot, 'REPLACE')
+def shirt(b, M, *, tuck=True, ease_body=0.007, ease_sleeve=0.013, cuff_z=None, seed=21, mat='shirt', hem_z=None):
+    """Long-sleeved shirt or jacket: torso, sleeves to the wrist, neck opening."""
+    cuff = cuff_z if cuff_z is not None else M.wrist + 0.035
+    low = M.waist - 0.07 if tuck else hem_z
+
+    def test(V, W):
+        arm = col(W, 'upperarm_L', 'forearm_L', 'upperarm_R', 'forearm_R', 'hand_L', 'hand_R')
+        hand = col(W, 'hand_L', 'hand_R')
+        neckline = V[:, 2] < M.neck + 0.03 - 0.035 * C.smoothstep(-0.02, 0.06, V[:, 1])
+        torso = (V[:, 2] > low) & neckline & (col(W, 'head') < 0.05) & (arm < 0.5)
+        sleeve = (arm >= 0.5) & (hand < 0.2) & (V[:, 2] > cuff)
+        return (torso | sleeve) & ((col(W, 'thigh_L', 'thigh_R') < 0.6) if tuck else (V[:, 2] > low))
+
+    def ease(P, W):
+        arm = col(W, 'upperarm_L', 'forearm_L', 'upperarm_R', 'forearm_R')
+        e = ease_body + (ease_sleeve - ease_body) * np.clip(arm * 1.4, 0, 1)
+        if tuck:
+            e = e - (ease_body - 0.004) * C.smoothstep(M.waist + 0.03, M.waist - 0.01, P[:, 2])
+        else:
+            e = e + 0.01 * C.smoothstep(M.waist + 0.08, M.waist - 0.05, P[:, 2])
+        return e
+    sh = C.Shell(b, C.region(b, test), ease, relax=6)
+    for side in ('L', 'R'):
+        h, t, ax = b.bone_frame(f'forearm_{side}')
+        sh.trim(t + ax * (cuff - t[2]) / ax[2], ax)
+    if not tuck:
+        sh.trim((0, 0, low), (0, 0, 1))
+    for side, sd in (('L', 1), ('R', 2)):
+        ua, fa = f'upperarm_{side}', f'forearm_{side}'
+        arm = [ua, fa]
+        # inside of the elbow: a fan of compression folds (arms are bent most of the time)
+        sh.rings(fa, arm, -0.06, 0.05, 4, 0.006, 0.014, arc=(-1.9, 0.6), slope=0.9, seed=seed + sd)
+        # cuff: stacked rings where the sleeve rides on the glove
+        L = np.linalg.norm(b.skel[fa][1] - b.skel[fa][0])
+        sh.rings(fa, arm, L - 0.1, L - 0.035, 3, 0.005, 0.012, slope=0.5, seed=seed + 10 + sd)
+        # upper arm: long diagonal pulls from the armpit
+        sh.rings(ua, arm, 0.05, 0.2, 3, 0.0035, 0.02, arc=(-2.4, -0.4), slope=1.4, seed=seed + 20 + sd)
+        sh.pleats(fa, arm, 0.06, L - 0.1, 4, 0.0025, phase=sd, sharp=3, seed=seed + 30 + sd)
+    sh.push_out(0.35, 0.002)
+    sh.hem(0.004, 0.01)
+    return shell_obj('shirt', sh, mat)
+
+
+def _side_masks(b, V, W, bone):
+    """Per side: (u along the bone from its head, in metres) for verts on that side."""
+    out = {}
+    for side in ('L', 'R'):
+        h, t, ax = b.bone_frame(f'{bone}_{side}')
+        out[side] = ((V - h) @ ax, (V[:, 0] < 0) if side == 'L' else (V[:, 0] > 0))
+    return out
+
+
+def gloves(b, M, *, cuff=0.055, ease=0.0016, mat='glove', guard=True, flare=0.004):
+    """Gloves grown off the hands, with a cuff up the wrist and a padded knuckle guard."""
+    def test(V, W):
+        ok = np.zeros(len(V), bool)
+        for side in ('L', 'R'):
+            h, t, ax = b.bone_frame(f'hand_{side}')
+            u = (V - h) @ ax
+            this = (V[:, 0] < 0) if side == 'L' else (V[:, 0] > 0)
+            ok |= this & (u > -cuff) & (col(W, f'hand_{side}', f'forearm_{side}') > 0.5)
+        return ok
+
+    def ease_fn(P, W):
+        e = np.full(len(P), ease)
+        for side in ('L', 'R'):
+            h, t, ax = b.bone_frame(f'hand_{side}')
+            u = (P - h) @ ax
+            this = (P[:, 0] < 0) if side == 'L' else (P[:, 0] > 0)
+            e = np.where(this, ease + flare * C.smoothstep(-0.015, -cuff, u) + 0.001 * C.smoothstep(0.02, -0.01, u), e)
+        return e
+    sh = C.Shell(b, C.region(b, test), ease_fn, relax=1, keep=0.8, gap=0.0012)
+    for side in ('L', 'R'):
+        h, t, ax = b.bone_frame(f'hand_{side}')
+        sh.trim(h - ax * cuff, ax, reach=0.02)
+        if guard:
+            # knuckle guard: a padded ridge across the back of the hand over the knuckles
+            k2, k5 = b.joint(f'finger2-1.{side}'), b.joint(f'finger5-1.{side}')
+            n = H._palm(b.mh, side)
+            back = -n
+            sh.pull(k2 + back * 0.012, k5 + back * 0.012, 0.014, 0.0035, members=[f'hand_{side}'], taper=(0.02, 0.98))
+            sh.pull(h + back * 0.02 + ax * 0.03, h + back * 0.02 + ax * 0.055, 0.02, 0.002, members=[f'hand_{side}'], taper=(0.1, 0.9))
+        # a couple of creases across the back of the wrist
+        sh.rings(f'hand_{side}', [f'hand_{side}', f'forearm_{side}'], -0.04, -0.012, 2, 0.0015, 0.006, seed=5 + (side == 'R'))
+    sh.push_out(0.6, 0.001)
+    sh.hem(0.003, 0.008)
+    return shell_obj('gloves', sh, mat)
+
+
+def boots(b, M, *, top, ease=0.005, toe_h=0.05, mat='boot', seed=31, n=40):
+    """Boot uppers lofted through sections of the foot and ankle: a roomy toe
+    box, a heel counter, a padded collar at the shaft top. Returns the object
+    and, per side, the bottom outline (for the sole)."""
+    zs = list(np.r_[0.004, 0.009, 0.014, 0.02, 0.027, 0.035, 0.044, 0.054, 0.065, 0.077, 0.09, np.linspace(0.104, top, max(3, int((top - 0.104) / 0.014)) + 1)])
+    Vall, Fall, outlines = [], [], {}
+    for side in ('L', 'R'):
+        this = (b.V[:, 0] < 0) if side == 'L' else (b.V[:, 0] > 0)
+        pick = lambda V: this & (col(b.W, f'foot_{side}', f'shin_{side}') > 0.3) & (V[:, 2] < top + 0.03)
+        L = C.Loft(b.V, b.faces, zs, n=n, pick=pick, center_smooth=3, radius_smooth=1)
+        # flat bottom: the upper meets the sole along the full footprint
+        L.r[0] = np.maximum(L.r[0], L.r[2]); L.r[1] = np.maximum(L.r[1], L.r[2])
+        front = np.cos(L.a).clip(0, 1) ** 1.5
+        tip = (L.c[2, 1] + L.r[2][np.argmin(np.abs(L.a))])
+
+        def ease_fn(z, a, L=L, tip=tip):
+            e = ease + 0.003 * C.smoothstep(top - 0.05, top, z)
+            # toe box: the front of the low sections reaches forward to a rounded toe
+            want = tip + 0.006 - 0.04 * np.clip((z - 0.012) / toe_h, 0, 1) ** 1.6
+            k = int(np.argmin(np.abs(L.z - z)))
+            have = L.c[k, 1] + L.r[k]
+            grow = np.clip(want - have, 0, None) * np.cos(a).clip(0, 1) ** 2 * (z < toe_h + 0.02)
+            # heel counter sits a little proud of the heel
+            back = (-np.cos(a)).clip(0, 1) ** 2 * 0.003 * (z < 0.08)
+            return e + grow + back
+        P = L.points(ease_fn)
+        V, F = C.ring_mesh(P, cap_bottom=True)
+        base = len(Vall)
+        Vall += list(V); Fall += [[base + i for i in f] for f in F]
+        outlines[side] = P[0, :, :2].copy()
+    sh = C.Shell.__new__(C.Shell)
+    sh.body = b; sh.P = np.array(Vall); sh.F = Fall
+    sh.src = np.array([int(b.bvh.find_nearest(Vector(p))[2]) for p in sh.P])
+    sh.src = b.tris[sh.src, 0]
+    sh.ease = np.full(len(sh.P), ease)
+    sh.nb, sh.boundary, sh.bedges = C.adjacency(sh.F, len(sh.P))
+    for side, sd in (('L', 1), ('R', 2)):
+        sn = f'shin_{side}'
+        Ls = np.linalg.norm(b.skel[sn][1] - b.skel[sn][0])
+        # flex creases across the instep and around the ankle
+        sh.rings(f'foot_{side}', [f'foot_{side}'], 0.035, 0.07, 3, 0.0016, 0.006, arc=(-1.1, 1.1), slope=0.4, seed=seed + sd)
+        sh.rings(sn, [sn, f'foot_{side}'], Ls - 0.12, Ls - 0.03, 3, 0.0018, 0.008, slope=0.6, seed=seed + 10 + sd)
+    sh.hem(0.008, 0.016, only=lambda c: c[2] > 0.05)
+    return shell_obj('boots', sh, mat), outlines
+
+
+def sole(outline, side, *, thick=0.03, lip=0.005, mat='sole', heel=0.006):
+    """Rubber sole under one boot: its footprint grown by a lip, with a heel block."""
+    c = outline.mean(axis=0)
+    d = outline - c
+    r = np.linalg.norm(d, axis=1, keepdims=True)
+    ring = c + d * (r + lip) / r
+    n = len(ring)
+    back = lambda y: heel * C.smoothstep(c[1] - 0.03, c[1] - 0.08, y)
+    layers = [(0.006, 0.994), (0.0, 1.0), (-0.45, 1.0), (-1.0, 0.99)]
+    V, F = [], []
+    for z, sc in layers:
+        for x, y in ring:
+            px, py = c[0] + (x - c[0]) * sc, c[1] + (y - c[1]) * sc
+            V.append((px, py, z if z >= 0 else z * (thick + back(py))))
+    for li in range(len(layers) - 1):
+        for k in range(n):
+            a, bb = li * n + k, li * n + (k + 1) % n
+            F.append([a, bb, bb + n, a + n])
+    top_c = len(V); V.append((c[0], c[1], 0.006))
+    bot_c = len(V); V.append((c[0], c[1], -thick))
+    last = (len(layers) - 1) * n
+    for k in range(n):
+        F.append([top_c, (k + 1) % n, k][::-1])
+        F.append([bot_c, last + (k + 1) % n, last + k][::-1])
+    return new_obj(f'sole_{side}', np.array(V), F, mat)
+
+
+def face_window(V, eye, half_w, half_h, drop=0.0, round_=4.0):
+    """True for points inside an eye opening (rounded rectangle seen from the front)."""
+    x = V[:, 0] / half_w
+    z = (V[:, 2] - eye[2] - drop) / half_h
+    return ((np.abs(x) ** round_ + np.abs(z) ** round_) < 1) & (V[:, 1] > eye[1] - 0.05)
+
+
+def eye_hole(sh, eye, half_w, half_h, drop=0.0, round_=4.0):
+    """Pull the edge of a face opening onto its rounded-rectangle outline."""
+    for loop in sh.loops():
+        c = sh.P[loop].mean(axis=0)
+        if c[1] < eye[1] - 0.04 or abs(c[2] - eye[2]) > 0.06:
+            continue
+        for i in loop:
+            x = sh.P[i, 0] / half_w
+            z = (sh.P[i, 2] - eye[2] - drop) / half_h
+            r = (abs(x) ** round_ + abs(z) ** round_) ** (1 / round_)
+            if r > 1e-6:
+                sh.P[i, 0] = x / r * half_w
+                sh.P[i, 2] = eye[2] + drop + z / r * half_h
+
+
+def head_loft(b, M, z0, n=48, step=0.0075):
+    """Sections through the head and neck from z0 to the crown."""
+    top = b.V[b.used][:, 2].max()
+    zs = np.r_[np.arange(z0, top - 0.012, step), top - 0.006, top - 0.002]
+    pick = lambda V: (col(b.W, 'head', 'neck') > 0.3) & (V[:, 2] > z0 - 0.02)
+    return C.Loft(b.V, b.faces, zs, n=n, pick=pick, center_smooth=2, radius_smooth=1)
+
+
+def window_keep(L, M, half_w, half_h, drop=0.0):
+    """keep(k, j) for ring_mesh: False on the faces of a frontal opening."""
+    zc = M.eye[2] + drop
+
+    def keep(k, j):
+        z = (L.z[k] + L.z[k + 1]) / 2
+        a = (L.a[j] + L.a[(j + 1) % len(L.a)]) / 2 if j < len(L.a) - 1 else L.a[j]
+        x = math.sin(a) * L.radius_at(z, j)
+        front = math.cos(a) > 0.3
+        return not (front and abs(z - zc) < half_h and abs(x) < half_w)
+    return keep
+
+
+def balaclava(b, M, *, mat='knit', ease=0.0026):
+    """Knit balaclava stretched over head and neck, with an opening for the eyes."""
+    L = head_loft(b, M, M.neck - 0.05)
+    P = L.points(ease + 0.002 * C.smoothstep(M.neck + 0.03, M.neck - 0.04, L.z)[:, None].repeat(1, 1) if False else ease)
+    V, F = C.ring_mesh(P, keep=window_keep(L, M, 0.06, 0.02, 0.004), cap_top=True)
+    sh = shell_from(b, V, F, ease)
+    eye_hole(sh, M.eye, 0.064, 0.022, 0.004)
+    # knit gathers at the neck
+    sh.rings('neck', ['neck', 'chest', 'head'], -0.03, 0.05, 4, 0.0016, 0.007, seed=41)
+    sh.hem(0.0035, 0.008, only=lambda c: c[2] > M.neck + 0.05)
+    return shell_obj('balaclava', sh, mat)
+
+
+def shemagh(b, M, *, mat='shemagh', seed=51):
+    """A shemagh wound around head, face and neck, leaving a slit for the eyes;
+    knotted at the back with one end hanging down."""
+    win = (0.066, 0.025, 0.006)
+    L = head_loft(b, M, M.neck - 0.075, step=0.007)
+
+    def ease_fn(z, a):
+        front = np.cos(a).clip(0, 1)
+        e = 0.008 + 0.004 * front
+        # wound thick around the neck and lower face, spreading onto the collar
+        e = e + 0.016 * C.smoothstep(M.eye[2] - 0.02, M.neck + 0.02, z) * (0.6 + 0.4 * front)
+        e = e + 0.014 * C.smoothstep(M.neck + 0.01, M.neck - 0.07, z)
+        return e
+    P = L.points(ease_fn)
+    V, F = C.ring_mesh(P, keep=window_keep(L, M, win[0] - 0.004, win[1] - 0.002, win[2]), cap_top=True)
+    sh = shell_from(b, V, F, 0.01)
+    eye_hole(sh, M.eye, win[0], win[1], win[2], round_=3.0)
+    # wraps: long ridges spiralling round the head, bunched turns round the neck
+    sh.rings('head', ['head'], 0.02, 0.17, 6, 0.0045, 0.011, slope=1.6, wobble=0.006, seed=seed, spread=0.6)
+    sh.rings('neck', ['neck', 'head', 'chest'], -0.06, 0.09, 6, 0.006, 0.012, slope=0.9, wobble=0.005, seed=seed + 1)
+    # the knot at the back of the head
+    hd = b.skel['head'][0]
+    knot = np.array([0.025, hd[1] - 0.1, M.eye[2] - 0.005])
+    sh.bulge(knot, 0.045, 0.014, members=['head', 'neck'])
+    sh.pull(knot + [0.0, 0.0, 0.03], knot + [0.05, 0.03, 0.06], 0.012, 0.005, members=['head'])
+    sh.pull(knot + [-0.01, 0.0, -0.02], knot + [-0.06, 0.035, -0.05], 0.012, 0.005, members=['head', 'neck'])
+    sh.hem(0.004, 0.01, only=lambda c: c[2] > M.neck + 0.04)
+    obj = shell_obj('shemagh', sh, mat)
+    # the hanging end: a strip of cloth from the knot down over the upper back
+    tail(b, M, knot, mat)
+    return obj
+
+
+def tail(b, M, knot, mat, length=0.3, w0=0.11, w1=0.085, seed=57):
+    """A loose end of cloth falling from the knot, lying on the back."""
+    rng = np.random.default_rng(seed)
+    rows, cols = 14, 7
+    V, F = [], []
+    for i in range(rows + 1):
+        t = i / rows
+        w = w0 + (w1 - w0) * t
+        # path: down and slightly to one side, lying on the jacket
+        cx = knot[0] + 0.03 * t + 0.01 * math.sin(t * 3)
+        cz = knot[2] - 0.02 - length * t
+        for j in range(cols + 1):
+            s_ = (j / cols - 0.5)
+            x = cx + s_ * w
+            # find the back surface here and sit 1.5-3 cm off it
+            hit = b.bvh.ray_cast(Vector((x, -0.5, cz)), Vector((0, 1, 0)), 1.0)
+            y = (hit[0].y if hit[0] is not None else knot[1]) - 0.026 - 0.004 * math.sin(t * 2.2)
+            # lengthwise folds, deeper toward the free end
+            y -= (0.004 + 0.006 * t) * math.sin(s_ * math.pi * 3 + rng.random() * 0.3 + 1.1)
+            V.append((x, y, cz))
+    for i in range(rows):
+        for j in range(cols):
+            a = i * (cols + 1) + j
+            F.append([a, a + 1, a + cols + 2, a + cols + 1])
+    sh = shell_from(b, V, F, 0.02)
+    sh.hem(0.003, 0.004)
+    return shell_obj('shemagh_tail', sh, mat)
+
+
+def shell_from(b, V, F, ease):
+    sh = C.Shell.__new__(C.Shell)
+    sh.body = b; sh.P = np.array(V, float); sh.F = [list(f) for f in F]
+    tri = np.array([int(b.bvh.find_nearest(Vector(p))[2]) for p in sh.P])
+    sh.src = b.tris[tri, 0]
+    sh.ease = np.full(len(sh.P), ease)
+    sh.nb, sh.boundary, sh.bedges = C.adjacency(sh.F, len(sh.P))
+    return sh
 
 
 def build(team):
     reset()
     PARTS.clear()
-    M = mats(team)
-    T = team == 't'
-    arm_obj = build_armature()
-    for s, L in ((-1, 'L'), (1, 'R')):
-        leg(M, s, L, T)
-    torso(M, T)
-    head(M, T)
-    for s, L in ((-1, 'L'), (1, 'R')):
-        arm(M, s, L, T)
-    for obj, bones, rigid in PARTS:
-        box_uv(obj)
-        bind(obj, bones, rigid)
-    # one skinned mesh per material keeps draw calls low
-    by_mat = {}
-    for obj, _, _ in PARTS:
-        by_mat.setdefault(obj.data.materials[0].name, []).append(obj)
-    for name, objs in by_mat.items():
-        if len(objs) > 1:
-            make_active(objs[0], objs)
-            bpy.ops.object.join()
-        o = objs[0]
-        o.name = 'body_' + name.replace('char_', '')
-        o.parent = arm_obj
-        mod = o.modifiers.new('rig', 'ARMATURE')
-        mod.object = arm_obj
-    return arm_obj
+    P = PROFILES[team]
+    body = Body(**P['body'])
+    arm = build_armature(body.skel)
+    M = Marks(body)
+    win = P.get('window', (0.064, 0.022, 0.004))
+    body_mesh(body, keep=lambda c: abs(c[0]) < win[0] + 0.012 and -win[1] - 0.005 < c[2] - M.eye[2] - win[2] < win[1] + 0.012 and c[1] > M.eye[1] - 0.045)
+    eyeballs(body)
+    if team == 'ct':
+        trousers(body, M, bottom=0.195, blouse=0.215, ease_leg=0.022, ease_seat=0.014)
+        shirt(body, M, tuck=True)
+        gloves(body, M)
+        _, ol = boots(body, M, top=0.215)
+        sole(ol['L'], 'L'); sole(ol['R'], 'R')
+        balaclava(body, M)
+    else:
+        trousers(body, M, bottom=0.05, ease_leg=0.028, ease_seat=0.02, flare=0.012)
+        shirt(body, M, tuck=False, ease_body=0.02, ease_sleeve=0.02, hem_z=0.87, mat='jacket')
+        gloves(body, M, ease=0.0022, cuff=0.045, guard=False, flare=0.006)
+        shemagh(body, M)
+        _, ol = boots(body, M, top=0.15, ease=0.007)
+        sole(ol['L'], 'L', thick=0.022, lip=0.004, heel=0.004); sole(ol['R'], 'R', thick=0.022, lip=0.004, heel=0.004)
+    for obj, mat, bone in PARTS:
+        bind(obj, body, bone)
+        obj.parent = arm
+        mod = obj.modifiers.new('rig', 'ARMATURE')
+        mod.object = arm
+        m = bpy.data.materials.get(mat) or bpy.data.materials.new(mat)
+        obj.data.materials.append(m)
+    return arm, body
 
 
 def export(path):
@@ -379,15 +658,11 @@ def export(path):
 
 def main(argv):
     out = argv[argv.index('--out') + 1] if '--out' in argv else os.path.join(ROOT, 'public', 'models', 'characters')
-    only = argv[argv.index('--only') + 1].split(',') if '--only' in argv else list(TEAMS)
+    only = argv[argv.index('--only') + 1].split(',') if '--only' in argv else list(PROFILES)
     os.makedirs(out, exist_ok=True)
     report = {}
     for team in only:
         build(team)
-        if '--preview' in argv:
-            from preview import render_preview
-            render_preview(os.path.join(out, f'{team}.png'), size=(800, 1000), angle=(0.12, 0, PI - 0.6), lens=60)
-            build(team)
         export(os.path.join(out, f'{team}.glb'))
         report[team] = stats()
         print(f'{team}: {report[team]} tris')
