@@ -15,11 +15,44 @@ export class World {
   constructor() {
     this.boxes = [];
     this.bounds = null;
+    // Spatial index: boxes bucketed on an 8 m grid in x/z, rebuilt lazily
+    // whenever the box list changes, so queries only look at nearby boxes.
+    this.cell = 8;
+    this.index = null; this.indexed = -1; this.stamp = 0;
   }
   add(box) { this.boxes.push(box); return box; }
 
-  overlaps(minX, minY, minZ, maxX, maxY, maxZ) {
+  buildIndex() {
+    const C = this.cell, idx = new Map();
     for (const b of this.boxes) {
+      const x0 = Math.floor(b.min.x / C), x1 = Math.floor(b.max.x / C);
+      const z0 = Math.floor(b.min.z / C), z1 = Math.floor(b.max.z / C);
+      for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) {
+        const k = (x + 4096) * 8192 + (z + 4096);
+        let list = idx.get(k);
+        if (!list) idx.set(k, list = []);
+        list.push(b);
+      }
+      b._q = 0;
+    }
+    this.index = idx; this.indexed = this.boxes.length;
+  }
+
+  // Boxes whose x/z footprint may touch the given rectangle (each box once).
+  near(minX, minZ, maxX, maxZ) {
+    if (this.indexed !== this.boxes.length) this.buildIndex();
+    const C = this.cell, out = [], st = ++this.stamp;
+    const x0 = Math.floor(minX / C), x1 = Math.floor(maxX / C), z0 = Math.floor(minZ / C), z1 = Math.floor(maxZ / C);
+    for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) {
+      const list = this.index.get((x + 4096) * 8192 + (z + 4096));
+      if (!list) continue;
+      for (const b of list) if (b._q !== st) { b._q = st; out.push(b); }
+    }
+    return out;
+  }
+
+  overlaps(minX, minY, minZ, maxX, maxY, maxZ) {
+    for (const b of this.near(minX, minZ, maxX, maxZ)) {
       if (maxX > b.min.x && minX < b.max.x && maxY > b.min.y && minY < b.max.y && maxZ > b.min.z && minZ < b.max.z) return b;
     }
     return null;
@@ -30,7 +63,7 @@ export class World {
     if (delta === 0) return false;
     pos[axis] += delta;
     let hit = false;
-    for (const b of this.boxes) {
+    for (const b of this.near(pos.x - half, pos.z - half, pos.x + half, pos.z + half)) {
       if (pos.x + half > b.min.x && pos.x - half < b.max.x &&
           pos.y + height > b.min.y && pos.y < b.max.y &&
           pos.z + half > b.min.z && pos.z - half < b.max.z) {
@@ -93,26 +126,48 @@ export class World {
     return res;
   }
 
-  // Ray vs boxes (slab method). dir must be normalised.
+  // Ray vs boxes (slab method). dir must be normalised. Walks the spatial
+  // index cell by cell along the ray (2D DDA in x/z) and stops as soon as the
+  // closest hit so far is nearer than the next cell.
   raycast(origin, dir, maxDist = 1000) {
+    if (this.indexed !== this.boxes.length) this.buildIndex();
     let best = maxDist, bestBox = null, bestAxis = -1, bestSign = 0;
     const ox = origin.x, oy = origin.y, oz = origin.z;
     const ix = 1 / dir.x, iy = 1 / dir.y, iz = 1 / dir.z;
-    for (const b of this.boxes) {
-      let t1 = (b.min.x - ox) * ix, t2 = (b.max.x - ox) * ix;
-      let tmin = Math.min(t1, t2), tmax = Math.max(t1, t2), axis = 0;
-      t1 = (b.min.y - oy) * iy; t2 = (b.max.y - oy) * iy;
-      let ymin = Math.min(t1, t2), ymax = Math.max(t1, t2);
-      if (ymin > tmin) { tmin = ymin; axis = 1; }
-      tmax = Math.min(tmax, ymax);
-      t1 = (b.min.z - oz) * iz; t2 = (b.max.z - oz) * iz;
-      let zmin = Math.min(t1, t2), zmax = Math.max(t1, t2);
-      if (zmin > tmin) { tmin = zmin; axis = 2; }
-      tmax = Math.min(tmax, zmax);
-      if (tmax >= Math.max(tmin, 0) && tmin < best && tmin >= 0) {
-        best = tmin; bestBox = b; bestAxis = axis;
-        bestSign = axis === 0 ? -Math.sign(dir.x) : axis === 1 ? -Math.sign(dir.y) : -Math.sign(dir.z);
+    const st = ++this.stamp, C = this.cell;
+    const test = (list) => {
+      for (const b of list) {
+        if (b._q === st) continue;
+        b._q = st;
+        let t1 = (b.min.x - ox) * ix, t2 = (b.max.x - ox) * ix;
+        let tmin = Math.min(t1, t2), tmax = Math.max(t1, t2), axis = 0;
+        t1 = (b.min.y - oy) * iy; t2 = (b.max.y - oy) * iy;
+        let ymin = Math.min(t1, t2), ymax = Math.max(t1, t2);
+        if (ymin > tmin) { tmin = ymin; axis = 1; }
+        tmax = Math.min(tmax, ymax);
+        t1 = (b.min.z - oz) * iz; t2 = (b.max.z - oz) * iz;
+        let zmin = Math.min(t1, t2), zmax = Math.max(t1, t2);
+        if (zmin > tmin) { tmin = zmin; axis = 2; }
+        tmax = Math.min(tmax, zmax);
+        if (tmax >= Math.max(tmin, 0) && tmin < best && tmin >= 0) {
+          best = tmin; bestBox = b; bestAxis = axis;
+          bestSign = axis === 0 ? -Math.sign(dir.x) : axis === 1 ? -Math.sign(dir.y) : -Math.sign(dir.z);
+        }
       }
+    };
+    // 2D DDA over index cells
+    let cx = Math.floor(ox / C), cz = Math.floor(oz / C);
+    const sx = dir.x > 0 ? 1 : -1, sz = dir.z > 0 ? 1 : -1;
+    const hasX = Math.abs(dir.x) > 1e-9, hasZ = Math.abs(dir.z) > 1e-9;
+    let tMaxX = hasX ? ((cx + (sx > 0 ? 1 : 0)) * C - ox) / dir.x : Infinity;
+    let tMaxZ = hasZ ? ((cz + (sz > 0 ? 1 : 0)) * C - oz) / dir.z : Infinity;
+    const tDX = hasX ? C / Math.abs(dir.x) : Infinity, tDZ = hasZ ? C / Math.abs(dir.z) : Infinity;
+    for (let guard = 0; guard < 4096; guard++) {
+      const list = this.index.get((cx + 4096) * 8192 + (cz + 4096));
+      if (list) test(list);
+      const tNext = Math.min(tMaxX, tMaxZ);
+      if (best <= tNext || tNext > maxDist) break;
+      if (tMaxX < tMaxZ) { cx += sx; tMaxX += tDX; } else { cz += sz; tMaxZ += tDZ; }
     }
     // ground plane
     if (dir.y < 0) {

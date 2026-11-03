@@ -18,13 +18,22 @@ from lib import reset, material, link, apply_all
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+STEP = 0.45   # one floor level (must match src/level.js)
+
+
 def load_map(name):
     src = open(os.path.join(ROOT, 'src', 'maps.js')).read()
-    block = src[src.index(f'{name}:'):]
-    grid = re.findall(r"'([#.,ucC^sABTKhD]+)'", block[block.index('grid'):block.index(']')])
+    block = src[src.index(f'  {name}: {{'):]
+    block = block[:block.index('\n  },')]
+    g0 = block.index('grid: [')
+    grid = re.findall(r"'([#.,ucC^sABTKhD]+)'", block[g0:block.index(']', g0)])
+    levels = None
+    if 'levels: [' in block:
+        l0 = block.index('levels: [')
+        levels = re.findall(r"'([0-9]+)'", block[l0:block.index(']', l0)])
     cell = float(re.search(r'cell:\s*([\d.]+)', block).group(1))
     wh = float(re.search(r'wallHeight:\s*([\d.]+)', block).group(1))
-    return grid, cell, wh
+    return grid, cell, wh, levels
 
 
 # ---------------------------------------------------------------- geometry builder
@@ -133,9 +142,11 @@ class Builder:
 # ---------------------------------------------------------------- map
 def build(name):
     reset()
-    grid, S, WH = load_map(name)
+    grid, S, WH, levels = load_map(name)
     H, W = len(grid), len(grid[0])
     at = lambda x, z: '#' if x < 0 or z < 0 or x >= W or z >= H else grid[z][x]
+    lvl = lambda x, z: int(levels[z][x]) if levels and 0 <= z < H and 0 <= x < W else 0
+    fh = lambda x, z: lvl(x, z) * STEP
     walk = lambda x, z: at(x, z) != '#'
     # open air (streets, sites, tunnels) as opposed to building interiors
     street = lambda x, z: at(x, z) not in '#' + INTERIOR
@@ -211,9 +222,15 @@ def build(name):
         for axis, f, a0, a1, sgn in faces_of(x0, z0, x1, z1):
             r = rnd.random()
             mid = (a0 + a1) / 2
+            # floor height of the street cell this face looks onto
+            if axis == 'x':
+                base = fh(int(f / S) if sgn > 0 else int(f / S) - 1, int(mid / S))
+            else:
+                base = fh(int(mid / S), int(f / S) if sgn > 0 else int(f / S) - 1)
 
             def put(mat, u0, y0, u1, y1, d0, d1, collide=None):
-                # u along the face, d outward from the face plane
+                # u along the face, d outward from the face plane; heights from the floor in front
+                y0 += base; y1 += base
                 if axis == 'x':
                     B.box(mat, f + sgn * d0 if sgn > 0 else f - d1, y0, u0, f + sgn * d1 if sgn > 0 else f - d0, y1, u1, collide)
                 else:
@@ -283,18 +300,19 @@ def build(name):
             x0, z0 = x * S, z * S
             cx, cz = x0 + S / 2, z0 + S / 2
             fm = 'sand' if c in ',T' else 'tiles' if c in 'AB^s' else 'concrete' if c == 'u' else 'wood' if c in INTERIOR else 'paving'
-            B.quad(fm, [(x0, 0, z0), (x0, 0, z0 + S), (x0 + S, 0, z0 + S), (x0 + S, 0, z0)])
+            fy = fh(x, z)
+            B.quad(fm, [(x0, fy, z0), (x0, fy, z0 + S), (x0 + S, fy, z0 + S), (x0 + S, fy, z0)])
             if c in 'cC':
                 cs, ch = 2.1, 2.2 if c == 'C' else 1.1
-                B.colliders.append([cx - cs / 2, 0, cz - cs / 2, cx + cs / 2, ch, cz + cs / 2, 'crate'])
+                B.colliders.append([cx - cs / 2, fy, cz - cs / 2, cx + cs / 2, fy + ch, cz + cs / 2, 'crate'])
                 for k in range(int(round(ch / 1.1))):
-                    y0 = k * 1.1
+                    y0 = fy + k * 1.1
                     rot = (rnd.random() - 0.5) * 0.08 if k else 0
                     crate(B, cx, y0, cz, cs, rot)
             if c in '^s':
                 hgt = 0.9 if c == '^' else 0.45
-                B.box('tiles', x0, 0, z0, x0 + S, hgt, z0 + S, collide='platform')
-                B.box('trim', x0, hgt - 0.08, z0, x0 + S, hgt + 0.02, z0 + S)
+                B.box('tiles', x0, fy, z0, x0 + S, fy + hgt, z0 + S, collide='platform')
+                B.box('trim', x0, fy + hgt - 0.08, z0, x0 + S, fy + hgt + 0.02, z0 + S)
             if c == 'u':
                 ceil = 3.4
                 B.box('concrete', x0, ceil, z0, x0 + S, WH, z0 + S, collide='ceiling')
@@ -312,8 +330,8 @@ def build(name):
                 if touching and rnd.random() < 0.08:
                     dx, dz = touching[0]
                     px, pz = cx + dx * (S / 2 - 0.6), cz + dz * (S / 2 - 0.6)
-                    barrel(B, px, pz)
-                    B.colliders.append([px - 0.42, 0, pz - 0.42, px + 0.42, 1.2, pz + 0.42, 'barrel'])
+                    barrel(B, px, pz, fy)
+                    B.colliders.append([px - 0.42, fy, pz - 0.42, px + 0.42, fy + 1.2, pz + 0.42, 'barrel'])
                     barrels.append((px, pz))
                 if touching and rnd.random() < 0.25:
                     dx, dz = touching[-1]
@@ -321,7 +339,7 @@ def build(name):
                         rx = cx + dx * (S / 2 - 0.25) + (rnd.random() - 0.5) * (S * 0.8 if dz else 0.3)
                         rz = cz + dz * (S / 2 - 0.25) + (rnd.random() - 0.5) * (S * 0.8 if dx else 0.3)
                         s_ = rnd.uniform(0.08, 0.2)
-                        B.box('stone', rx - s_, 0, rz - s_, rx + s_, s_ * 1.2, rz + s_, rot=rnd.random() * 3)
+                        B.box('stone', rx - s_, fy, rz - s_, rx + s_, fy + s_ * 1.2, rz + s_, rot=rnd.random() * 3)
                 if c == ',' and touching:
                     for dx, dz in touching:
                         # low sand drift against the wall
@@ -330,10 +348,10 @@ def build(name):
                             hh = 0.18 - k * 0.055
                             if dx:
                                 wx = x0 + S - o if dx > 0 else x0 + o - 0.25
-                                B.box('sand', wx, 0, z0 + 0.3, wx + 0.25, hh, z0 + S - 0.3)
+                                B.box('sand', wx, fy, z0 + 0.3, wx + 0.25, fy + hh, z0 + S - 0.3)
                             else:
                                 wz = z0 + S - o if dz > 0 else z0 + o - 0.25
-                                B.box('sand', x0 + 0.3, 0, wz, x0 + S - 0.3, hh, wz + 0.25)
+                                B.box('sand', x0 + 0.3, fy, wz, x0 + S - 0.3, fy + hh, wz + 0.25)
             # paved areas get kerbs along walls
             if c in '.AB':
                 for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
@@ -341,10 +359,10 @@ def build(name):
                         continue
                     if dx:
                         kx = x0 + S - 0.08 - 0.3 if dx > 0 else x0 + 0.08
-                        B.box('trim', kx, 0, z0, kx + 0.3, 0.1, z0 + S)
+                        B.box('trim', kx, fy, z0, kx + 0.3, fy + 0.1, z0 + S)
                     else:
                         kz = z0 + S - 0.08 - 0.3 if dz > 0 else z0 + 0.08
-                        B.box('trim', x0, 0, kz, x0 + S, 0.1, kz + 0.3)
+                        B.box('trim', x0, fy, kz, x0 + S, fy + 0.1, kz + 0.3)
 
     # cables strung across a few open streets
     for i in range(14):
@@ -367,8 +385,10 @@ def build(name):
                     col = ['cloth_red', 'cloth_blue', 'lamp', 'cloth_red', 'cloth_blue'][k]
                     B.box(col, ax + (bx - ax) * t - 0.15, yy - 0.5, cz - 0.01, ax + (bx - ax) * t + 0.15, yy - 0.02, cz + 0.01)
 
+    if levels:
+        raised(B, grid, S, at, lvl)
     interiors(B, grid, S, WH, at, random.Random(77))
-    dress(B, grid, S, walls, at, street)
+    dress(B, grid, S, walls, at, street, fh)
 
     tex_scale.update({'sand': 4.0, 'paving': 4.0, 'tiles': 4.0, 'concrete': 4.0, 'sandstone': 4.0, 'plaster': 4.0, 'terracotta': 2.0})
     B.finish(tex_scale)
@@ -507,7 +527,7 @@ def room_wall(B, x0, z0, S, dx, dz, door, ceil, t):
 
 
 # ---------------------------------------------------------------- set dressing
-def dress(B, grid, S, walls, at, walk):
+def dress(B, grid, S, walls, at, walk, fh=lambda x, z: 0.0):
     """Rooftops, towers, balconies, palms, stalls and pots. Uses its own
     random stream so the base layout above stays exactly the same."""
     rnd = random.Random(2024)
@@ -583,7 +603,10 @@ def dress(B, grid, S, walls, at, walk):
             x0, z0 = x * S, z * S
             cx, cz = x0 + S / 2, z0 + S / 2
             dx, dz = touch[0]
+            fy = fh(x, z)
             r = rnd.random()
+            if fy > 0:
+                continue   # keep raised walkways clear
             if r < 0.05:
                 # palm tree in a corner of the cell, leaning away from the wall
                 px, pz = cx + dx * (S / 2 - 0.9) + (dz and (rnd.random() - 0.5) * 2), cz + dz * (S / 2 - 0.9) + (dx and (rnd.random() - 0.5) * 2)
@@ -609,17 +632,18 @@ def dress(B, grid, S, walls, at, walk):
             continue
         x, z = cells[len(cells) // 2]
         cx, cz = x * S + S / 2, z * S + S / 2
+        sy = fh(x, z)
         along_x = rnd.random() < 0.5
         for row in range(3):
             for k in range(5 - (row % 2)):
                 u = -1.6 + k * 0.8 + (0.4 if row % 2 else 0)
                 bx, bz = (cx + u, cz) if along_x else (cx, cz + u)
                 w, d = (0.38, 0.26) if along_x else (0.26, 0.38)
-                B.box('cloth_sand', bx - w, row * 0.32, bz - d, bx + w, row * 0.32 + 0.34, bz + d, rot=(rnd.random() - 0.5) * 0.12)
+                B.box('cloth_sand', bx - w, sy + row * 0.32, bz - d, bx + w, sy + row * 0.32 + 0.34, bz + d, rot=(rnd.random() - 0.5) * 0.12)
         if along_x:
-            B.colliders.append([round(cx - 2.0, 3), 0, round(cz - 0.3, 3), round(cx + 2.0, 3), 1.0, round(cz + 0.3, 3), 'sandbags'])
+            B.colliders.append([round(cx - 2.0, 3), sy, round(cz - 0.3, 3), round(cx + 2.0, 3), sy + 1.0, round(cz + 0.3, 3), 'sandbags'])
         else:
-            B.colliders.append([round(cx - 0.3, 3), 0, round(cz - 2.0, 3), round(cx + 0.3, 3), 1.0, round(cz + 2.0, 3), 'sandbags'])
+            B.colliders.append([round(cx - 0.3, 3), sy, round(cz - 2.0, 3), round(cx + 0.3, 3), sy + 1.0, round(cz + 2.0, 3), 'sandbags'])
 
     # ---- wooden balconies on some upper facades (above head height, visual only)
     for (x0, z0, x1, z1, h, border) in walls:
@@ -780,11 +804,81 @@ def crate(B, cx, y0, cz, s, rot):
             bx('iron', a * hs - (0.2 if a > 0 else 0.01), yy, b * hs - (0.01 if b > 0 else 0.0), a * hs + (0.01 if a > 0 else 0.2), yy + 0.18, b * hs + (0.0 if b > 0 else 0.01))
 
 
-def barrel(B, px, pz):
-    B.cylinder('barrel', px, 0, pz, 0.42, 1.2, segs=20)
+def barrel(B, px, pz, y0=0.0):
+    B.cylinder('barrel', px, y0, pz, 0.42, 1.2, segs=20)
     for yy in (0.18, 0.6, 1.02):
-        B.cylinder('iron', px, yy - 0.03, pz, 0.435, 0.06, segs=20)
-    B.cylinder('iron', px, 1.2, pz, 0.38, 0.015, segs=20)
+        B.cylinder('iron', px, y0 + yy - 0.03, pz, 0.435, 0.06, segs=20)
+    B.cylinder('iron', px, y0 + 1.2, pz, 0.38, 0.015, segs=20)
+
+
+WALKABLE = '.,usABTKhD'
+
+
+def raised(B, grid, S, at, lvl):
+    """Raised floors (merged into few boxes, like src/level.js) with dressed
+    retaining faces and coping, plus stone staircases where walkable cells
+    meet one level up. Colliders match the game's own fallback exactly."""
+    H, W = len(grid), len(grid[0])
+    done = [[False] * W for _ in range(H)]
+    for z in range(H):
+        for x in range(W):
+            L = lvl(x, z)
+            if done[z][x] or L <= 0 or at(x, z) == '#':
+                continue
+            x1 = x
+            while x1 + 1 < W and not done[z][x1 + 1] and at(x1 + 1, z) != '#' and lvl(x1 + 1, z) == L:
+                x1 += 1
+            z1 = z
+            while z1 + 1 < H and all(not done[z1 + 1][k] and at(k, z1 + 1) != '#' and lvl(k, z1 + 1) == L for k in range(x, x1 + 1)):
+                z1 += 1
+            for zz in range(z, z1 + 1):
+                for k in range(x, x1 + 1):
+                    done[zz][k] = True
+            h = L * STEP
+            minX, maxX, minZ, maxZ = x * S, (x1 + 1) * S, z * S, (z1 + 1) * S
+            B.colliders.append([minX, 0, minZ, maxX, round(h, 3), maxZ, 'floor'])
+            # retaining block just under the floor surface (no z-fighting with the floor quad)
+            B.box('stone', minX, 0, minZ, maxX, h - 0.012, maxZ)
+    # coping along every exposed edge of a raised cell, and stairs onto one-level steps
+    for z in range(H):
+        for x in range(W):
+            if at(x, z) not in WALKABLE:
+                continue
+            L = lvl(x, z)
+            lo = L * STEP
+            for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                n = at(x + dx, z + dz)
+                if n not in WALKABLE:
+                    continue
+                dl = lvl(x + dx, z + dz) - L
+                if dl == 1:
+                    # two 0.15 m treads in this (lower) cell against the shared edge
+                    for d0, d1, sh in ((0.0, 0.3, 0.3), (0.3, 0.6, 0.15)):
+                        if dx:
+                            e = (x + 1) * S if dx > 0 else x * S
+                            bx0, bx1 = (e - d1, e - d0) if dx > 0 else (e + d0, e + d1)
+                            bz0, bz1 = z * S, (z + 1) * S
+                        else:
+                            e = (z + 1) * S if dz > 0 else z * S
+                            bz0, bz1 = (e - d1, e - d0) if dz > 0 else (e + d0, e + d1)
+                            bx0, bx1 = x * S, (x + 1) * S
+                        B.colliders.append([round(bx0, 3), 0, round(bz0, 3), round(bx1, 3), round(lo + sh, 3), round(bz1, 3), 'stair'])
+                        B.box('trim', bx0, 0, bz0, bx1, lo + sh, bz1)
+                        # worn nosing on each tread
+                        if dx:
+                            nx0 = bx0 if dx < 0 else bx1 - 0.04
+                            B.box('stone', min(nx0, nx0 + 0.04), lo + sh - 0.03, bz0, max(nx0, nx0 + 0.04) + 0.0, lo + sh + 0.005, bz1)
+                        else:
+                            nz0 = bz0 if dz < 0 else bz1 - 0.04
+                            B.box('stone', bx0, lo + sh - 0.03, min(nz0, nz0 + 0.04), bx1, lo + sh + 0.005, max(nz0, nz0 + 0.04))
+                elif dl <= -2 and L > 0:
+                    # ledge you can drop off: stone coping on the high side
+                    if dx:
+                        e = (x + 1) * S if dx > 0 else x * S
+                        B.box('trim', e - 0.25 if dx > 0 else e, lo - 0.06, z * S, e if dx > 0 else e + 0.25, lo + 0.04, (z + 1) * S)
+                    else:
+                        e = (z + 1) * S if dz > 0 else z * S
+                        B.box('trim', x * S, lo - 0.06, e - 0.25 if dz > 0 else e, (x + 1) * S, lo + 0.04, e if dz > 0 else e + 0.25)
 
 
 def main(argv):

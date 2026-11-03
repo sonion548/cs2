@@ -171,6 +171,7 @@ export class Bot extends Character {
       this.aimErr.set(Math.cos(a) * e, Math.sin(a) * e);
       this.aimHead = Math.random() < this.prof.headPref;
       g.radarSpot(best);
+      g.strategy?.report(this, best.pos, best.hasBomb);
     }
     if (!best && this.target) {
       this.lastSeen = this.target.pos.clone(); this.lastSeenTime = now;
@@ -182,6 +183,7 @@ export class Bot extends Character {
   // A sound from the other team: remember roughly where it came from.
   hear(pos, now, frac = 0.5) {
     if (this.target) return;
+    if (frac < 0.6) this.game.strategy?.report(this, pos, false);
     const fuzz = 1 + frac * 5;
     this.lastSeen = pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * fuzz, 0, (Math.random() - 0.5) * fuzz));
     this.lastSeenTime = now;
@@ -197,6 +199,7 @@ export class Bot extends Character {
   onBombPlanted(bomb) {
     if (!this.alive || this.puppet) return;
     if (this.team === 'CT') this.setGoal(bomb.pos.clone(), 'retake');
+    else if (this.game.strategy?.enabled) return;   // the team plan places the guards
     else {
       const a = Math.random() * Math.PI * 2, r = 4 + Math.random() * 7;
       const p = bomb.pos.clone().add(new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r));
@@ -292,7 +295,12 @@ export class Bot extends Character {
         const nav = this.objective(dt, now);
         if (nav === 'rooted') { wish.set(0, 0, 0); this.crouching = true; }
         else {
-          if (this.lastSeen && now - this.lastSeenTime < 6 && this.role !== 'retake' && !this.hasBomb && (!this.path || this.chasing !== this.lastSeenTime)) {
+          // players holding a spot (or waiting for the team) only turn toward far-off
+          // sounds; they go after something only when it's close
+          const holding = this.role === 'hold' || this.role === 'default' || this.role === 'gather' || this.role === 'split' || this.role === 'guard';
+          const chase = this.lastSeen && now - this.lastSeenTime < 6 && this.role !== 'retake' && this.role !== 'deny' && !this.hasBomb &&
+            (!holding || this.pos.distanceTo(this.lastSeen) < 9);
+          if (chase && (!this.path || this.chasing !== this.lastSeenTime)) {
             if (this.pos.distanceTo(this.lastSeen) > 2) {
               this.path = findPath(g.level.nav, this.pos, this.lastSeen); this.pathIdx = 0;
               this.chasing = this.lastSeenTime;
@@ -333,9 +341,13 @@ export class Bot extends Character {
               wantYaw = Math.atan2(-(this.lastSeen.x - this.pos.x), -(this.lastSeen.z - this.pos.z));
             } else {
               if (now > this.holdUntil) {
-                this.lookYaw = this.yaw + (Math.random() - 0.5) * 2.4;
+                // hold the spot's angle with small sweeps, or look around if it has none
+                this.lookYaw = this.holdLook != null ? this.holdLook + (Math.random() - 0.5) * 0.7 : this.yaw + (Math.random() - 0.5) * 2.4;
                 this.holdUntil = now + 1.5 + Math.random() * 2.5;
-                if (this.role !== 'guard' && this.role !== 'retake' && !this.hasBomb && (Math.random() < 0.25 || g.roundTime > 45)) g.assignHunt(this);
+                const planned = g.strategy?.enabled;
+                const strategic = this.role === 'hold' || this.role === 'default' || this.role === 'gather' || this.role === 'split';
+                const late = planned ? g.roundTime > 60 : g.roundTime > 45;
+                if (this.role !== 'guard' && this.role !== 'retake' && this.role !== 'deny' && !this.hasBomb && !(planned && strategic) && (late || (!planned && Math.random() < 0.25))) g.assignHunt(this);
               }
               wantYaw = this.lookYaw;
             }
@@ -381,7 +393,8 @@ export class Bot extends Character {
         const pr = bomb.holdPlant(this, dt);
         if (pr >= 0) { this.planting = true; return 'rooted'; }
       }
-      if (this.role !== 'attack' || !this.goal || !bomb.siteAt(this.goal)) this.setGoal(g.siteGoal(g.tSite || 'A'), 'attack');
+      const planSite = g.strategy?.enabled ? g.strategy.carrierGoalSite() : (g.tSite || 'A');
+      if (planSite && (this.role !== 'attack' || !this.goal || !bomb.siteAt(this.goal))) this.setGoal(g.siteGoal(planSite), 'attack');
     }
     if (this.team === 'T' && bomb.state === 'dropped' && this.role !== 'fetch') {
       // the closest attacker fetches a dropped bomb

@@ -18,6 +18,7 @@ import { Bomb, BOMB } from './match/bomb.js';
 import { Grenades } from './match/grenades.js';
 import { Drops } from './match/drops.js';
 import { Decals } from './decals.js';
+import { Strategy } from './match/strategy.js';
 
 const DEG = Math.PI / 180;
 const BOT_NAMES = ['Viper', 'Rook', 'Mako', 'Sable', 'Kestrel', 'Onyx', 'Drift', 'Talon', 'Ember', 'Quill',
@@ -52,8 +53,12 @@ export class Game {
     this.camera = new THREE.PerspectiveCamera(settings.fov ?? 74, 1, 0.03, 600);
     this.scene.add(this.camera);
 
-    const map = this.map = MAPS[opts.map] || MAPS.dunehold;
+    // 1v1 / 2v2 play the map's compact wingman version when it has one
+    let map = MAPS[opts.map] || MAPS.dunehold;
+    if ((opts.teamSize ?? opts.net?.room?.size ?? 5) <= 2 && map.wingman && MAPS[map.wingman]) map = MAPS[map.wingman];
+    this.map = map;
     this.level = buildLevel(map, this.scene);
+    this.strategy = new Strategy(this);
     this.buildEnvironment();
 
     // --- teams ---
@@ -453,6 +458,8 @@ export class Game {
   }
 
   planRound() {
+    // maps with named spots use team tactics (default, gather, execute / holds and rotations)
+    if (this.strategy.enabled) { this.tSite = null; this.strategy.plan(); return; }
     const sites = this.level.sites;
     const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
     const goalOf = (L) => {
@@ -986,6 +993,7 @@ export class Game {
     }
     this.updatePlayer(dt);
     for (const b of this.bots) b.update(dt, this.time);
+    this.strategy.update();
     this.bomb.update(dt);
     this.grenades.update(dt);
     this.drops.update(dt);

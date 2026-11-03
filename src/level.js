@@ -32,6 +32,8 @@ function floorQuad(x0, z0, x1, z1, y, texScale = 4) {
 
 // Cells bots can path through (crates and raised platforms are treated as obstacles).
 const WALKABLE = '.,usABTKhD';
+// One floor level (map.levels digit) is this tall: low enough to step up.
+export const STEP = 0.45;
 
 export function buildLevel(map, scene) {
   const { grid, cell: S, wallHeight: WH } = map;
@@ -40,6 +42,10 @@ export function buildLevel(map, scene) {
   const buckets = {}; // material key -> geometries
   const put = (k, g) => (buckets[k] ||= []).push(g);
   const at = (x, z) => (z < 0 || z >= H || x < 0 || x >= W) ? '#' : grid[z][x];
+  // floor level per cell (0 when the map has no height layer)
+  const lv = map.levels;
+  const lvl = (x, z) => (lv && z >= 0 && z < H && x >= 0 && x < W) ? Math.max(0, lv[z].charCodeAt(x) - 48) : 0;
+  const fh = (x, z) => lvl(x, z) * STEP;
   const r = rng(1337);
 
   // Walls: greedy merge of horizontal runs, then vertical merge of identical runs.
@@ -80,24 +86,25 @@ export function buildLevel(map, scene) {
       if (c === 'A' || c === 'B' || c === '^' || c === 's') floorMat = 'tiles';
       if (c === 'u') floorMat = 'concrete';
       if (INTERIOR.includes(c)) floorMat = 'tiles';
-      put(floorMat, floorQuad(x0, z0, x0 + S, z0 + S, 0));
+      const fy = fh(x, z);
+      put(floorMat, floorQuad(x0, z0, x0 + S, z0 + S, fy));
 
-      if (c === 'T') spawns.T.push(new THREE.Vector3(cx, 0, cz));
-      if (c === 'K') spawns.CT.push(new THREE.Vector3(cx, 0, cz));
-      if (c === 'A') sites.A.push(new THREE.Vector3(cx, 0, cz));
-      if (c === 'B') sites.B.push(new THREE.Vector3(cx, 0, cz));
+      if (c === 'T') spawns.T.push(new THREE.Vector3(cx, fy, cz));
+      if (c === 'K') spawns.CT.push(new THREE.Vector3(cx, fy, cz));
+      if (c === 'A') sites.A.push(new THREE.Vector3(cx, fy, cz));
+      if (c === 'B') sites.B.push(new THREE.Vector3(cx, fy, cz));
 
       if (c === 'c' || c === 'C') {
         const cs = 2.1, ch = c === 'C' ? 2.2 : 1.1;
-        world.add(new Box(cx - cs / 2, 0, cz - cs / 2, cx + cs / 2, ch, cz + cs / 2, 'crate'));
+        world.add(new Box(cx - cs / 2, fy, cz - cs / 2, cx + cs / 2, fy + ch, cz + cs / 2, 'crate'));
         for (let k = 0; k < ch / 1.1; k++) {
-          put('crate', worldBox(cs, 1.1, cs, cx, 0.55 + k * 1.1, cz, cs));
+          put('crate', worldBox(cs, 1.1, cs, cx, fy + 0.55 + k * 1.1, cz, cs));
         }
       }
       if (c === '^' || c === 's') {
         const h = c === '^' ? 0.9 : 0.45;
-        world.add(new Box(x0, 0, z0, x0 + S, h, z0 + S, 'platform'));
-        put('tiles', worldBox(S, h, S, cx, h / 2, cz, 4));
+        world.add(new Box(x0, fy, z0, x0 + S, fy + h, z0 + S, 'platform'));
+        put('tiles', worldBox(S, h, S, cx, fy + h / 2, cz, 4));
       }
       if (INTERIOR.includes(c)) {
         // fallback building: roof mass, and plain walls (door gap on doorway cells) toward the street
@@ -122,6 +129,41 @@ export function buildLevel(map, scene) {
     }
   }
 
+  // Raised floors (merged into as few boxes as possible) and stairs wherever a
+  // walkable cell meets one exactly one level higher.
+  if (lv) {
+    const done = grid.map(row => row.split('').map(() => false));
+    for (let z = 0; z < H; z++) for (let x = 0; x < W; x++) {
+      const L = lvl(x, z);
+      if (done[z][x] || L <= 0 || at(x, z) === '#') continue;
+      let x1 = x; while (x1 + 1 < W && !done[z][x1 + 1] && at(x1 + 1, z) !== '#' && lvl(x1 + 1, z) === L) x1++;
+      let z1 = z;
+      grow: while (z1 + 1 < H) {
+        for (let k = x; k <= x1; k++) if (done[z1 + 1][k] || at(k, z1 + 1) === '#' || lvl(k, z1 + 1) !== L) break grow;
+        z1++;
+      }
+      for (let zz = z; zz <= z1; zz++) for (let k = x; k <= x1; k++) done[zz][k] = true;
+      const h = L * STEP, minX = x * S, maxX = (x1 + 1) * S, minZ = z * S, maxZ = (z1 + 1) * S;
+      world.add(new Box(minX, 0, minZ, maxX, h, maxZ, 'floor'));
+      put('trim', worldBox(maxX - minX, h - 0.01, maxZ - minZ, (minX + maxX) / 2, (h - 0.01) / 2, (minZ + maxZ) / 2, 2));
+    }
+    for (let z = 0; z < H; z++) for (let x = 0; x < W; x++) {
+      if (!WALKABLE.includes(at(x, z))) continue;
+      const lo = fh(x, z);
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        if (!WALKABLE.includes(at(x + dx, z + dz)) || lvl(x + dx, z + dz) - lvl(x, z) !== 1) continue;
+        // two 0.15 m steps inside the lower cell, against the shared edge
+        for (const [d0, d1, sh] of [[0, 0.3, 0.3], [0.3, 0.6, 0.15]]) {
+          let bx0, bx1, bz0, bz1;
+          if (dx) { const e = dx > 0 ? (x + 1) * S : x * S; bx0 = dx > 0 ? e - d1 : e + d0; bx1 = dx > 0 ? e - d0 : e + d1; bz0 = z * S; bz1 = (z + 1) * S; }
+          else { const e = dz > 0 ? (z + 1) * S : z * S; bz0 = dz > 0 ? e - d1 : e + d0; bz1 = dz > 0 ? e - d0 : e + d1; bx0 = x * S; bx1 = (x + 1) * S; }
+          world.add(new Box(bx0, 0, bz0, bx1, lo + sh, bz1, 'stair'));
+          put('trim', worldBox(bx1 - bx0, lo + sh, bz1 - bz0, (bx0 + bx1) / 2, (lo + sh) / 2, (bz0 + bz1) / 2, 2));
+        }
+      }
+    }
+  }
+
   // Assorted cover props along walls in open areas (deterministic).
   for (let z = 1; z < H - 1; z++) {
     for (let x = 1; x < W - 1; x++) {
@@ -135,10 +177,11 @@ export function buildLevel(map, scene) {
       if (at(x + 1, z) === '#') px += S / 2 - 0.6; else if (at(x - 1, z) === '#') px -= S / 2 - 0.6;
       else if (at(x, z + 1) === '#') pz += S / 2 - 0.6; else pz -= S / 2 - 0.6;
       // barrel
+      const by = fh(x, z);
       const g = new THREE.CylinderGeometry(0.42, 0.42, 1.2, 24);
-      g.translate(px, 0.6, pz);
+      g.translate(px, by + 0.6, pz);
       put('barrel', g);
-      world.add(new Box(px - 0.42, 0, pz - 0.42, px + 0.42, 1.2, pz + 0.42, 'barrel'));
+      world.add(new Box(px - 0.42, by, pz - 0.42, px + 0.42, by + 1.2, pz + 0.42, 'barrel'));
     }
   }
 
@@ -186,7 +229,7 @@ export function buildLevel(map, scene) {
     const c = sites[L].reduce((a, v) => a.add(v), new THREE.Vector3()).divideScalar(sites[L].length);
     const m = new THREE.Mesh(new THREE.PlaneGeometry(5, 5),
       new THREE.MeshStandardMaterial({ map: letterTexture(L), transparent: true, depthWrite: false, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -2 }));
-    m.rotation.x = -Math.PI / 2; m.position.set(c.x, 0.02, c.z);
+    m.rotation.x = -Math.PI / 2; m.position.set(c.x, c.y + 0.02, c.z);
     m.receiveShadow = true; m.userData.keep = true;
     group.add(m);
     sites[L].center = c;
@@ -215,14 +258,17 @@ export function buildLevel(map, scene) {
   const nav = {
     W, H, S,
     walkable: (x, z) => WALKABLE.includes(at(x, z)),
-    passable: (x0, z0, x1, z1) => passable(at(x0, z0), at(x1, z1)),
+    // building walls only open at doorways; you can step up one level, or drop down any amount
+    passable: (x0, z0, x1, z1) => passable(at(x0, z0), at(x1, z1)) && lvl(x1, z1) - lvl(x0, z0) <= 1,
     cost: (x, z) => (at(x, z) === 'u' ? 1.2 : 1),
     cellOf: (p) => [Math.floor(p.x / S), Math.floor(p.z / S)],
-    center: (x, z) => new THREE.Vector3(x * S + S / 2, 0, z * S + S / 2),
+    center: (x, z) => new THREE.Vector3(x * S + S / 2, fh(x, z), z * S + S / 2),
+    level: lvl,
     at,
   };
 
-  return { world, group, spawns, sites, nav, width: W * S, depth: H * S };
+  const heightAt = (p) => fh(Math.floor(p.x / S), Math.floor(p.z / S));
+  return { world, group, spawns, sites, nav, heightAt, width: W * S, depth: H * S };
 }
 
 // A* on the nav grid (8-connected, no corner cutting).
