@@ -24,9 +24,23 @@ Add `--preview` to either script to also render PNG previews (Cycles, CPU), and
 - `weapons.py`: every gun and knife. Material name prefixes (`skin_`, `metal_`, `detail_`)
   tell the game which parts take weapon finishes. Empties (`muzzle`, `grip`, `fore`) are the
   anchor points, and objects named `mag`, `slide`, `bolt`, `bfA`, `bfB` and `karambitPivot` are animated.
-- `characters.py`: one soldier per team. Its empties (`body`, `legL/R`, `kneeL/R`,
-  `torso`, `neck`, `head`, `armL/R`, `elbowL/R`, `gunHolder`) are the animation rig
-  the game poses, and `char_*` material names pick the game's team materials.
+- `characters.py`: one soldier per team plus their first-person arms
+  (`characters/{t,ct}.glb`, `characters/arms_{t,ct}.glb`). Built on the CC0
+  MakeHuman base mesh in `assets/makehuman/`:
+  - `human.py` shapes it (athletic adult man), poses it into the game's rest
+    pose and maps its skin weights onto the 17 bones `src/rig.js` drives
+  - `cloth.py` grows the clothing off the body (eased, relaxed over hollows,
+    folded at elbows, knees, cuffs and boot tops) and lofts boots and head
+    wear through measured body sections
+  - `gear.py` builds the kit on top: plate carrier, cummerbund, pouches,
+    magazines, belt, drop-leg holster, knee pads, helmet with rails, headset,
+    glasses, the militia's chest rig
+  - `texture.py` gives every part a procedural material (fabric weave,
+    webbing rows, the shemagh's check, leather, rubber, worn paint) and bakes
+    them into one texture set per model (colour with ambient occlusion,
+    normal, roughness/metal)
+  Takes about five minutes for both teams at the default 2048 px; `--size 1024`
+  is quicker for trying things, `--only ct` builds one team.
 - `map.py`: reads the ASCII grid in `src/maps.js` and builds walls, facades, props and floors
   with world-space UVs. Set dressing (rooftop domes, towers,
   balconies, palms, stalls, pots) uses its own random stream so the layout stays put.

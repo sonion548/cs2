@@ -11,7 +11,7 @@ const KNIVES = Object.keys(KNIFE_TYPES);
 const MAPS = ['dunehold', 'dunehold_small'];
 const CHARACTERS = ['t', 'ct'];
 
-export const assets = { weapons: {}, maps: {}, colliders: {}, characters: {} };
+export const assets = { weapons: {}, maps: {}, colliders: {}, characters: {}, arms: {} };
 
 export async function loadAssets(onProgress = () => {}) {
   const loader = new GLTFLoader();
@@ -20,6 +20,7 @@ export async function loadAssets(onProgress = () => {}) {
     ...KNIVES.map(k => [`knife:${k}`, `weapons/knife_${k}.glb`, (g) => { assets.weapons[`knife:${k}`] = g.scene; }]),
     ...MAPS.map(m => [m, `maps/${m}.glb`, (g) => { assets.maps[m] = g.scene; }]),
     ...CHARACTERS.map(c => [`char:${c}`, `characters/${c}.glb`, (g) => { assets.characters[c] = g.scene; }]),
+    ...CHARACTERS.map(c => [`arms:${c}`, `characters/arms_${c}.glb`, (g) => { assets.arms[c] = g.scene; }]),
   ];
   let done = 0;
   const total = jobs.length + MAPS.length;

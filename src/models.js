@@ -1,5 +1,7 @@
-// Characters and first-person arms, built from smooth primitives (capsules,
-// lathed shells, rounded boxes). Weapons live in gunmodels.js.
+// Characters and first-person arms. The real models are the Blender-built,
+// skinned files in public/models/characters (see blender/characters.py); the
+// primitive-built versions below are only a fallback if those fail to load.
+// Weapons live in gunmodels.js.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { fbm, hexToRgb } from './noise.js';
@@ -66,27 +68,12 @@ function limb(r0, r1, len, mat) {
 
 // Blender-built character (public/models/characters/<team>.glb): a skinned
 // mesh on one skeleton, posed every frame by rig.js (walk, crouch, aim, arm IK
-// onto the weapon) and turned into a ragdoll when the character dies.
+// onto the weapon) and turned into a ragdoll when the character dies. Its
+// materials (baked colour, normal and roughness atlas) come with the file.
 function characterFromAsset(team, src) {
-  const pal = PALETTE[team] || PALETTE.T;
-  const T = team === 'T';
-  const byName = {
-    char_shirt: new THREE.MeshStandardMaterial({ map: fabric(pal.shirt, pal.camo), roughness: 0.92 }),
-    char_pants: new THREE.MeshStandardMaterial({ map: fabric(pal.pants, T ? pal.camo : null), roughness: 0.92 }),
-    char_vest: new THREE.MeshStandardMaterial({ map: fabric(pal.vest), roughness: 0.8 }),
-    char_head: new THREE.MeshStandardMaterial({ map: fabric(pal.head), roughness: 0.85 }),
-    char_skin: new THREE.MeshStandardMaterial({ color: pal.skin, roughness: 0.6 }),
-    char_helmet: new THREE.MeshStandardMaterial({ color: T ? 0x4d4636 : 0x262d3b, roughness: 0.55, metalness: 0.1 }),
-    char_boots: new THREE.MeshStandardMaterial({ color: 0x1d1a16, roughness: 0.75 }),
-    char_glove: new THREE.MeshStandardMaterial({ color: pal.glove, roughness: 0.8 }),
-    char_strap: new THREE.MeshStandardMaterial({ color: 0x22201c, roughness: 0.9 }),
-    char_lens: new THREE.MeshStandardMaterial({ color: 0x0f1418, roughness: 0.1, metalness: 0.6 }),
-    char_metal: new THREE.MeshStandardMaterial({ color: 0x55575c, roughness: 0.4, metalness: 0.8 }),
-  };
   const root = cloneSkinned(src);
   root.traverse(o => {
     if (!o.isMesh) return;
-    o.material = byName[(o.material?.name || '').replace(/\.\d+$/, '')] || byName.char_strap;
     o.castShadow = true; o.receiveShadow = true;
     o.frustumCulled = false;   // skinned bounds don't follow the pose
   });

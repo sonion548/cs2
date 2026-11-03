@@ -36,7 +36,9 @@ from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 
 import cloth as C
+import gear as G
 import human as H
+import texture as TX
 from lib import reset, link, stats
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -112,6 +114,19 @@ def _bary(p, a, b, c):
 PARTS = []   # (object, material key, rigid bone or None)
 
 
+def make(name, verts, faces, mat, bone=None, uv=None, closed=False):
+    """Gear part: closed meshes get their faces turned consistently outward."""
+    obj = new_obj(name, verts, faces, mat, bone, uv=uv)
+    if closed:
+        bm = bmesh.new(); bm.from_mesh(obj.data)
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        bm.to_mesh(obj.data); bm.free()
+        for p in obj.data.polygons:
+            p.use_smooth = True
+        obj.data.set_sharp_from_angle(angle=math.radians(50))
+    return obj
+
+
 def new_obj(name, verts, faces, mat, bone=None, smooth=True, uv=None):
     """uv: optional per-vertex (u, v) in metres, stored as the 'phys' UV map
     the material bake uses for patterns at real-world scale."""
@@ -176,14 +191,25 @@ def build_armature(skel):
     return arm
 
 
-def bind(obj, body, bone=None, smooth_iters=0):
-    """Vertex groups for a part: rigid to one bone, or taken from the body."""
+def bind(obj, body, bone=None, smooth_iters=0, only=None):
+    """Vertex groups for a part: rigid to one bone, or taken from the body
+    (optionally only over a subset of bones, renormalised)."""
     me = obj.data
     n = len(me.vertices)
     if bone:
         W = np.zeros((n, len(BONES))); W[:, BI[bone]] = 1
     else:
         W = np.array([body.weights_at(v.co[:]) for v in me.vertices])
+    if only:
+        mask = np.array([b in only for b in BONES], float)
+        W = W * mask
+        s_ = W.sum(axis=1, keepdims=True)
+        # anything left without weight (the shoulder end) follows the upper arm on its side
+        lone = s_[:, 0] < 1e-6
+        V = np.array([v.co[:] for v in me.vertices])
+        W[lone & (V[:, 0] < 0), BI['upperarm_L']] = 1
+        W[lone & (V[:, 0] >= 0), BI['upperarm_R']] = 1
+        W = W / np.maximum(W.sum(axis=1, keepdims=True), 1e-9)
         if smooth_iters:
             nb = [[] for _ in range(n)]
             for e in me.edges:
@@ -266,8 +292,22 @@ def col(W, *names):
     return sum(W[:, BI[n]] for n in names)
 
 
+SHELLS = {}
+
+
 def shell_obj(name, sh, mat, bone=None):
-    return new_obj(name, sh.P, sh.F, mat, bone)
+    obj = new_obj(name, sh.P, sh.F, mat, bone)
+    SHELLS[obj.name] = sh
+    return obj
+
+
+def torso_only(obj, M):
+    """(object, mask) leaving out the sleeves hanging beside the torso, for
+    placing gear on the torso (the shoulders stay in for straps)."""
+    sh = SHELLS[obj.name]
+    W = sh.body.W[sh.src]
+    arms = col(W, 'upperarm_L', 'forearm_L', 'hand_L', 'upperarm_R', 'forearm_R', 'hand_R')
+    return (obj, (arms < 0.4) | (sh.P[:, 2] > M.shoulder - 0.02))
 
 
 # ---------------------------------------------------------------- garments
@@ -541,7 +581,8 @@ def balaclava(b, M, *, mat='knit', ease=0.0026):
     # knit gathers at the neck
     sh.rings('neck', ['neck', 'chest', 'head'], -0.03, 0.05, 4, 0.0016, 0.007, seed=41)
     sh.hem(0.0035, 0.008, only=lambda c: c[2] > M.neck + 0.05)
-    return shell_obj('balaclava', sh, mat)
+    shell_obj('balaclava', sh, mat)
+    return L
 
 
 def shemagh(b, M, *, mat='shemagh', seed=51):
@@ -571,10 +612,10 @@ def shemagh(b, M, *, mat='shemagh', seed=51):
     sh.pull(knot + [0.0, 0.0, 0.03], knot + [0.05, 0.03, 0.06], 0.012, 0.005, members=['head'])
     sh.pull(knot + [-0.01, 0.0, -0.02], knot + [-0.06, 0.035, -0.05], 0.012, 0.005, members=['head', 'neck'])
     sh.hem(0.004, 0.01, only=lambda c: c[2] > M.neck + 0.04)
-    obj = shell_obj('shemagh', sh, mat)
+    shell_obj('shemagh', sh, mat)
     # the hanging end: a strip of cloth from the knot down over the upper back
     tail(b, M, knot, mat)
-    return obj
+    return L
 
 
 def tail(b, M, knot, mat, length=0.3, w0=0.11, w1=0.085, seed=57):
@@ -619,6 +660,7 @@ def shell_from(b, V, F, ease):
 def build(team):
     reset()
     PARTS.clear()
+    SHELLS.clear()
     P = PROFILES[team]
     body = Body(**P['body'])
     arm = build_armature(body.skel)
@@ -627,33 +669,190 @@ def build(team):
     body_mesh(body, keep=lambda c: abs(c[0]) < win[0] + 0.012 and -win[1] - 0.005 < c[2] - M.eye[2] - win[2] < win[1] + 0.012 and c[1] > M.eye[1] - 0.045)
     eyeballs(body)
     if team == 'ct':
-        trousers(body, M, bottom=0.195, blouse=0.215, ease_leg=0.022, ease_seat=0.014)
-        shirt(body, M, tuck=True)
+        pants = trousers(body, M, bottom=0.195, blouse=0.215, ease_leg=0.022, ease_seat=0.014)
+        top = shirt(body, M, tuck=True)
         gloves(body, M)
         _, ol = boots(body, M, top=0.215)
         sole(ol['L'], 'L'); sole(ol['R'], 'R')
-        balaclava(body, M)
+        L = balaclava(body, M)
+        surf = G.Surface([pants, torso_only(top, M)])
+        G.ct_kit(body, M, surf, make, L)
+        G.battle_belt(body, M, surf, make)
+        G.holster(body, M, surf, make)
+        G.knee_pads(body, M, surf, make)
+        hs, zrim = G.helmet(body, M, L, make)
+        G.headset(body, M, hs, zrim, make)
+        G.eyewear(body, M, L, make, 'ballistic')
     else:
-        trousers(body, M, bottom=0.05, ease_leg=0.028, ease_seat=0.02, flare=0.012)
-        shirt(body, M, tuck=False, ease_body=0.02, ease_sleeve=0.02, hem_z=0.87, mat='jacket')
+        pants = trousers(body, M, bottom=0.05, ease_leg=0.028, ease_seat=0.02, flare=0.012)
+        top = shirt(body, M, tuck=False, ease_body=0.02, ease_sleeve=0.02, hem_z=0.87, mat='jacket')
         gloves(body, M, ease=0.0022, cuff=0.045, guard=False, flare=0.006)
-        shemagh(body, M)
+        L = shemagh(body, M)
         _, ol = boots(body, M, top=0.15, ease=0.007)
         sole(ol['L'], 'L', thick=0.022, lip=0.004, heel=0.004); sole(ol['R'], 'R', thick=0.022, lip=0.004, heel=0.004)
+        surf = G.Surface([pants, torso_only(top, M)])
+        G.chest_rig(body, M, surf, make)
+        G.eyewear(body, M, L, make, 'sun')
     for obj, mat, bone in PARTS:
-        bind(obj, body, bone)
-        obj.parent = arm
-        mod = obj.modifiers.new('rig', 'ARMATURE')
-        mod.object = arm
         m = bpy.data.materials.get(mat) or bpy.data.materials.new(mat)
         obj.data.materials.append(m)
     return arm, body
 
 
+# ---------------------------------------------------------------- finishing
+SOLE = {'ct': 0.03, 't': 0.022}
+DECIMATE = {'gloves': 0.5, 'balaclava': 0.8, 'shemagh': 0.8, 'skin': 0.7}
+CYL = ('balaclava', 'shemagh', 'boots', 'helmet')
+
+
+def phys_uv(obj):
+    """Give a part without construction UVs a metric 'phys' map: cylindrical
+    round a vertical axis for lofted parts, otherwise each face projected on
+    its dominant axis."""
+    me = obj.data
+    if me.uv_layers.get('phys'):
+        return
+    lay = me.uv_layers.new(name='phys')
+    V = np.array([v.co[:] for v in me.vertices])
+    cyl = obj.name.split('.')[0] in CYL
+    if cyl:
+        c = V.mean(axis=0)
+        ang = np.arctan2(V[:, 0] - c[0], V[:, 1] - c[1])
+        R = 0.11
+        for p in me.polygons:
+            a = [ang[me.loops[li].vertex_index] for li in p.loop_indices]
+            if max(a) - min(a) > math.pi:
+                a = [x + 2 * math.pi if x < 0 else x for x in a]
+            for li, aa in zip(p.loop_indices, a):
+                lay.data[li].uv = (aa * R, V[me.loops[li].vertex_index, 2])
+        return
+    for p in me.polygons:
+        ax = int(np.argmax(np.abs(p.normal)))
+        o = [i for i in range(3) if i != ax]
+        for li in p.loop_indices:
+            co = V[me.loops[li].vertex_index]
+            lay.data[li].uv = (co[o[0]] + ax * 0.37, co[o[1]])
+
+
+def decimate(obj, ratio):
+    mod = obj.modifiers.new('dec', 'DECIMATE')
+    mod.ratio = ratio
+    mod.use_collapse_triangulate = False
+    dg = bpy.context.evaluated_depsgraph_get()
+    me = bpy.data.meshes.new_from_object(obj.evaluated_get(dg))
+    obj.modifiers.clear()
+    old = obj.data
+    obj.data = me
+    bpy.data.meshes.remove(old)
+
+
+def finish(team, arm, body, bake=True, size=2048, lift=None, bones=None, reduce=True):
+    """Weights, sole offset, one joined mesh, atlas UVs, baked textures."""
+    vl = bpy.context.view_layer
+    for obj, mat, bone in PARTS:
+        base = obj.name.split('.')[0]
+        if reduce and base in DECIMATE:
+            decimate(obj, DECIMATE[base])
+        phys_uv(obj)
+        bind(obj, body, bone, only=bones)
+        if not obj.data.materials:
+            m = bpy.data.materials.get(mat) or bpy.data.materials.new(mat)
+            obj.data.materials.append(m)
+    # stand on the soles: everything up by the sole thickness
+    lift = SOLE[team] if lift is None else lift
+    for obj, _, _ in PARTS:
+        obj.data.transform(Matrix.Translation((0, 0, lift)))
+    for o in bpy.context.scene.objects:
+        o.select_set(False)
+    arm.select_set(True); vl.objects.active = arm
+    bpy.ops.object.mode_set(mode='EDIT')
+    for eb in arm.data.edit_bones:
+        eb.head.z += lift; eb.tail.z += lift
+    bpy.ops.object.mode_set(mode='OBJECT')
+    # one mesh
+    objs = [o for o, _, _ in PARTS]
+    for o in bpy.context.scene.objects:
+        o.select_set(o in objs)
+    vl.objects.active = objs[0]
+    bpy.ops.object.join()
+    char = objs[0]
+    char.name = f'body_{team}'
+    me = char.data
+    # atlas layout
+    atlas = me.uv_layers.new(name='atlas')
+    me.uv_layers.active = atlas
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.uv.smart_project(angle_limit=math.radians(62), island_margin=0.002, area_weight=0.0)
+    bpy.ops.uv.pack_islands(margin=0.0025, rotate=True)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    if bake:
+        TX.bake(char, team, size=size)
+    # only the atlas goes to the game (colours are in the textures now)
+    ph = me.uv_layers.get('phys')
+    if ph:
+        me.uv_layers.remove(ph)
+    for ca in list(me.color_attributes):
+        me.color_attributes.remove(ca)
+    char.parent = arm
+    mod = char.modifiers.new('rig', 'ARMATURE')
+    mod.object = arm
+    return char
+
+
+# ---------------------------------------------------------------- first-person arms
+ARM_BONES = ['upperarm_R', 'forearm_R', 'hand_R', 'upperarm_L', 'forearm_L', 'hand_L']
+
+
+def export_arms(team, path, size=1024):
+    """The arms as the player sees them: sleeves from the shoulder down and
+    the gloves, skinned to six free bones (no hierarchy) that the viewmodel
+    places directly every frame."""
+    arm, body = build(team)
+    keep = {'shirt', 'gloves'}
+    kept = [(o, m, b) for o, m, b in PARTS if o.name.split('.')[0] in keep]
+    for obj, mat, bone in PARTS:
+        if obj.name.split('.')[0] not in keep:
+            bpy.data.objects.remove(obj)
+    PARTS[:] = kept
+    # sleeves only: drop the torso of the shirt
+    for obj, mat, bone in PARTS:
+        if obj.name.startswith('shirt'):
+            sh = SHELLS[obj.name]
+            W = sh.body.W[sh.src]
+            armw = col(W, *ARM_BONES)
+            bm = bmesh.new(); bm.from_mesh(obj.data)
+            bm.verts.ensure_lookup_table()
+            drop = [f for f in bm.faces if min(armw[v.index] for v in f.verts) < 0.3]
+            bmesh.ops.delete(bm, geom=drop, context='FACES')
+            bm.to_mesh(obj.data); bm.free()
+    bpy.data.objects.remove(arm)
+    # free bones: each one a root, so the game can place them independently
+    data = bpy.data.armatures.new('arms')
+    rig = bpy.data.objects.new('arms', data)
+    link(rig)
+    vl = bpy.context.view_layer
+    for o in bpy.context.scene.objects:
+        o.select_set(False)
+    rig.select_set(True); vl.objects.active = rig
+    bpy.ops.object.mode_set(mode='EDIT')
+    for name in ARM_BONES:
+        h, t = body.skel[name]
+        eb = data.edit_bones.new(name)
+        eb.head, eb.tail = Vector(h), Vector(t)
+        eb.roll = 0
+    bpy.ops.object.mode_set(mode='OBJECT')
+    char = finish(team, rig, body, bake=True, size=size, lift=0.0, bones=ARM_BONES, reduce=False)
+    char.name = f'arms_{team}'
+    for o in bpy.context.scene.objects:
+        o.select_set(False)
+    export(path)
+
+
 def export(path):
     bpy.ops.export_scene.gltf(filepath=path, export_format='GLB', export_apply=False, export_yup=True, export_skins=True,
                               export_animations=False, export_materials='EXPORT', export_normals=True, export_texcoords=True,
-                              use_visible=False, use_active_scene=True)
+                              export_image_format='JPEG', export_jpeg_quality=88, use_visible=False, use_active_scene=True)
 
 
 def main(argv):
@@ -661,11 +860,16 @@ def main(argv):
     only = argv[argv.index('--only') + 1].split(',') if '--only' in argv else list(PROFILES)
     os.makedirs(out, exist_ok=True)
     report = {}
+    size = int(argv[argv.index('--size') + 1]) if '--size' in argv else 2048
     for team in only:
-        build(team)
+        arm, body = build(team)
+        finish(team, arm, body, bake='--no-bake' not in argv, size=size)
         export(os.path.join(out, f'{team}.glb'))
         report[team] = stats()
         print(f'{team}: {report[team]} tris')
+        if '--no-arms' not in argv:
+            export_arms(team, os.path.join(out, f'arms_{team}.glb'), size=min(size, 1024))
+            print(f'{team} arms: {stats()} tris')
     return report
 
 
