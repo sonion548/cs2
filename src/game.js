@@ -59,9 +59,10 @@ export class Game {
     this.camera = new THREE.PerspectiveCamera(settings.fov ?? 74, 1, 0.08, 600);
     this.scene.add(this.camera);
 
-    // 1v1 / 2v2 play the map's compact wingman version when it has one
+    // smaller modes play a smaller map: one bombsite for 2v2 / 3v3, a tiny yard for 1v1
     let map = MAPS[opts.map] || MAPS.dunehold;
-    if ((opts.teamSize ?? opts.net?.room?.size ?? 5) <= 2 && map.wingman && MAPS[map.wingman]) map = MAPS[map.wingman];
+    const size = opts.teamSize ?? opts.net?.room?.size ?? 5;
+    if (map.small?.[size] && MAPS[map.small[size]]) map = MAPS[map.small[size]];
     this.map = map;
     this.level = buildLevel(map, this.scene);
     this.strategy = new Strategy(this);

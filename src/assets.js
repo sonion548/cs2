@@ -8,7 +8,7 @@ import { KNIFE_TYPES } from './shared/knives.js';
 const BASE = (import.meta.env?.BASE_URL || '/') + 'models/';
 const WEAPONS = GUN_IDS;
 const KNIVES = Object.keys(KNIFE_TYPES);
-const MAPS = ['dunehold', 'dunehold_small'];
+const MAPS = ['dunehold', 'dunehold_market', 'dunehold_yard'];
 const CHARACTERS = ['t', 'ct'];
 
 export const assets = { weapons: {}, weaponLods: {}, maps: {}, colliders: {}, characters: {}, arms: {} };

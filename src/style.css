@@ -466,3 +466,5 @@ img:not([src]) { visibility: hidden; }
 
 .hud .fps { position: absolute; right: 12px; top: 8px; font: 600 12px/1 'Barlow', sans-serif; color: rgba(255,255,255,0.75); text-shadow: 0 1px 2px #000; pointer-events: none; }
 .settings select { background: var(--panel, #1c1d20); color: inherit; border: 1px solid var(--line); padding: 6px 8px; font: inherit; }
+/* current callout under the radar */
+.hud .place { position: absolute; top: 240px; left: 14px; width: 222px; text-align: center; font: 600 13px/1.2 'Barlow Condensed', sans-serif; letter-spacing: .06em; text-transform: uppercase; color: rgba(255,255,255,.82); text-shadow: 0 1px 2px #000; pointer-events: none; }

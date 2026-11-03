@@ -29,6 +29,7 @@ export class Hud {
         <div class="team-score ct"><b class="sc"></b><span class="alive"></span></div>
       </div>
       <canvas class="radar" width="220" height="220"></canvas>
+      <div class="place"></div>
       <div class="killfeed"></div>
       <canvas class="xhair"></canvas>
       <div class="hitmarker"></div>
@@ -121,6 +122,19 @@ export class Hud {
       x.fillText(L, ox + cc.x * scale, oz + cc.z * scale + 6);
     }
     this.radarBase = c;
+  }
+
+  placeAt(pos) {
+    const calls = this.g.map.callouts;
+    if (!calls) return '';
+    const S = this.g.level.nav.S, x = Math.floor(pos.x / S), z = Math.floor(pos.z / S);
+    let best = '', area = Infinity;
+    for (const [name, x0, z0, x1, z1] of calls) {
+      if (x < x0 || x > x1 || z < z0 || z > z1) continue;
+      const a = (x1 - x0 + 1) * (z1 - z0 + 1);
+      if (a < area) { area = a; best = name; }
+    }
+    return best;
   }
 
   drawRadar() {
@@ -223,6 +237,9 @@ export class Hud {
       setText(n, hint || ''); n.classList.toggle('show', !!hint); n.classList.add('soft');
     }
     this.drawRadar();
+    // where you are (or whoever you're watching), the way callouts name it
+    const who = p.alive ? p : g.spec.target;
+    setText(this.$('.place'), who ? this.placeAt(who.pos) : '');
     if (!this.$('.scoreboard').classList.contains('hidden')) this.renderScoreboard();
     if (this.buyOpen) { if (!g.canBuy()) this.toggleBuy(false); else if ((this.buyTick = (this.buyTick || 0) + dt) > 0.25) { this.buyTick = 0; this.renderBuy(); } }
   }
@@ -257,7 +274,8 @@ export class Hud {
   roundStart() {
     this.$('.killfeed').innerHTML = '';
     const g = this.g;
-    const job = g.playerTeam === 'T' ? 'plant the bomb on A or B' : 'stop the bomb plant, or defuse it';
+    const sites = Object.keys(g.map.points?.plant || { A: 1, B: 1 });
+    const job = g.playerTeam === 'T' ? `plant the bomb on ${sites.join(' or ')}` : 'stop the bomb plant, or defuse it';
     this.message(`Round ${g.round}`, `${TEAM_NAME[g.playerTeam]}: ${job} · ${keyLabel(g.binds.buy[0])} to buy`, 3.5);
     if (g.player.hasBomb) setTimeout(() => this.notice('You are carrying the bomb', 3), 1500);
   }

@@ -43,7 +43,8 @@ export class Strategy {
   plan() {
     const P = this.pts;
     this.phase = 'default';
-    this.site = Math.random() < 0.5 ? 'A' : 'B';
+    this.sites = Object.keys(P.plant);                 // 'A' and 'B', or just 'A' on small maps
+    this.site = this.sites[Math.floor(Math.random() * this.sites.length)];
     this.execAt = 14 + Math.random() * 22;   // seconds into the live round
     this.goAt = 0;
     this.seen = { A: 0, B: 0 };               // defenders spotted per site (decays)
@@ -62,11 +63,13 @@ export class Strategy {
 
     // defenders: two per site, one mid, then fill the sites
     const cts = this.bots('CT');
-    const order = cts.length <= 2 ? ['A', 'B'] : cts.length === 3 ? ['A', 'B', 'mid'] : ['A', 'B', 'mid', 'A', 'B', 'A', 'B'];
-    const used = { A: shuffle([...P.hold.A]), B: shuffle([...P.hold.B]), mid: shuffle([...P.hold.mid]) };
+    const one = this.sites.length === 1;
+    const order = one ? (cts.length <= 1 ? ['A'] : ['A', 'mid', 'A', 'A', 'mid']) :
+      cts.length <= 2 ? ['A', 'B'] : cts.length === 3 ? ['A', 'B', 'mid'] : ['A', 'B', 'mid', 'A', 'B', 'A', 'B'];
+    const used = { A: shuffle([...(P.hold.A || [])]), B: shuffle([...(P.hold.B || [])]), mid: shuffle([...(P.hold.mid || [])]) };
     cts.forEach((b, k) => {
       const zone = order[k % order.length];
-      const s = used[zone].shift() || P.hold[zone][0];
+      const s = used[zone].shift() || (P.hold[zone] || P.hold.A)[0];
       b.zone = zone;
       this.send(b, s, 'hold', 0.8);
     });
@@ -105,6 +108,7 @@ export class Strategy {
   // Defenders from the other site and mid come to help, one anchor stays.
   rotate(site) {
     this.rotated = true; this.hit = site;
+    if (this.sites.length < 2) return;
     const P = this.pts;
     const away = this.bots('CT').filter(b => b.zone !== site && b.role === 'hold');
     const stay = away.filter(b => b.zone === OTHER[site]).slice(0, 1);
@@ -148,8 +152,10 @@ export class Strategy {
     // avoid the site defenders were seen holding recently
     const now = this.g.time;
     const hotA = now - this.seen.A < 15, hotB = now - this.seen.B < 15;
-    if (hotA && !hotB) this.site = 'B'; else if (hotB && !hotA) this.site = 'A';
-    else if (Math.random() < 0.35) this.site = OTHER[this.site];
+    if (this.sites.length > 1) {
+      if (hotA && !hotB) this.site = 'B'; else if (hotB && !hotA) this.site = 'A';
+      else if (Math.random() < 0.35) this.site = OTHER[this.site];
+    }
     this.phase = 'gather';
     this.goAt = this.g.roundTime + 14;
     const ts = this.bots('T');

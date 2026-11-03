@@ -170,6 +170,21 @@ leaves, the match ends), and offline items stay on the device that earned them.
 Online: the host runs the bomb, money and grenades for everyone; dropped weapons are only visible on the machine that
 dropped them.
 
+## Stage 6 (this build)
+
+- **Dunehold redesigned** around what makes Counter-Strike maps work: three lanes, a mid that feeds both sites, and
+  named places. Long A (T ramp, long doors, a car and a sunken pit), a catwalk from mid up to A short, mid with an
+  Xbox crate stack, mid doors and a raised window over mid on the defender side, upper tunnels to B and lower tunnels
+  joining them to mid, CT ramp and B doors for rotations, A platform with goose, B back plat and car. The place
+  you're in is shown under the radar. No spot on the defender side can see into the attacker spawn.
+- **Small maps for small modes**: Dunehold Market (one bombsite: an alley, a covered market hall and a courtyard)
+  for 2v2 and 3v3, Dunehold Yard (a tiny one-site yard with two lanes and a crooked middle) for 1v1
+- Matches are **first to 5** rounds in every mode
+- **Graphics quality** presets (Low, Medium, High, Ultra, Auto) with dynamic resolution, static map shadows,
+  visibility culling, character and weapon levels of detail; an optional FPS readout
+- Weapons are held properly in third and first person (shouldered rifles, two-handed pistols, forward-grip knife,
+  aim pitch shared down the body), the view no longer shakes, and bots aim, move and react like people
+
 ## Blender models
 
 Weapons, knives, characters and the Dunehold map are modelled with Blender scripts in `blender/` (see
@@ -182,4 +197,4 @@ procedural models as a fallback.
 2. ~~Economy, cases, original skins, wear (float) values, stickers, inventory with 3D inspect~~
 3. ~~Ranked system with tiers and subranks, plus bots that scale to your rank~~
 4. ~~Backend: accounts, party queue, matchmaking, market with sales history, trading~~
-5. More maps and small-scale versions of each map
+5. ~~Small-scale versions of the map for 1v1 and 2v2~~; more maps
