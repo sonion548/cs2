@@ -19,10 +19,10 @@ const fmt = (n) => n.toLocaleString('en-US');
 const CR = (n) => `<span class="cr">${fmt(n)}</span>`;
 
 export const MODES = [
-  { id: '5v5', label: 'Competitive', size: 5, win: 13, note: '5 v 5 · first to 13' },
-  { id: '3v3', label: 'Skirmish', size: 3, win: 9, note: '3 v 3 · first to 9' },
-  { id: '2v2', label: 'Wingman', size: 2, win: 9, note: '2 v 2 · first to 9' },
-  { id: '1v1', label: 'Duel', size: 1, win: 9, note: '1 v 1 · first to 9' },
+  { id: '5v5', label: 'Competitive', size: 5, win: 5, note: '5 v 5 · first to 5' },
+  { id: '3v3', label: 'Skirmish', size: 3, win: 5, note: '3 v 3 · first to 5' },
+  { id: '2v2', label: 'Wingman', size: 2, win: 5, note: '2 v 2 · first to 5' },
+  { id: '1v1', label: 'Duel', size: 1, win: 5, note: '1 v 1 · first to 5' },
 ];
 export const DIFFS = [['Recruit', 0.05], ['Regular', 0.3], ['Veteran', 0.55], ['Expert', 0.78], ['Elite', 0.95]];
 

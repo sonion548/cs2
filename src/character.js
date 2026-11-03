@@ -131,7 +131,7 @@ export class Character {
       const clear = !world.overlaps(this.pos.x - MOVE.half, this.pos.y + 0.05, this.pos.z - MOVE.half,
         this.pos.x + MOVE.half, this.pos.y + MOVE.standHeight, this.pos.z + MOVE.half);
       if (clear) this.crouch = Math.max(0, this.crouch - dt * 8);
-    } else this.crouch = Math.min(1, this.crouch + dt * 8);
+    } else if (target > this.crouch) this.crouch = Math.min(1, this.crouch + dt * 8);
 
     const v = this.vel;
     const wishSpeed = wish.lengthSq() > 0 ? this.maxSpeed() : 0;

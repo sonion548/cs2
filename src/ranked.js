@@ -34,10 +34,10 @@ export function skillForMMR(mmr) { return Math.max(0.03, Math.min(1, (mmr - 250)
 // ---------------------------------------------------------------- state
 const KEY = 'vantage.ranked.v1';
 export const LADDERS = {
-  '5v5': { label: 'Competitive 5v5', size: 5, win: 13, bots: true },
-  '2v2': { label: 'Wingman 2v2', size: 2, win: 9, bots: true },
-  pvp5: { label: 'PvP 5v5', size: 5, win: 13, online: true },
-  pvp2: { label: 'PvP 2v2', size: 2, win: 9, online: true },
+  '5v5': { label: 'Competitive 5v5', size: 5, win: 5, bots: true },
+  '2v2': { label: 'Wingman 2v2', size: 2, win: 5, bots: true },
+  pvp5: { label: 'PvP 5v5', size: 5, win: 5, online: true },
+  pvp2: { label: 'PvP 2v2', size: 2, win: 5, online: true },
 };
 const PLACEMENTS = 5;
 const PLACEMENT_CAP = RANKS.findIndex(r => r.tierId === 'platinum' && r.sub === 4); // can't place above Platinum IV

@@ -50,7 +50,9 @@ export class Game {
 
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.Fog(0xd9c7a6, 70, 260);
-    this.camera = new THREE.PerspectiveCamera(settings.fov ?? 74, 1, 0.03, 600);
+    // near plane well clear of zero: the player can't get closer than 0.32 m to a wall, and a larger
+    // near plane keeps far floors from flickering against the ground plane under the map
+    this.camera = new THREE.PerspectiveCamera(settings.fov ?? 74, 1, 0.08, 600);
     this.scene.add(this.camera);
 
     // 1v1 / 2v2 play the map's compact wingman version when it has one
@@ -97,7 +99,7 @@ export class Game {
     this.score = { T: 0, CT: 0 };
     this.lossStreak = { T: 0, CT: 0 };
     this.round = 0;
-    this.winRounds = opts.winRounds || 13;
+    this.winRounds = opts.winRounds || 5;
     this.state = 'freeze';
     this.stateTimer = 0;
     this.roundTime = 0;
@@ -161,7 +163,7 @@ export class Game {
     // outer ground + skyline of buildings beyond the walls
     const sand = tex('sand', 1).clone(); sand.repeat.set(225, 225); sand.needsUpdate = true;
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(900, 900), new THREE.MeshStandardMaterial({ map: sand, roughness: 1 }));
-    ground.rotation.x = -Math.PI / 2; ground.position.set(c.x, -0.02, c.z); ground.receiveShadow = true;
+    ground.rotation.x = -Math.PI / 2; ground.position.set(c.x, -0.15, c.z); ground.receiveShadow = true;
     this.scene.add(ground);
     const r = rng(77);
     const mat = new THREE.MeshStandardMaterial({ map: tex('plaster', 1), roughness: 0.95 });
@@ -897,6 +899,10 @@ export class Game {
     let hideModel = null;
     if (p.alive) {
       eye = p.eyePos();
+      // ease the view over stair treads and kerbs instead of snapping 15 cm a frame
+      const sm = this.eyeSmooth;
+      if (sm != null && p.onGround && Math.abs(eye.y - sm) < 0.6) eye.y = sm + (eye.y - sm) * (1 - Math.exp(-dt * 15));
+      this.eyeSmooth = eye.y;
       const w = p.weapon;
       yaw = p.yaw - w.recoil[1] * DEG * 0.45;
       pitch = p.pitch + w.recoil[0] * DEG * 0.45 + this.viewPunch * DEG * 0.3;

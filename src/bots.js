@@ -23,15 +23,18 @@ export function skillProfile(skill) {
   const s = Math.max(0, Math.min(1, skill));
   return {
     skill: s,
-    reaction: 0.8 - 0.62 * s,            // seconds before reacting to a new enemy
-    turnSpeed: (200 + 700 * s) * DEG,     // rad/s
-    aimError: (7 - 6.2 * s) * DEG,        // initial aim offset
-    errorDecay: 1.5 + 5 * s,              // how fast aim settles
-    headPref: 0.12 + 0.7 * s,             // chance to aim for the head
-    sprayControl: 0.15 + 0.8 * s,         // fraction of recoil compensated
-    counterStrafe: s > 0.35,
-    burstLen: Math.round(3 + s * 4),
-    fov: (100 + 30 * s) * DEG,
+    reaction: 0.72 - 0.4 * s,            // seconds before shooting at a newly seen enemy
+    turnSpeed: (170 + 480 * s) * DEG,     // rad/s
+    aimError: (11 - 7.5 * s) * DEG,       // how far off the first look at a new target is
+    errorDecay: 1.2 + 2.6 * s,            // how fast that settles
+    tremor: (1.7 - 1.25 * s) * DEG,       // aim never settles perfectly (hand shake, tracking)
+    trackLag: 0.24 - 0.16 * s,            // seconds the aim trails a moving target
+    flinch: (0.9 - 0.6 * s) * DEG,        // aim knocked off by each shot fired
+    headPref: 0.06 + 0.36 * s,            // chance to aim for the head
+    sprayControl: 0.08 + 0.55 * s,        // fraction of recoil compensated
+    burstLen: Math.round(2 + s * 3),
+    peek: 0.1 + 0.35 * s,                 // chance to side-step between bursts
+    fov: (95 + 30 * s) * DEG,
     hearing: 10 + 18 * s,
     hearingMul: 0.7 + 0.5 * s,
     nadeUse: 0.25 + 0.6 * s,              // chance to use utility when it makes sense
@@ -165,7 +168,10 @@ export class Bot extends Character {
     }
     if (best && best !== this.target) {
       this.target = best;
-      this.spottedAt = now + this.prof.reaction * (0.75 + Math.random() * 0.5);
+      const to = best.pos.clone().sub(this.pos);
+      const off = Math.abs(angleDiff(Math.atan2(-to.x, -to.z), this.yaw));
+      this.spottedAt = now + this.prof.reaction * (0.85 + Math.random() * 0.5) + (bestD > 30 ? 0.12 : 0) + (off > 0.5 ? 0.18 : 0);
+      this.trackPt = null;
       const e = this.prof.aimError * (0.6 + Math.random() * 0.8);
       const a = Math.random() * Math.PI * 2;
       this.aimErr.set(Math.cos(a) * e, Math.sin(a) * e);
@@ -260,31 +266,36 @@ export class Bot extends Character {
       if ((w.def.type === 'grenade' || w.def.type === 'bomb' || (w.def.type === 'melee' && (this.weapons[1] || this.weapons[2]))) && this.slot !== this.bestSlot()) this.switchTo(this.bestSlot());
       const t = this.target;
       const eye = this.eyePos(new THREE.Vector3());
-      const aimPt = t.pos.clone();
-      aimPt.y += this.aimHead ? t.height * 0.93 : t.height * 0.68;
-      aimPt.addScaledVector(t.vel, 0.05 * (1 - this.prof.skill));
-      const dir = aimPt.sub(eye);
+      const P = this.prof;
+      const goal = t.pos.clone();
+      goal.y += this.aimHead ? t.height * 0.93 : t.height * 0.68;
+      // the aim follows the target with a lag, so moving targets are harder to hit
+      if (!this.trackPt) this.trackPt = goal.clone();
+      else this.trackPt.lerp(goal, 1 - Math.exp(-dt / P.trackLag));
+      const dir = this.trackPt.clone().sub(eye);
       const dist = dir.length();
       wantYaw = Math.atan2(-dir.x, -dir.z);
       wantPitch = Math.atan2(dir.y, Math.hypot(dir.x, dir.z));
-      this.aimErr.multiplyScalar(Math.exp(-this.prof.errorDecay * dt));
-      wantYaw += this.aimErr.x; wantPitch += this.aimErr.y;
+      // first-look error settles over time; a small wobble never goes away
+      this.aimErr.multiplyScalar(Math.exp(-P.errorDecay * dt));
+      const ph = this.id * 1.7;
+      wantYaw += this.aimErr.x + P.tremor * (Math.sin(now * 1.9 + ph) * 0.6 + Math.sin(now * 3.7 + ph * 2) * 0.4);
+      wantPitch += this.aimErr.y + P.tremor * 0.7 * (Math.sin(now * 2.3 + ph * 3) * 0.6 + Math.sin(now * 4.1 + ph) * 0.4);
       if (blind) { wantYaw += Math.sin(now * 3.1) * 0.5; wantPitch += Math.sin(now * 2.3) * 0.15; }
-      const comp = this.prof.sprayControl;
+      const comp = P.sprayControl;
       wantPitch -= this.weapon.recoil[0] * DEG * comp;
       wantYaw += this.weapon.recoil[1] * DEG * comp;
       const cw = this.weapon;
-      if (!this.prof.counterStrafe || cw.def.type === 'melee') {
-        const side = Math.sin(now * 2 + this.id) > 0 ? 1 : -1;
-        wish.set(Math.cos(this.yaw) * side, 0, -Math.sin(this.yaw) * side);
-        if (cw.def.type === 'melee') wish.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
-      }
-      this.crouching = this.prof.skill > 0.6 && dist > 18 && cw.def.auto && cw.shotIndex > 3;
+      // stand still to shoot (counter-strafe); now and then side-step between bursts
+      if (cw.def.type === 'melee') wish.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
+      else if (this.strafe && now < this.strafe.until) wish.set(Math.cos(this.yaw) * this.strafe.dir, 0, -Math.sin(this.yaw) * this.strafe.dir);
+      this.crouching = P.skill > 0.6 && dist > 22 && cw.def.auto && cw.shotIndex > 4;
       const err = Math.abs(angleDiff(this.yaw, wantYaw)) + Math.abs(this.pitch - wantPitch);
-      const tol = Math.max(0.6 * DEG, Math.atan2(0.25, dist)) * (cw.def.type === 'sniper' ? 0.5 : 1.4);
+      const tol = Math.max(0.6 * DEG, Math.atan2(0.22, dist)) * (cw.def.type === 'sniper' ? 0.5 : 1.3);
+      const still = this.speed2D() < this.maxSpeed() * 0.38;
       if (cw.def.pattern && cw.ammo <= 0) {
         if (!cw.startReload() && cw.reloading <= 0) this.switchTo(this.weapons[2]?.ammo > 0 && this.slot !== 2 ? 2 : 3);
-      } else if (now >= this.spottedAt && (err < tol + this.prof.aimError * 0.3 || blind)) {
+      } else if (now >= this.spottedAt && (still || cw.def.type === 'melee') && (!this.strafe || now >= this.strafe.until) && (err < tol || blind)) {
         this.tryFire(now, dist);
       }
       if (cw.def.scope) this.scoped = now >= this.spottedAt - 0.2 ? 1 : 0;
@@ -330,10 +341,15 @@ export class Bot extends Character {
             this.stuckTimer += dt;
             if (this.stuckTimer > 1) {
               if (this.pos.distanceTo(this.lastPos) < 0.5) {
+                // blocked (a teammate, a prop): step aside and find the way again, no jumping
                 this.path = findPath(g.level.nav, this.pos, this.goal || this.pos); this.pathIdx = 0;
-                this.vel.y = this.onGround ? 7 : this.vel.y; this.onGround = false;
+                this.nudge = { until: now + 0.45, dir: Math.random() < 0.5 ? -1 : 1 };
               }
               this.lastPos.copy(this.pos); this.stuckTimer = 0;
+            }
+            if (this.nudge && now < this.nudge.until) {
+              const sx = -wish.z * this.nudge.dir, sz = wish.x * this.nudge.dir;
+              wish.set(wish.x * 0.3 + sx, 0, wish.z * 0.3 + sz).normalize();
             }
           } else {
             // reached the goal: hold and scan, then pick a new one
@@ -439,14 +455,26 @@ export class Bot extends Character {
     if (now < this.burstPause) return;
     if (d.type === 'melee') { if (dist < d.range + 0.5) this.game.fire(this, now); return; }
     if (d.type === 'shotgun' && dist > 16) return;
+    const P = this.prof;
+    const flinch = () => {
+      const a = Math.random() * Math.PI * 2, e = P.flinch * (0.5 + Math.random());
+      this.aimErr.x += Math.cos(a) * e; this.aimErr.y += Math.sin(a) * e * 0.6;
+    };
+    const afterBurst = (pause) => {
+      this.burstPause = now + pause;
+      // between bursts, sometimes take a short side-step and re-settle
+      if (Math.random() < P.peek && d.type !== 'sniper') this.strafe = { until: now + 0.2 + Math.random() * 0.18, dir: Math.random() < 0.5 ? -1 : 1 };
+    };
     if (d.auto) {
-      const len = dist < 12 ? 30 : dist < 25 ? this.prof.burstLen : 2;
+      const len = dist < 10 ? 6 + Math.round(P.skill * 6) : dist < 25 ? P.burstLen : 2;
       this.game.fire(this, now);
+      flinch();
       this.burst++;
-      if (this.burst >= len) { this.burst = 0; this.burstPause = now + 0.25 + (1 - this.prof.skill) * 0.3; }
+      if (this.burst >= len) { this.burst = 0; afterBurst(0.3 + (1 - P.skill) * 0.35); }
     } else {
       this.game.fire(this, now);
-      this.burstPause = now + (d.type === 'sniper' ? 0 : 0.12 + (1 - this.prof.skill) * 0.25);
+      flinch();
+      afterBurst(d.type === 'sniper' ? 0.2 : 0.16 + (1 - P.skill) * 0.3);
     }
   }
 

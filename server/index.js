@@ -167,7 +167,7 @@ function startRoom({ mode, size, teams, ladder, rating }) {
   const bSide = aSide === 'T' ? 'CT' : 'T';
   const room = {
     id, mode, size, ladder, host: humans[0], started: now(),
-    winRounds: size === 5 ? 13 : 9,
+    winRounds: 5,
     members: humans.map(uid => ({ id: uid, name: D.users[uid].name, team: teams.A.includes(uid) ? aSide : bSide, equipped: equippedItems(D.users[uid]) })),
     botSkill: skillForMMR(rating || 1000),
     reported: false,
