@@ -827,6 +827,21 @@ GUN_HANDS = dict(
 )
 
 
+# First-person hands for knives, grenades and the bomb: a closed fist with the
+# thumb curled round over the fingers (at the default curl it stuck out
+# straight past a knife's handle).
+FIST_HANDS = dict(curl={'R': {1: 2.4}, 'L': {1: 2.4}})
+
+
+def export_fist_arms(team, path, size=1024):
+    """The arms for knives, grenades and the bomb (see FIST_HANDS)."""
+    BODY_EXTRA.clear(); BODY_EXTRA.update(FIST_HANDS)
+    try:
+        export_arms(team, path, size=size)
+    finally:
+        BODY_EXTRA.clear()
+
+
 def export_gun_arms(team, path, size=1024):
     """The arms for holding guns (see GUN_HANDS); knives keep the fist."""
     BODY_EXTRA.clear(); BODY_EXTRA.update(GUN_HANDS)
@@ -900,7 +915,7 @@ def main(argv):
         report[team] = stats()
         print(f'{team}: {report[team]} tris')
         if '--no-arms' not in argv:
-            export_arms(team, os.path.join(out, f'arms_{team}.glb'), size=min(size, 1024))
+            export_fist_arms(team, os.path.join(out, f'arms_{team}.glb'), size=min(size, 1024))
             print(f'{team} arms: {stats()} tris')
             export_gun_arms(team, os.path.join(out, f'arms_{team}_gun.glb'), size=min(size, 1024))
             print(f'{team} gun arms: {stats()} tris')

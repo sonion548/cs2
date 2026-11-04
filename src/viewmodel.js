@@ -58,6 +58,43 @@ const GUN_YAW = { rifle: 0.05, sniper: 0.04, pistol: 0.04, grenade: 0.0, bomb: 0
 const HAND_AT = {
   pistol: { R: V3(0.012, 0, 0.034), L: V3(-0.035, -0.036, 0.032) },
 };
+// Per-gun hand fits, measured by a fitting script: for each hand, an offset
+// from its anchor (the grip for the right hand; the foregrip, or the grip on
+// pistols, for the left) in gun units, and a pitch of the hand about the gun's
+// x axis, chosen so as few hand vertices as possible end up inside the gun
+// while the hand stays on its grip (comments: glove vertices inside the gun,
+// right then left hand, before and after, out of about 2,550 per hand).
+// Guns not listed use the defaults above.
+const HAND_FIT = {
+  glock: { R: [0.0315, 0.0005, 0.06, 0.1], L: [-0.0435, -0.0295, 0.045, 0.22] },   // clipping 786->1, 256->1
+  usp: { R: [0.0315, -0.006, 0.0435, 0.16], L: [-0.0435, -0.028, 0.048, 0.16] },   // clipping 805->83, 281->1
+  m1911: { R: [0.034, 0.003, 0.059, 0.08], L: [-0.046, -0.0345, 0.0475, 0.2] },   // clipping 983->12, 349->1
+  fiveseven: { R: [0.0315, -0.0035, 0.057, 0.15], L: [-0.051, -0.0395, 0.0245, -0.16] },   // clipping 831->9, 301->34
+  vz61: { R: [0.0225, 0.0055, 0.06, 0.16], L: [-0.044, -0.036, 0.039, 0.14] },   // clipping 537->48, 148->0
+  deagle: { R: [0.034, -0.004, 0.054, 0.2], L: [-0.0465, -0.028, 0.048, 0.08] },   // clipping 1085->13, 403->18
+  revolver: { R: [0.028, 0.007, 0.0515, 0.16], L: [-0.046, -0.0325, 0.035, 0.08] },   // clipping 599->25, 222->1
+  mac10: { R: [0.026, -0.0235, -0.018, 0], L: [-0.013, -0.014, 0.004, 0.02] },   // clipping 1374->28, 126->40
+  mp5: { R: [0.006, -0.021, -0.0205, 0.08], L: [-0.002, -0.022, 0, -0.16] },   // clipping 937->80, 582->1
+  mp7: { R: [0.023, -0.024, -0.024, 0], L: [0.0245, -0.018, 0.004, -0.22] },   // clipping 1244->14, 287->17
+  ump45: { R: [0.02, -0.016, -0.0115, -0.08], L: [0.0115, -0.0255, -0.0075, -0.16] },   // clipping 532->14, 722->71
+  vector: { R: [0.013, -0.016, -0.014, -0.09], L: [0, -0.026, -0.007, -0.11] },   // clipping 784->69, 530->12
+  p90: { R: [-0.04, -0.025, 0.024, 0.25], L: [-0.0075, -0.0095, 0, -0.08] },   // clipping 1004->106, 128->6
+  galil: { R: [0.011, -0.023, -0.019, -0.1], L: [0.0055, -0.0245, 0.009, -0.2] },   // clipping 904->62, 774->66
+  famas: { R: [0.019, -0.021, -0.016, -0.14], L: [-0.005, -0.0205, -0.0075, -0.12] },   // clipping 1105->119, 576->11
+  ak47: { R: [0.02, -0.023, -0.0115, -0.08], L: [0.011, -0.026, 0, -0.24] },   // clipping 951->44, 946->144
+  m4a1: { R: [0.015, -0.021, -0.014, 0.14], L: [-0.0095, -0.027, 0, -0.14] },   // clipping 998->242, 865->4
+  scarh: { R: [0.0205, -0.025, -0.0115, -0.16], L: [-0.0075, -0.018, 0, -0.23] },   // clipping 762->29, 717->14
+  sg550: { R: [0.012, -0.008, -0.0075, 0.1], L: [0.003, -0.0255, -0.001, -0.18] },   // clipping 636->201, 801->89
+  aug: { R: [0.02, 0.002, -0.012, 0.18], L: [0.019, -0.016, -0.012, -0.19] },   // clipping 1108->329, 335->8
+  scout: { R: [-0.0335, -0.0215, -0.026, -0.03], L: [0.056, -0.004, 0.0045, 0.12] },   // clipping 1479->118, 1235->92
+  dmr: { R: [0.0155, -0.008, -0.008, 0.08], L: [-0.008, -0.034, 0.003, -0.24] },   // clipping 782->268, 929->23
+  awp: { R: [-0.034, -0.036, -0.032, 0.13], L: [0.045, 0.022, 0, 0.28] },   // clipping 1875->138, 1576->176
+  dbarrel: { R: [-0.0075, -0.004, 0.013, 0.01], L: [-0.0025, -0.0295, 0, -0.14] },   // clipping 254->140, 777->3
+  pump: { R: [-0.02, -0.0125, 0.002, 0.08], L: [0.012, -0.02, 0, -0.2] },   // clipping 303->87, 668->90
+  m1014: { R: [0.0215, -0.0155, -0.01, -0.08], L: [-0.005, -0.025, -0.0005, -0.14] },   // clipping 880->56, 722->5
+};
+const _pitch = new THREE.Quaternion();
+const pitched = (v, a) => (a ? v.clone().applyQuaternion(_pitch.setFromAxisAngle(V3(1, 0, 0), a)) : v);
 
 const GRIP_L = {
   rifle: [V3(0.75, 0.15, -0.6), V3(0.35, 0.95, 0)],    // under the handguard, fingers up its right side
@@ -578,7 +615,9 @@ export class ViewModel {
       SR = this.shoulders.R; SL = this.shoulders.L;
     }
     const at = (this.handAt || HAND_AT)[t];
-    let R = local(world(this.skinned ? grip.clone().add(at?.R || V3(0, 0, 0)) : grip.clone().add(new THREE.Vector3(0.012, -0.01, 0))));
+    const fit = this.skinned && t !== 'melee' ? (this.handFit || HAND_FIT)[this.id] : null;
+    const offR = fit?.R ? V3(fit.R[0], fit.R[1], fit.R[2]) : (at?.R || V3(0, 0, 0));
+    let R = local(world(this.skinned ? grip.clone().add(offR) : grip.clone().add(new THREE.Vector3(0.012, -0.01, 0))));
     if (handROverride) R.lerp(local(handROverride.clone()), 0.8);
     if (this.throwT >= 0 || (t === 'grenade' && !this.gun.visible)) R = local(world(grip.clone()));
     // the gun's axes in arm space, so the hands turn with it (kick, reload, inspect, swing);
@@ -587,12 +626,13 @@ export class ViewModel {
     const inGun = (v) => v.clone().applyQuaternion(gunQ);
     if (this.skinned) {
       const [k, palm] = t === 'melee' && this.knifeHold ? [this.knifeHold.k, this.knifeHold.palm] : (GRIP_R[t] || GRIP_R.rifle);
-      this.armR.solve(SR, R, new THREE.Vector3(0.7, -1, 0.25), inGun(k), inGun(palm));
+      this.armR.solve(SR, R, new THREE.Vector3(0.7, -1, 0.25), inGun(pitched(k, fit?.R?.[3])), inGun(pitched(palm, fit?.R?.[3])));
     } else this.armR.solve(SR, R, new THREE.Vector3(0.6, -1, 0.1), 0.2, t === 'melee' || t === 'grenade' ? 1 : 0.9);
     // left hand: foregrip, pistol support, magazine during reloads, or out of view
     let L = null;
-    if (ud.fore && t !== 'melee' && t !== 'grenade') L = local(world(ud.fore.clone().add(this.skinned ? new THREE.Vector3(0, -0.006, 0) : new THREE.Vector3(-0.02, -0.025, 0))));
-    else if (t === 'pistol') L = local(world(grip.clone().add(this.skinned ? at.L : new THREE.Vector3(-0.024, -0.022, 0.012))));
+    const offL = fit?.L ? V3(fit.L[0], fit.L[1], fit.L[2]) : null;
+    if (ud.fore && t !== 'melee' && t !== 'grenade') L = local(world(ud.fore.clone().add(this.skinned ? offL || new THREE.Vector3(0, -0.006, 0) : new THREE.Vector3(-0.02, -0.025, 0))));
+    else if (t === 'pistol') L = local(world(grip.clone().add(this.skinned ? offL || at.L : new THREE.Vector3(-0.024, -0.022, 0.012))));
     if (L && magReach > 0) {
       const magP = this.mag ? local(this.mag.getWorldPosition(new THREE.Vector3())) : L.clone().add(new THREE.Vector3(0, -0.15, 0.08));
       L.lerp(magP, magReach);
@@ -605,7 +645,8 @@ export class ViewModel {
       if (L) {
         const [k0, p0] = GRIP_L[t] || GRIP_L.rifle, [k1, p1] = GRIP_L.mag;
         const f = Math.min(1, magReach * 1.4);
-        this.armL.solve(SL, L, new THREE.Vector3(-0.8, -1, 0.15), inGun(k0.clone().lerp(k1, f)), inGun(p0.clone().lerp(p1, f)));
+        const pl = fit?.L?.[3];
+        this.armL.solve(SL, L, new THREE.Vector3(-0.8, -1, 0.15), inGun(pitched(k0, pl).clone().lerp(k1, f)), inGun(pitched(p0, pl).clone().lerp(p1, f)));
       }
       return;
     }
