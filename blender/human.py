@@ -259,7 +259,7 @@ def _palm(P, side):
 
 
 def soldier_body(muscle=0.8, weight=0.55, height=0.55, proportions=0.85, ethnic=(0.2, 0.2, 0.6), eye_height=1.625,
-                 grip=1.0, abduct=9.0, elbow=14.0, curl=None, spread=None):
+                 grip=1.0, abduct=9.0, elbow=14.0, curl=None, spread=None, thumb_to=None):
     """Shaped, re-posed body in Blender space (metres, feet on Z=0).
 
     Arms hang at the sides (abduct degrees out, elbows bent `elbow` degrees
@@ -352,12 +352,27 @@ def soldier_body(muscle=0.8, weight=0.55, height=0.55, proportions=0.85, ethnic=
                         R = rot(n, sign * np.radians(sp[fi])) @ R
                     rots[b] = R
             f = grip * cs.get(1, 1.0)
+            # thumb_to: a closed fist's thumb lies across the curled fingers. Aim
+            # the thumb at that spot, given in the hand's frame (metres along the
+            # hand from the wrist, out in front of the palm, across toward the
+            # little finger); bending its joints alone only swung it out or back.
+            Ropp = None
+            if thumb_to is not None:
+                w = bones[f'wrist.{side}'][0]
+                L = bones[f'finger3-1.{side}'][0] - w; L /= np.linalg.norm(L)
+                nn = n - L * np.dot(n, L); nn /= np.linalg.norm(nn)
+                S = bones[f'finger5-1.{side}'][0] - bones[f'finger2-1.{side}'][0]
+                S = S - L * np.dot(S, L) - nn * np.dot(S, nn); S /= np.linalg.norm(S)
+                target = w + L * thumb_to[0] + nn * thumb_to[1] + S * thumb_to[2]
+                h1 = bones[f'finger1-1.{side}'][0]
+                Ropp = between(bones[f'finger1-3.{side}'][1] - h1, target - h1)
             for k, a in enumerate((18, 22, 25), 1):
                 b = f'finger1-{k}.{side}'
                 h, t, _ = bones[b]
                 d = (t - h) / np.linalg.norm(t - h)
                 ax = np.cross(d, n); ax /= np.linalg.norm(ax)
-                rots[b] = rot(ax, np.radians(a) * f)
+                R = rot(ax, np.radians(a) * f)
+                rots[b] = Ropp @ R if (k == 1 and Ropp is not None) else R
         apply(rots)
     # 5. legs in to about hip width (ankles a few cm outside the hip joints)
     rots = {}

@@ -828,9 +828,9 @@ GUN_HANDS = dict(
 
 
 # First-person hands for knives, grenades and the bomb: a closed fist with the
-# thumb curled round over the fingers (at the default curl it stuck out
-# straight past a knife's handle).
-FIST_HANDS = dict(curl={'R': {1: 2.4}, 'L': {1: 2.4}})
+# thumb wrapped round the handle, its tip resting on the middle joints of the
+# index and middle fingers (at the default pose it stuck out past the handle).
+FIST_HANDS = dict(curl={'R': {1: 0.0}, 'L': {1: 0.0}}, thumb_to=(0.108, 0.073, -0.004))
 
 
 def export_fist_arms(team, path, size=1024):
