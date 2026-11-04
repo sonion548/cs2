@@ -1256,6 +1256,7 @@ export class Game {
     }
     this.running = false;
     const result = {
+      botSkill: this.enemyBotSkill(),
       won: this.matchOver === this.playerTeam,
       score: { ...this.score }, team: this.playerTeam,
       stats: { ...this.player.stats },
@@ -1270,9 +1271,15 @@ export class Game {
   quit() {
     if (this.net) { this.running = false; this.dispose(); this.onExit({ net: true, left: true }); return; }
     this.running = false; this.dispose();
-    // leaving a ranked match counts as an abandon (loss + queue cooldown)
-    if (this.opts.ranked) this.onExit({ abandoned: true, won: false, team: this.playerTeam, score: { ...this.score }, stats: { ...this.player.stats }, rounds: this.round, players: [], weaponKills: {} });
-    else this.onExit(null);
+    // leaving early: you keep credits for what you did (in ranked it also
+    // counts as an abandon: a loss and a queue cooldown)
+    this.onExit({ abandoned: true, won: false, team: this.playerTeam, score: { ...this.score }, stats: { ...this.player.stats }, rounds: this.round, botSkill: this.enemyBotSkill(),
+      players: this.characters.map(c => ({ name: c.name, team: c.team, ...c.stats, you: c === this.player })), weaponKills: {} });
+  }
+  // how good the bots on the other side were, for the credit reward (null: no bots)
+  enemyBotSkill() {
+    const foes = this.bots.filter(b => b.team !== this.playerTeam && !b.puppet && b.prof);
+    return foes.length ? foes.reduce((a, b) => a + b.prof.skill, 0) / foes.length : null;
   }
 
   dispose() {

@@ -716,7 +716,7 @@ export class Menu {
       .map(p => `<tr class="${p.you ? 'me' : ''}"><td>${h(p.name)}</td><td>${p.kills}</td><td>${p.assists}</td><td>${p.deaths}</td></tr>`).join('');
     layer.innerHTML = `<div class="modal small result ${r.won ? 'win' : 'lose'}">
       <div class="info">
-        <div class="rar"><i></i>${r.won ? 'Victory' : 'Defeat'}</div>
+        <div class="rar"><i></i>${r.abandoned ? 'Left early' : r.won ? 'Victory' : 'Defeat'}</div>
         <h2>${r.score[r.team]} <span>–</span> ${r.score[r.team === 'T' ? 'CT' : 'T']}</h2>
         <table>${'<tr><th>Player</th><th>K</th><th>A</th><th>D</th></tr>' + rows}</table>
         ${r.ranked ? this.rankedSummary(r.ranked) : ''}

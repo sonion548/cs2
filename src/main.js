@@ -90,7 +90,7 @@ function start(opts) {
   launch(opts, async (result) => {
     if (!result) return;
     if (ranked) result.ranked = R.recordMatch(ranked.id, { ...result, oppRating: ranked.rating });
-    result.reward = result.abandoned ? { credits: 0, drops: [] } : await P.awardMatch({ ...result, teamSize: opts.teamSize });
+    result.reward = await P.awardMatch({ ...result, teamSize: opts.teamSize });
     if (result.reward?.error) result.reward = { credits: 0, drops: [], note: result.reward.error };
     menu.showResult(result);
   });

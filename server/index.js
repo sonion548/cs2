@@ -219,7 +219,8 @@ function settleRoom(room, report) {
       const L = u.ladders[lid];
       ranked = applyMatch(L, { ...result, oppRating: L.mmr }, (mmr) => ladderPosition(lid, mmr, u.id));
     }
-    const reward = left ? { credits: 0, drops: [] } : E.awardMatch(u, result);
+    // everyone is paid; someone who left keeps only what they earned (no win/loss bonus, no drops)
+    const reward = E.awardMatch(u, { ...result, botSkill: room.members.length < room.size * 2 ? room.botSkill ?? null : null });
     push(m.id, 'match.result', { ...result, ranked, reward, players: report.players || [], profile: profileOf(u) });
   }
   db.dirty();
@@ -287,9 +288,10 @@ const handlers = {
   // rate-limited so they can't be farmed by spamming the endpoint.
   'match.award'(ws, { result }) {
     const u = ws.user;
-    if (now() - (u.lastAward || 0) < 60000) return { error: 'Too soon since the last reward' };
+    if (now() - (u.lastAward || 0) < 20000) return { error: 'Too soon since the last reward' };
     u.lastAward = now();
-    const safe = { won: !!result.won, team: result.team, score: result.score, teamSize: Math.min(5, Math.max(1, result.teamSize | 0)), weaponKills: {},
+    const skill = result.botSkill == null ? null : Math.max(0, Math.min(1, +result.botSkill || 0));
+    const safe = { won: !result.abandoned && !!result.won, abandoned: !!result.abandoned, botSkill: skill, team: result.team, score: result.score, teamSize: Math.min(5, Math.max(1, result.teamSize | 0)), weaponKills: {},
       stats: { kills: Math.min(60, result.stats?.kills | 0), deaths: Math.min(60, result.stats?.deaths | 0), assists: Math.min(60, result.stats?.assists | 0), damage: 0 } };
     return withSave(ws, E.awardMatch(u, safe));
   },

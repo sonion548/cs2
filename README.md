@@ -246,6 +246,9 @@ dropped them.
 - **Market search finds any item**: search by weapon, finish, knife or rarity ("ak47 redline",
   "karambit fade", "sticker holo"). Every matching item is listed, even if nobody is selling it, and each
   item's page has a price chart for the last 7 days, 30 days or all time, with the item's value day by day.
+- **Every match pays credits**: harder bots pay more (about 0.7x on Recruit, 1x Regular, 1.4x Veteran,
+  1.7x Expert, 1.9x Elite), and leaving a match early keeps the credits for your kills, assists and rounds
+  won (no win/loss bonus or case drops). Online matches pay everyone, including players who left.
 
 ## Blender models
 

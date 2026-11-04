@@ -206,11 +206,18 @@ export function scrapeSticker(state, skinUid, slot) {
 }
 
 // Credits, xp, tally counters and drops after a match.
+// Every match pays. Finishing adds a win or loss bonus on top of kills,
+// assists and rounds won; leaving early keeps only what you earned. Against
+// bots, harder bots pay more: botSkill 0.05 (Recruit) is about 0.7x, 0.3
+// (Regular) 1x, 0.55 (Veteran) 1.4x, 0.78 (Expert) 1.7x, 0.95 (Elite) 1.9x.
+export const difficultyPay = (skill) => skill == null ? 1 : 0.6 + 1.4 * Math.max(0, Math.min(1, +skill || 0));
 export function awardMatch(state, result, r = Math.random) {
   const s = result.stats;
+  const done = !result.abandoned;
   const roundsWon = result.score?.[result.team] ?? 0;
-  let credits = (result.won ? 450 : 180) + s.kills * 35 + s.assists * 15 + roundsWon * 20;
-  credits = Math.round(credits * (result.teamSize >= 5 ? 1 : 0.6 + result.teamSize * 0.08));
+  let credits = (done ? (result.won ? 450 : 180) : 0) + s.kills * 35 + s.assists * 15 + roundsWon * 20;
+  credits *= result.teamSize >= 5 ? 1 : 0.6 + result.teamSize * 0.08;
+  credits = Math.max(done ? 60 : 15, Math.round(credits * difficultyPay(result.botSkill)));
   state.credits += credits;
   state.xp += 100 + s.kills * 20 + (result.won ? 150 : 0);
   state.stats.matches++; if (result.won) state.stats.wins++;
@@ -220,6 +227,7 @@ export function awardMatch(state, result, r = Math.random) {
     if (it && it.tally != null) it.tally += k;
   }
   const drops = [];
+  if (!done) return { credits, drops };
   if (r() < (result.won ? 0.65 : 0.4)) { const ids = Object.keys(CASES); const it = makeCase(pick(ids, r)); state.items.push(it); drops.push(it); }
   if (r() < 0.25) { const it = makeCase('capsule'); state.items.push(it); drops.push(it); }
   return { credits, drops };
