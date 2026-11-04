@@ -396,7 +396,13 @@ img:not([src]) { visibility: hidden; }
 .mk-item { display: grid; grid-template-columns: 1.3fr 1fr; gap: 24px; }
 .mk-item h4 { font: 600 13px var(--cond); text-transform: uppercase; letter-spacing: 1.5px; color: var(--dim); margin: 0 0 10px; }
 .mk-item h4 small { color: var(--muted); margin-left: 6px; }
-.chart { width: 100%; height: auto; border: 1px solid var(--line); margin-bottom: 18px; }
+.chart { width: 100%; height: auto; border: 1px solid var(--line); margin-bottom: 6px; }
+.mk-item .note { margin: 0 0 16px; }
+.chg { font: 600 12px var(--cond); margin-left: 4px; white-space: nowrap; }
+.mk-table small.chg.up, small.chg.up { color: #6fbf73; } .mk-table small.chg.down, small.chg.down { color: #e0654f; }
+.mk-range { display: flex; gap: 6px; margin-bottom: 8px; }
+.mk-range button { border: 1px solid var(--line2); padding: 4px 10px; font: 600 12px var(--cond); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+.mk-range button.on { border-color: var(--accent); color: var(--text); }
 .pricein { display: flex; gap: 10px; align-items: center; font: 600 14px var(--cond); } .pricein input { width: 140px; padding: 7px; }
 @media (max-width: 860px) { .tcols, .mk-item { grid-template-columns: 1fr; } .drawer { width: 100%; } }
 .who .lvl, .who .credits, .who .pname, .friends-btn { white-space: nowrap; }

@@ -43,21 +43,56 @@ export function migrateProfile(state) {
   return changed;
 }
 
+// ---------------------------------------------------------------- daily prices
+// Item values move a little every day (UTC days), the same on every machine
+// with no data to sync: each item wanders on its own (a slow trend, a faster
+// swing and a daily jitter) on top of a small market-wide tide. A typical day
+// moves an item a few percent; it stays within about -30%..+45% of its
+// catalogue value. Cases keep their shop price.
+export const DAY_MS = 86400000;
+export const dayOf = (t = Date.now()) => Math.floor(t / DAY_MS);
+function hash01(key, n) {
+  let h = (2166136261 ^ Math.imul(n | 0, 0x9e3779b1)) >>> 0;
+  for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619); }
+  h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d); h ^= h >>> 12; h = Math.imul(h, 0x297a2d39); h ^= h >>> 15;
+  return (h >>> 0) / 4294967296;
+}
+// smooth noise in -1..1, one random value per whole x, eased in between
+function wander(key, x) {
+  const i = Math.floor(x), f = x - i, e = f * f * (3 - 2 * f);
+  const a = hash01(key, i), b = hash01(key, i + 1);
+  return (a + (b - a) * e) * 2 - 1;
+}
+const indexCache = new Map();
+export function priceIndex(defId, day = dayOf()) {
+  const k = defId + '|' + day;
+  let v = indexCache.get(k);
+  if (v === undefined) {
+    const x = 0.2 * wander(defId + ':trend', day / 11) + 0.1 * wander(defId + ':swing', day / 3)
+      + 0.03 * (hash01(defId + ':day', day) * 2 - 1) + 0.05 * wander('market', day / 17);
+    v = Math.exp(x);
+    if (indexCache.size > 50000) indexCache.clear();
+    indexCache.set(k, v);
+  }
+  return v;
+}
+
 // ---------------------------------------------------------------- pricing
 const COND_MULT = { FN: 1.65, MW: 1.2, FT: 1.0, WW: 0.82, BS: 0.72 };
 
-// Reference price (used for quick-sell and when there is no market history).
-export function marketPrice(item) {
+// Reference price on a given day (today by default): quick-sell, inventory
+// values, and what market bots buy and sell around.
+export function marketPrice(item, day = dayOf()) {
   const d = itemDef(item);
   if (!d) return 0;
   if (item.kind === 'case') return d.price;
-  if (item.kind === 'sticker') return d.basePrice;
-  let p = d.basePrice * COND_MULT[condition(item.float).id];
+  if (item.kind === 'sticker') return Math.max(1, Math.round(d.basePrice * priceIndex(item.defId, day)));
+  let p = d.basePrice * priceIndex(item.defId, day) * COND_MULT[condition(item.float).id];
   if (item.float < 0.01) p *= 1.4;
   if (d.finish?.type === 'tempered') p *= 1 + Math.max(0, (((item.seed * 13 + (d.seedOffset || 0)) * 7919) % 1000) / 1000 - 0.6) * 6;
   if (d.finish?.type === 'gradient' && item.seed % 1000 > 900) p *= 1.6;
   if (item.tally != null) p *= 1.35;
-  for (const s of item.stickers || []) p += (STICKERS[s.defId]?.basePrice || 0) * 0.12 * (1 - (s.wear || 0));
+  for (const s of item.stickers || []) p += (STICKERS[s.defId]?.basePrice || 0) * priceIndex(s.defId, day) * 0.12 * (1 - (s.wear || 0));
   return Math.max(1, Math.round(p));
 }
 export const QUICK_SELL = 0.87;

@@ -220,6 +220,33 @@ dropped them.
   Bots always buy cheaper than they sell. `MARKET_BOTS=0` turns them off.
 - Fixed a crash when "Show FPS" was turned on
 
+## Stage 9 (this build)
+
+- **Crash fixes**: on the one-site maps (Dunehold Market for 2v2/3v3 and Dunehold Yard for 1v1), a bot
+  going hunting could pick bombsite B, which those maps don't have, and that ended the match. More generally, an error in
+  one frame no longer stops the match: each bot, grenade, effect and the HUD runs on its own, so a fault
+  skips a beat and gets logged in the console. Only a game that fails every frame for about three seconds is
+  stopped. A graphics driver reset now recovers instead of ending the match.
+- **Party queue**: a party member whose last match crashed (so it never reported a result) no longer
+  blocks the party with "A party member is still in a match". The server closes matches whose host has gone
+  quiet.
+- **Smoke grenades no longer lag**: each cloud is one draw call (instanced puffs, fewer on lower quality
+  settings), puffs fade out right in front of the camera, and standing inside a cloud draws one flat grey
+  fill under your hands instead of dozens of see-through layers over the whole screen.
+- **Inspect animations**: the hands turn the weapon only as far as a wrist and forearm can. Pistols are
+  turned one-handed while the support hand drops away, and knives show the flat of the blade with a wrist
+  bend. Flips and spins happen in the fingers (a half-turn flip on most knives, the karambit spin, the
+  balisong flip), so the arms no longer twist.
+- **Enemy outlines**: a red glow around enemies you can see, so they stand out against the map. It never
+  shows through walls or smoke. Turn it off in Settings > Graphics.
+- **Market prices change every day**: every item's value moves by a few percent a day (about -30% to +45%
+  around its base value over time), the same for everyone. Quick-sell, inventory values and the bot traders
+  all follow it, and bots re-price their listings and buy orders at midnight UTC. The market list shows
+  each item's value today and its change since yesterday.
+- **Market search finds any item**: search by weapon, finish, knife or rarity ("ak47 redline",
+  "karambit fade", "sticker holo"). Every matching item is listed, even if nobody is selling it, and each
+  item's page has a price chart for the last 7 days, 30 days or all time, with the item's value day by day.
+
 ## Blender models
 
 Weapons, knives, characters and the Dunehold map are modelled with Blender scripts in `blender/` (see

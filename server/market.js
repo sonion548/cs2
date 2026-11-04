@@ -13,7 +13,11 @@
 //    cheaper than they sell, so there is no way to farm credits off them.
 //    Their listings and orders live in memory (rebuilt on start); only player
 //    listings, player orders and sales are saved.
-import { SKINS, STICKERS, RARITY, itemDef } from '../src/items/catalog.js';
+//  - Values move every day (see priceIndex in the shared economy): at the
+//    change of day the bots re-price everything they have listed or bid on,
+//    and the seeded price history follows the same day-by-day values.
+import { SKINS, STICKERS, RARITY, WEAPON_NAMES, itemDef } from '../src/items/catalog.js';
+import { KNIFE_TYPES } from '../src/shared/knives.js';
 
 const BOT_NAMES = ['Kestrel Trading', 'Dune Exchange', 'Souk Supply', 'Mirage Goods', 'Oasis Market', 'Atlas Traders', 'Sable & Co', 'Harbor Arms'];
 const TICK_MS = 30000;
@@ -24,6 +28,9 @@ const ACTIVITY = { standard: 6, superior: 4, exotic: 3, mythic: 2, legendary: 1,
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const DAY = 86400000, HISTORY_DAYS = 30;
+// search text: lower case, dashes and dots dropped ("AK-47" -> "ak47"), other punctuation as spaces
+const norm = (s) => String(s || '').toLowerCase().replace(/[-'’.]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
 
 export class Market {
   // E: shared economy (marketPrice, makeSkin, makeSticker, findItem, removeItem, uid)
@@ -34,6 +41,8 @@ export class Market {
     this.botOrders = [];     // { id, bot, defId, price, qty, created, expires }
     this.defs = [...Object.keys(SKINS), ...Object.keys(STICKERS)];
     this.seq = 0;
+    this.day = E.dayOf(now());
+    this.searchCache = new Map();
     if (bots) {
       this.seedHistory();
       this.restock(true);
@@ -73,17 +82,38 @@ export class Market {
   }
   sellerName(l) { return l.bot ? `${l.bot} (bot)` : this.D.users[l.seller]?.name || '?'; }
 
+  // Everything a search can match for an item: its full title ("AK-47 |
+  // Redline", "★ Karambit | Fade"), ids and rarity.
+  searchText(defId) {
+    let t = this.searchCache.get(defId);
+    if (t == null) {
+      const d = SKINS[defId] || STICKERS[defId];
+      const what = !SKINS[defId] ? 'sticker' : d.knife ? `knife ${KNIFE_TYPES[d.knife] || ''} ${d.knife}` : `${WEAPON_NAMES[d.weapon] || ''} ${d.weapon}`;
+      t = norm(`${what} ${d.name} ${defId} ${RARITY[d.rarity]?.name || ''}`);
+      this.searchCache.set(defId, t);
+    }
+    return t;
+  }
+  // today's value against yesterday's, as a fraction (+0.031 = up 3.1%)
+  change(defId, day = this.E.dayOf(this.now())) { return this.E.priceIndex(defId, day) / this.E.priceIndex(defId, day - 1) - 1; }
+
+  // Market overview. With a search, every item in the catalogue that matches
+  // is listed (even one nobody is selling yet); without one, the most traded.
   summary(query = '') {
-    const q = query.toLowerCase();
+    const words = norm(query).split(' ').filter(Boolean);
     const by = new Map();
     const row = (defId) => { if (!by.has(defId)) by.set(defId, { defId, listings: 0, lowest: null, highestBid: null, sales24: 0, lastSale: null }); return by.get(defId); };
     for (const l of [...this.D.listings, ...this.liveBots()]) { const r = row(l.item.defId); r.listings++; r.lowest = r.lowest == null ? l.price : Math.min(r.lowest, l.price); }
     for (const o of [...this.D.orders, ...this.botOrders]) { const r = row(o.defId); r.highestBid = Math.max(r.highestBid ?? 0, o.price); }
-    const dayAgo = this.now() - 86400000;
+    const dayAgo = this.now() - DAY;
     for (const s of this.D.sales) { const r = row(s.defId); if (s.t > dayAgo) r.sales24++; if (!r.lastSale || s.t > r.lastSale.t) r.lastSale = { price: s.price, t: s.t }; }
-    let out = [...by.values()].filter(r => SKINS[r.defId] || STICKERS[r.defId]);
-    if (q) out = out.filter(e => { const d = SKINS[e.defId] || STICKERS[e.defId]; return d.name.toLowerCase().includes(q) || (d.weapon || '').includes(q) || (d.knife || '').includes(q); });
-    return out.sort((a, b) => b.sales24 - a.sales24 || b.listings - a.listings).slice(0, 300);
+    const ids = words.length
+      ? this.defs.filter(id => { const t = this.searchText(id); return words.every(w => t.includes(w)); })
+      : [...by.keys()].filter(id => SKINS[id] || STICKERS[id]);
+    const day = this.E.dayOf(this.now());
+    const out = ids.map(id => ({ ...(by.get(id) || row(id)), value: this.reference(id), change: this.change(id, day) }));
+    const name = (id) => (SKINS[id] || STICKERS[id]).name;
+    return out.sort((a, b) => b.sales24 - a.sales24 || b.listings - a.listings || name(a.defId).localeCompare(name(b.defId))).slice(0, 300);
   }
 
   item(defId, viewerId) {
@@ -95,9 +125,13 @@ export class Market {
       lv.qty += o.qty; if (o.buyer && o.buyer === viewerId) lv.mine += o.qty;
       levels.set(o.price, lv);
     }
-    const sales = this.D.sales.filter(s => s.defId === defId).slice(-400);
+    const sales = this.D.sales.filter(s => s.defId === defId).slice(-400).map(({ price, float, t }) => ({ price, float, t }));
     const myOrders = this.D.orders.filter(o => o.defId === defId && o.buyer === viewerId);
-    return { defId, listings, orders: [...levels.values()].slice(0, 12), myOrders, sales, reference: this.reference(defId) };
+    // the item's value on each of the last days, for the chart
+    const today = this.E.dayOf(this.now()), ref = this.reference(defId);
+    const values = [];
+    for (let d = today - HISTORY_DAYS; d <= today; d++) values.push([d, Math.max(1, Math.round(ref * this.E.priceIndex(defId, d) / this.E.priceIndex(defId, today)))]);
+    return { defId, listings, orders: [...levels.values()].slice(0, 12), myOrders, sales, reference: ref, change: this.change(defId, today), values };
   }
 
   mine(userId) {
@@ -105,8 +139,8 @@ export class Market {
   }
 
   // ------------------------------------------------------------ trades
-  recordSale(defId, price, float, t = this.now()) {
-    this.D.sales.push({ defId, price, float: float ?? null, t });
+  recordSale(defId, price, float, t = this.now(), bot = false) {
+    this.D.sales.push(bot ? { defId, price, float: float ?? null, t, b: 1 } : { defId, price, float: float ?? null, t });
     if (this.D.sales.length > 50000) this.D.sales.splice(0, this.D.sales.length - 50000);
   }
   notify(user, msg) {
@@ -174,7 +208,7 @@ export class Market {
   relist(it, bot = pick(BOT_NAMES)) {
     const t = this.now();
     this.botListings.push({ id: this.id('b'), bot, item: { ...it, uid: this.E.uid(), listed: undefined }, price: Math.max(1, Math.round(this.E.marketPrice(it) * rand(1.06, 1.2))),
-      created: t + rand(0.2, 2) * 3600000, expires: t + rand(8, 30) * 3600000 });
+      day: this.E.dayOf(t), created: t + rand(0.2, 2) * 3600000, expires: t + rand(8, 30) * 3600000 });
   }
 
   // ------------------------------------------------------------ player actions
@@ -273,7 +307,7 @@ export class Market {
         if (!initial && Math.random() < 0.6) break;   // fill up gradually, not all at once
         const item = this.makeItem(defId);
         const price = Math.max(1, Math.round(this.E.marketPrice(item) * rand(1.03, 1.22)));
-        const l = { id: this.id('b'), bot: pick(BOT_NAMES), item, price, created: t - (initial ? rand(0, 20) * 3600000 : 0), expires: t + rand(4, 24) * 3600000 };
+        const l = { id: this.id('b'), bot: pick(BOT_NAMES), item, price, day: this.day, created: t - (initial ? rand(0, 20) * 3600000 : 0), expires: t + rand(4, 24) * 3600000 };
         // a player already bidding this much or more gets it at once
         const bid = this.D.orders.filter(o => o.defId === defId).sort((a, b) => b.price - a.price)[0];
         if (bid && bid.price >= price) { this.fillOrder(bid, item, null); continue; }
@@ -282,13 +316,23 @@ export class Market {
       const wantBids = this.tierOf(defId) === 'legendary' ? 1 : 2;
       for (let n = bids.get(defId) || 0; n < wantBids; n++) {
         const price = Math.max(1, Math.round(this.floor(defId) * rand(0.72, 0.88)));
-        this.botOrders.push({ id: this.id('q'), bot: pick(BOT_NAMES), defId, price, qty: 1 + Math.floor(Math.random() * 5), created: t, expires: t + rand(3, 12) * 3600000 });
+        this.botOrders.push({ id: this.id('q'), bot: pick(BOT_NAMES), defId, price, qty: 1 + Math.floor(Math.random() * 5), day: this.day, created: t, expires: t + rand(3, 12) * 3600000 });
       }
     }
   }
 
+  // A new day: bots move what they have listed and bid with the day's values.
+  newDay(day) {
+    const move = (defId, price, from) => Math.max(1, Math.round(price * this.E.priceIndex(defId, day) / this.E.priceIndex(defId, from ?? this.day)));
+    for (const l of this.botListings) { l.price = move(l.item.defId, l.price, l.day); l.day = day; }
+    for (const o of this.botOrders) { o.price = move(o.defId, o.price, o.day); o.day = day; }
+    this.day = day;
+  }
+
   tick() {
     const t = this.now();
+    const day = this.E.dayOf(t);
+    if (day !== this.day) this.newDay(day);
     // 1. buy player listings priced near or under value (the cheaper, the sooner)
     for (const l of [...this.D.listings]) {
       if (t - l.created < 20000) continue;
@@ -319,30 +363,34 @@ export class Market {
       const bid = this.bids(l.item.defId)[0];
       const price = Math.round(bid ? rand(bid.price, l.price) : l.price * rand(0.92, 1));
       this.botListings = this.botListings.filter(x => x !== l);
-      this.recordSale(l.item.defId, Math.max(1, price), l.item.float);
+      this.recordSale(l.item.defId, Math.max(1, price), l.item.float, t, true);
       this.db.dirty();
     }
     // 4. top the shelves back up, slowly
     this.restock(false);
   }
 
-  // A week or two of trading for items that have hardly any history yet.
+  // A month of trading for the days an item has no sales on yet, at each
+  // day's value (any wear, so prices scatter like real sales do), so every
+  // price chart shows how the item moved day by day. Marked as bot trades.
   seedHistory() {
-    const t = this.now(), have = new Map();
-    for (const s of this.D.sales) have.set(s.defId, (have.get(s.defId) || 0) + 1);
+    const t = this.now(), today = this.E.dayOf(t);
+    const have = new Set();
+    for (const s of this.D.sales) if (s.t > (today - HISTORY_DAYS) * DAY) have.add(s.defId + '|' + this.E.dayOf(s.t));
     let added = 0;
     for (const defId of this.defs) {
-      if ((have.get(defId) || 0) >= 6) continue;
       const tier = this.tierOf(defId);
-      const count = tier === 'legendary' ? 4 + Math.floor(Math.random() * 6) : 10 + Math.floor(Math.random() * 16);
-      let drift = rand(-0.08, 0.08);
-      const times = Array.from({ length: count }, () => t - rand(0.1, 12) * 86400000).sort((a, b) => a - b);
-      for (const when of times) {
-        drift = Math.max(-0.2, Math.min(0.2, drift + rand(-0.03, 0.03)));
-        const item = this.makeItem(defId);
-        const price = Math.max(1, Math.round(this.E.marketPrice(item) * (1 + drift) * rand(0.94, 1.08)));
-        this.D.sales.push({ defId, price, float: item.float ?? null, t: Math.round(when) });
-        added++;
+      const perDay = tier === 'legendary' ? 0.4 : tier === 'mythic' ? 0.7 : tier === 'sticker' ? 0.9 : 1.3;
+      for (let d = today - HISTORY_DAYS; d <= today; d++) {
+        if (have.has(defId + '|' + d)) continue;
+        let n = 0; for (let k = 0; k < 4; k++) if (Math.random() < perDay / 4) n++;
+        const start = d * DAY, span = Math.min(DAY, t - start);
+        for (let k = 0; k < n; k++) {
+          const item = this.makeItem(defId);
+          const price = Math.max(1, Math.round(this.E.marketPrice(item, d) * rand(0.95, 1.07)));
+          this.D.sales.push({ defId, price, float: item.float ?? null, t: Math.round(start + Math.random() * span), b: 1 });
+          added++;
+        }
       }
     }
     if (added) {

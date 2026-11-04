@@ -11,6 +11,8 @@ import { audio } from '../audio.js';
 const h = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const fmt = (n) => Math.round(n).toLocaleString('en-US');
 const CR = (n) => `<span class="cr">${fmt(n)}</span>`;
+// today's move against yesterday, e.g. ▲ 3.1%
+const chg = (c) => c == null ? '' : `<small class="chg ${c >= 0 ? 'up' : 'down'}">${c >= 0 ? '▲' : '▼'} ${Math.abs(c * 100).toFixed(1)}%</small>`;
 const MODE_NAMES = { casual: 'Casual', 'ranked-bots': 'Ranked vs bots', 'ranked-pvp': 'Ranked PvP' };
 
 function defTitle(defId) {
@@ -331,9 +333,10 @@ export class OnlineUI {
     const body = page.querySelector('.mk-body');
     if (!body) return;
     if (r.error) { body.innerHTML = `<p class="note">${h(r.error)}</p>`; return; }
-    if (!r.items.length) { body.innerHTML = '<p class="note">No listings or sales yet. List an item from your inventory to start the market.</p>'; return; }
-    body.innerHTML = `<table class="mk-table"><tr><th></th><th>Item</th><th>Listings</th><th>Lowest price</th><th>Highest buy order</th><th>Last sale</th><th>24h sales</th></tr>
-      ${r.items.map(e => { const t = defTitle(e.defId), d = SKINS[e.defId] || STICKERS[e.defId]; return `<tr data-def="${e.defId}"><td><img data-def="${e.defId}" alt=""></td><td style="--rc:${RARITY[d.rarity].color}"><span class="w">${h(t.weapon)}</span><b>${h(t.name)}</b></td><td>${e.listings}</td><td>${e.lowest != null ? CR(e.lowest) : '—'}</td><td>${e.highestBid != null ? CR(e.highestBid) : '—'}</td><td>${e.lastSale ? CR(e.lastSale.price) : '—'}</td><td>${e.sales24}</td></tr>`; }).join('')}</table>`;
+    if (!r.items.length) { body.innerHTML = q ? `<p class="note">Nothing in the catalogue matches “${h(q)}”. Try a weapon, a finish or a knife name, like “ak47 redline” or “karambit”.</p>` : '<p class="note">No listings or sales yet. List an item from your inventory to start the market.</p>'; return; }
+    body.innerHTML = `${q ? `<p class="note">${r.items.length >= 300 ? 'First 300' : r.items.length} item${r.items.length === 1 ? '' : 's'} matching “${h(q)}”. Values change every day.</p>` : '<p class="note">Values change every day; the arrow shows today against yesterday. Search to find any item, listed or not.</p>'}
+      <table class="mk-table"><tr><th></th><th>Item</th><th>Value today</th><th>Listings</th><th>Lowest price</th><th>Highest buy order</th><th>Last sale</th><th>24h sales</th></tr>
+      ${r.items.map(e => { const t = defTitle(e.defId), d = SKINS[e.defId] || STICKERS[e.defId]; return `<tr data-def="${e.defId}"><td><img data-def="${e.defId}" alt=""></td><td style="--rc:${RARITY[d.rarity].color}"><span class="w">${h(t.weapon)}</span><b>${h(t.name)}</b></td><td>${e.value != null ? `${CR(e.value)} ${chg(e.change)}` : '—'}</td><td>${e.listings}</td><td>${e.lowest != null ? CR(e.lowest) : '—'}</td><td>${e.highestBid != null ? CR(e.highestBid) : '—'}</td><td>${e.lastSale ? CR(e.lastSale.price) : '—'}</td><td>${e.sales24}</td></tr>`; }).join('')}</table>`;
     // previews only for rows that scroll into view (the list can be hundreds long)
     const io = new IntersectionObserver((ents) => {
       for (const e of ents) {
@@ -357,7 +360,10 @@ export class OnlineUI {
     const own = (P.getProfile().items || []).filter(it => it.defId === defId && !it.listed);
     page.innerHTML = `<div class="mk-head"><button class="mk-back">← Market</button><h3 style="color:${RARITY[d.rarity].color}">${h(t.weapon)} | ${h(t.name)}</h3></div>
       <div class="mk-item">
-        <section><h4>Price history <small>${r.sales.length} sales · reference ${CR(r.reference)}</small></h4><canvas class="chart" width="900" height="260"></canvas>
+        <section><h4>Price history <small>value today ${CR(r.reference)} ${chg(r.change)}</small></h4>
+          <div class="mk-range">${[[7, '7 days'], [30, '30 days'], [0, 'All']].map(([d, l]) => `<button data-range="${d}" class="${d === (this.chartRange ?? 30) ? 'on' : ''}">${l}</button>`).join('')}</div>
+          <canvas class="chart" width="900" height="260"></canvas>
+          <p class="note">Dots are sales (any wear), the orange line is the daily median and the dashed line is the item's value each day (a typical Field-Tested copy).</p>
           <h4>Recent sales</h4><table class="mk-table small">${r.sales.slice(-12).reverse().map(s => `<tr><td>${new Date(s.t).toLocaleString()}</td><td>${CR(s.price)}</td><td>${s.float != null ? s.float.toFixed(4) : ''}</td></tr>`).join('') || '<tr><td>No sales yet</td></tr>'}</table></section>
         <section><h4>Buy orders <small>${r.orders.length ? `highest ${fmt(r.orders[0].price)}` : 'none yet'}</small></h4>
           <table class="mk-table small">${r.orders.map(o => `<tr><td>${CR(o.price)}</td><td>${o.qty} wanted${o.mine ? ` <small>(${o.mine} yours)</small>` : ''}</td></tr>`).join('') || '<tr><td>No one is buying this right now.</td></tr>'}</table>
@@ -371,7 +377,15 @@ export class OnlineUI {
         </section>
       </div>`;
     for (const img of page.querySelectorAll('img[data-l]')) { const l = r.listings.find(x => x.id === img.dataset.l); itemImg(l.item, img, true); }
-    this.drawChart(page.querySelector('.chart'), r.sales, r.reference);
+    const chart = page.querySelector('.chart');
+    const draw = () => this.drawChart(chart, r.sales, r.reference, r.values || [], this.chartRange ?? 30);
+    draw();
+    page.querySelector('.mk-range').onclick = (e) => {
+      const b = e.target.closest('[data-range]'); if (!b) return;
+      this.chartRange = +b.dataset.range;
+      for (const x of page.querySelectorAll('.mk-range button')) x.classList.toggle('on', x === b);
+      draw();
+    };
     page.querySelector('.mk-back').onclick = () => this.renderMarket(page);
     const form = page.querySelector('.mk-order'), total = form.querySelector('.mk-total');
     const updTotal = () => {
@@ -424,28 +438,41 @@ export class OnlineUI {
   }
 
   // Sales scatter + daily median line.
-  drawChart(cv, sales, ref) {
-    const x = cv.getContext('2d'), W = cv.width, H = cv.height, pad = 40;
+  // Price chart: sales as dots, their daily median as a line, and the item's
+  // value on each day as a dashed step line. days: 7, 30, or 0 for everything.
+  drawChart(cv, allSales, ref, values = [], days = 30) {
+    const x = cv.getContext('2d'), W = cv.width, H = cv.height, pad = 46, DAY = 86400000;
+    const now = Date.now();
+    const from = days ? now - days * DAY : Math.min(allSales[0]?.t ?? now - 30 * DAY, (values[0]?.[0] ?? Infinity) * DAY);
+    const sales = allSales.filter(s => s.t >= from);
+    const vals = values.filter(([d]) => (d + 1) * DAY > from);
     x.fillStyle = '#141413'; x.fillRect(0, 0, W, H);
     x.strokeStyle = '#2b2a26'; x.lineWidth = 1;
     for (let i = 0; i <= 4; i++) { const y = pad / 2 + i * (H - pad) / 4; x.beginPath(); x.moveTo(pad, y); x.lineTo(W - 10, y); x.stroke(); }
-    if (!sales.length) {
-      x.fillStyle = '#8d897f'; x.font = '15px Barlow, sans-serif'; x.fillText('No sales yet. The reference price is shown as a dashed line.', pad + 10, H / 2);
-    }
-    const prices = sales.map(s => s.price).concat([ref]);
+    const prices = sales.map(s => s.price).concat(vals.map(v => v[1]), [ref]);
     const lo = Math.min(...prices) * 0.9, hi = Math.max(...prices) * 1.1 || 1;
-    const t0 = sales.length ? sales[0].t : Date.now() - 86400000, t1 = Math.max(Date.now(), t0 + 1);
-    const X = (t) => pad + (t - t0) / (t1 - t0) * (W - pad - 10);
+    const t0 = from, t1 = Math.max(now, t0 + 1);
+    const X = (t) => pad + (Math.max(t0, Math.min(t1, t)) - t0) / (t1 - t0) * (W - pad - 10);
     const Y = (p) => pad / 2 + (1 - (p - lo) / (hi - lo || 1)) * (H - pad);
     x.fillStyle = '#8d897f'; x.font = '12px Barlow, sans-serif';
     for (let i = 0; i <= 4; i++) { const p = hi - i * (hi - lo) / 4; x.fillText(fmt(p), 4, pad / 2 + i * (H - pad) / 4 + 4); }
-    x.setLineDash([5, 5]); x.strokeStyle = '#c9b38a'; x.beginPath(); x.moveTo(pad, Y(ref)); x.lineTo(W - 10, Y(ref)); x.stroke(); x.setLineDash([]);
+    // dates along the bottom
+    const span = (t1 - t0) / DAY, step = span > 60 ? 14 : span > 20 ? 7 : span > 8 ? 2 : 1;
+    for (let d = Math.ceil(t0 / DAY); d * DAY <= t1; d += step) x.fillText(new Date(d * DAY).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), X(d * DAY) - 14, H - 6);
+    // the item's value, day by day
+    x.setLineDash([5, 5]); x.strokeStyle = '#c9b38a'; x.lineWidth = 1.5; x.beginPath();
+    if (vals.length) vals.forEach(([d, v], i) => { const a = X(d * DAY), b = X((d + 1) * DAY); if (i) x.lineTo(a, Y(v)); else x.moveTo(a, Y(v)); x.lineTo(b, Y(v)); });
+    else { x.moveTo(pad, Y(ref)); x.lineTo(W - 10, Y(ref)); }
+    x.stroke(); x.setLineDash([]);
+    if (!sales.length) {
+      x.fillStyle = '#8d897f'; x.font = '15px Barlow, sans-serif'; x.fillText('No sales in this period. The dashed line is the item’s value each day.', pad + 10, H / 2);
+    }
     x.fillStyle = 'rgba(232,99,43,0.55)';
     for (const s of sales) { x.beginPath(); x.arc(X(s.t), Y(s.price), 3, 0, 7); x.fill(); }
     // daily median
-    const days = new Map();
-    for (const s of sales) { const d = Math.floor(s.t / 86400000); if (!days.has(d)) days.set(d, []); days.get(d).push(s.price); }
-    const pts = [...days.entries()].sort((a, b) => a[0] - b[0]).map(([d, arr]) => { arr.sort((a, b) => a - b); return [d * 86400000 + 43200000, arr[Math.floor(arr.length / 2)]]; });
+    const byDay = new Map();
+    for (const s of sales) { const d = Math.floor(s.t / DAY); if (!byDay.has(d)) byDay.set(d, []); byDay.get(d).push(s.price); }
+    const pts = [...byDay.entries()].sort((a, b) => a[0] - b[0]).map(([d, arr]) => { arr.sort((a, b) => a - b); return [d * DAY + DAY / 2, arr[Math.floor(arr.length / 2)]]; });
     if (pts.length > 1) { x.strokeStyle = '#e8632b'; x.lineWidth = 2; x.beginPath(); pts.forEach(([t, p], i) => i ? x.lineTo(X(t), Y(p)) : x.moveTo(X(t), Y(p))); x.stroke(); }
   }
 }
