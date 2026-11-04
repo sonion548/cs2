@@ -23,15 +23,16 @@ export function skillProfile(skill) {
   const s = Math.max(0, Math.min(1, skill));
   return {
     skill: s,
-    reaction: 0.72 - 0.4 * s,            // seconds before shooting at a newly seen enemy
-    turnSpeed: (170 + 480 * s) * DEG,     // rad/s
-    aimError: (11 - 7.5 * s) * DEG,       // how far off the first look at a new target is
-    errorDecay: 1.2 + 2.6 * s,            // how fast that settles
-    tremor: (1.7 - 1.25 * s) * DEG,       // aim never settles perfectly (hand shake, tracking)
-    trackLag: 0.24 - 0.16 * s,            // seconds the aim trails a moving target
-    flinch: (0.9 - 0.6 * s) * DEG,        // aim knocked off by each shot fired
-    headPref: 0.06 + 0.36 * s,            // chance to aim for the head
-    sprayControl: 0.08 + 0.55 * s,        // fraction of recoil compensated
+    reaction: 0.62 - 0.42 * s,           // seconds before shooting at a newly seen enemy
+    turnSpeed: (200 + 520 * s) * DEG,     // rad/s
+    aimError: (4.5 - 3.3 * s) * DEG,      // first-look error even with the crosshair already on them
+    flickError: 0.2 - 0.13 * s,           // plus this share of how far the aim had to swing
+    errorDecay: 2.2 + 4 * s,              // how fast that settles
+    tremor: (1.1 - 0.82 * s) * DEG,       // aim never settles perfectly (hand shake, tracking)
+    trackLag: 0.18 - 0.12 * s,            // how stale the read on a moving target is (s)
+    flinch: (0.7 - 0.5 * s) * DEG,        // aim knocked off by each shot fired
+    headPref: 0.1 + 0.4 * s,              // chance to aim for the head
+    sprayControl: 0.15 + 0.7 * s,         // fraction of recoil compensated
     burstLen: Math.round(2 + s * 3),
     peek: 0.1 + 0.35 * s,                 // chance to side-step between bursts
     fov: (95 + 30 * s) * DEG,
@@ -170,9 +171,11 @@ export class Bot extends Character {
       this.target = best;
       const to = best.pos.clone().sub(this.pos);
       const off = Math.abs(angleDiff(Math.atan2(-to.x, -to.z), this.yaw));
-      this.spottedAt = now + this.prof.reaction * (0.85 + Math.random() * 0.5) + (bestD > 30 ? 0.12 : 0) + (off > 0.5 ? 0.18 : 0);
+      this.spottedAt = now + this.prof.reaction * (0.8 + Math.random() * 0.4) + (bestD > 30 ? 0.08 : 0) + Math.min(0.15, off * 0.15);
       this.trackPt = null;
-      const e = this.prof.aimError * (0.6 + Math.random() * 0.8);
+      // good crosshair placement pays off: the first look is off by a little,
+      // plus a share of however far the aim had to swing to get there
+      const e = (this.prof.aimError + off * this.prof.flickError) * (0.6 + Math.random() * 0.8);
       const a = Math.random() * Math.PI * 2;
       this.aimErr.set(Math.cos(a) * e, Math.sin(a) * e);
       this.aimHead = Math.random() < this.prof.headPref;
@@ -200,6 +203,8 @@ export class Bot extends Character {
     this.lastSeen = attacker.pos.clone(); this.lastSeenTime = now;
     this.lookYaw = Math.atan2(-(attacker.pos.x - this.pos.x), -(attacker.pos.z - this.pos.z));
     this.holdUntil = now + 2;
+    // shot from somewhere it wasn't looking: spin round to find the shooter
+    this.alert = { until: now + 1.6, yaw: this.lookYaw };
   }
 
   onBombPlanted(bomb) {
@@ -267,11 +272,30 @@ export class Bot extends Character {
       const t = this.target;
       const eye = this.eyePos(new THREE.Vector3());
       const P = this.prof;
-      const goal = t.pos.clone();
-      goal.y += this.aimHead ? t.height * 0.93 : t.height * 0.68;
-      // the aim follows the target with a lag, so moving targets are harder to hit
-      if (!this.trackPt) this.trackPt = goal.clone();
-      else this.trackPt.lerp(goal, 1 - Math.exp(-dt / P.trackLag));
+      // Tracking like a person: aim from where the target was a moment ago
+      // (trackLag), carried forward along the way it was moving then. Steady
+      // movement is led correctly; a change of direction fools the aim for
+      // that moment, which is what makes strafing worth doing.
+      const lag = P.trackLag;
+      const hist = this.trackHist ||= [];
+      // start over for a new target, or after losing sight of this one for a moment
+      if (this.trackFor !== t || !this.trackPt || (hist.length && now - hist[hist.length - 4] > 0.2)) { hist.length = 0; this.trackFor = t; }
+      hist.push(now, t.pos.x, t.pos.y, t.pos.z);
+      while (hist.length > 8 && hist[0] < now - 0.6) hist.splice(0, 4);
+      const at = (when, out) => {
+        if (when <= hist[0]) return out.set(hist[1], hist[2], hist[3]);
+        for (let i = 4; i < hist.length; i += 4) {
+          if (hist[i] >= when) {
+            const t0 = hist[i - 4], k = (when - t0) / Math.max(1e-6, hist[i] - t0);
+            return out.set(hist[i - 3] + (hist[i + 1] - hist[i - 3]) * k, hist[i - 2] + (hist[i + 2] - hist[i - 2]) * k, hist[i - 1] + (hist[i + 3] - hist[i - 1]) * k);
+          }
+        }
+        return out.set(hist[hist.length - 3], hist[hist.length - 2], hist[hist.length - 1]);
+      };
+      const seen = at(now - lag, new THREE.Vector3()), before = at(now - lag - 0.06, new THREE.Vector3());
+      const goal = seen.addScaledVector(seen.clone().sub(before), lag / 0.06);
+      goal.y = t.pos.y + (this.aimHead ? t.height * 0.93 : t.height * 0.68);
+      this.trackPt = goal;
       const dir = this.trackPt.clone().sub(eye);
       const dist = dir.length();
       wantYaw = Math.atan2(-dir.x, -dir.z);
@@ -293,6 +317,12 @@ export class Bot extends Character {
       const err = Math.abs(angleDiff(this.yaw, wantYaw)) + Math.abs(this.pitch - wantPitch);
       const tol = Math.max(0.6 * DEG, Math.atan2(0.22, dist)) * (cw.def.type === 'sniper' ? 0.5 : 1.3);
       const still = this.speed2D() < this.maxSpeed() * 0.38;
+      if (cw.reloading > 0 && cw.def.type !== 'melee') {
+        // reloading in the open: back away and to the side instead of standing there
+        this.reloadSide ||= Math.random() < 0.5 ? -1 : 1;
+        const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw);
+        wish.set(-fx * 0.7 + Math.cos(this.yaw) * this.reloadSide * 0.7, 0, -fz * 0.7 - Math.sin(this.yaw) * this.reloadSide * 0.7);
+      } else this.reloadSide = 0;
       if (cw.def.pattern && cw.ammo <= 0) {
         if (!cw.startReload() && cw.reloading <= 0) this.switchTo(this.weapons[2]?.ammo > 0 && this.slot !== 2 ? 2 : 3);
       } else if (now >= this.spottedAt && (still || cw.def.type === 'melee') && (!this.strafe || now >= this.strafe.until) && (err < tol || blind)) {
@@ -336,6 +366,11 @@ export class Bot extends Character {
             } else {
               wish.copy(tmp.normalize());
               wantYaw = Math.atan2(-wish.x, -wish.z);
+              // a recent sighting or sound nearby: walk with the crosshair on it
+              if (this.lastSeen && now - this.lastSeenTime < 5) {
+                const lx = this.lastSeen.x - this.pos.x, lz = this.lastSeen.z - this.pos.z, ld = Math.hypot(lx, lz);
+                if (ld > 3 && ld < 35) wantYaw = Math.atan2(-lx, -lz);
+              }
             }
             this.walking = this.role === 'hold' && this.goal && this.pos.distanceTo(this.goal) < 10 && this.prof.skill > 0.5;
             this.stuckTimer += dt;
@@ -371,15 +406,30 @@ export class Bot extends Character {
           }
         }
         if (this.aimNade) { wantYaw = this.aimNade.yaw; wantPitch = this.aimNade.pitch; }
+        // just got shot by someone unseen: face that way and ease off to spot them
+        if (this.alert && now < this.alert.until && nav !== 'rooted') {
+          wantYaw = this.alert.yaw; wantPitch = 0;
+          wish.multiplyScalar(0.25);
+        }
       }
     }
+    if (this.target) this.alert = null;
 
-    // turn toward desired angles at a limited rate
+    // turn toward desired angles at a limited rate. While tracking a target the
+    // aim also moves with it (feed-forward), the way a person follows a runner,
+    // instead of always trailing behind it.
     const maxTurn = this.prof.turnSpeed * dt;
-    const dy = angleDiff(wantYaw, this.yaw);
-    this.yaw += Math.max(-maxTurn, Math.min(maxTurn, dy * Math.min(1, dt * 14)));
-    const dp = wantPitch - this.pitch;
-    this.pitch += Math.max(-maxTurn, Math.min(maxTurn, dp * Math.min(1, dt * 14)));
+    let ffYaw = 0, ffPitch = 0;
+    if (this.target && this.prevWant && this.prevWant.t === this.target && dt > 0) {
+      ffYaw = angleDiff(wantYaw, this.prevWant.yaw);
+      ffPitch = wantPitch - this.prevWant.pitch;
+      if (Math.abs(ffYaw) > 0.2 || Math.abs(ffPitch) > 0.2) ffYaw = ffPitch = 0;   // a jump, not motion
+    }
+    this.prevWant = this.target ? { t: this.target, yaw: wantYaw, pitch: wantPitch } : null;
+    const dy = angleDiff(wantYaw, this.yaw + ffYaw);
+    this.yaw += Math.max(-maxTurn, Math.min(maxTurn, ffYaw + dy * Math.min(1, dt * 14)));
+    const dp = wantPitch - (this.pitch + ffPitch);
+    this.pitch += Math.max(-maxTurn, Math.min(maxTurn, ffPitch + dp * Math.min(1, dt * 14)));
 
     if (g.freeze) wish.set(0, 0, 0);
     this.simulate(dt, wish, false, g.level.world);
