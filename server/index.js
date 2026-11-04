@@ -172,6 +172,7 @@ function startRoom({ mode, size, teams, ladder, rating }) {
     members: humans.map(uid => ({ id: uid, name: D.users[uid].name, team: teams.A.includes(uid) ? aSide : bSide, equipped: equippedItems(D.users[uid]) })),
     botSkill: skillForMMR(rating || 1000),
     reported: false,
+    lastMsg: now(),   // last relay from the host (a live match sends many per second)
   };
   rooms.set(id, room);
   for (const m of room.members) {
@@ -186,6 +187,15 @@ function equippedItems(u) {
   for (const [slot, itemUid] of Object.entries(u.equipped)) { const it = E.findItem(u, itemUid); if (it) out[slot] = it; }
   return out;
 }
+
+// A room whose host has gone quiet is over (the host's game crashed, closed
+// or stalled without reporting): close it so nobody stays stuck "in a match".
+const ROOM_QUIET_MS = 20000, ROOM_DEAD_MS = 90000;
+setInterval(() => {
+  for (const room of [...rooms.values()]) {
+    if (now() - (room.lastMsg || room.started) > ROOM_DEAD_MS) { room.reported = true; closeRoom(room, 'The match ended: the host stopped responding'); }
+  }
+}, 15000).unref?.();
 
 function closeRoom(room, reason) {
   rooms.delete(room.id);
@@ -441,6 +451,12 @@ const handlers = {
     if (p && p.leader !== u.id) return { error: 'Only the party leader can start matchmaking' };
     const members = groupOf(u.id);
     if (members.length > size) return { error: `Your party is too big for ${size}v${size}` };
+    for (const m of members) {
+      const r = roomOf.get(m);
+      if (!r) continue;
+      if (now() - (r.lastMsg || r.started) > ROOM_QUIET_MS) { r.reported = true; closeRoom(r, 'The match had already ended'); }
+      else if (m === u.id) leaveRoom(r, m);   // queueing from the menu: you're not in that match any more
+    }
     if (members.some(m => roomOf.get(m))) return { error: 'A party member is still in a match' };
     for (const m of members) cancelQueue(m);
     const key = ladderKey(mode, size);
@@ -562,6 +578,7 @@ wss.on('connection', (ws) => {
       if (!room) return;
       const data = m.data;
       if (ws.user.id === room.host) {
+        room.lastMsg = now();
         const to = data.to; // optional direct message
         for (const mem of room.members) if (mem.id !== room.host && (!to || to === mem.id) && !room.left?.includes(mem.id)) push(mem.id, 'room.msg', { from: room.host, data });
       } else push(room.host, 'room.msg', { from: ws.user.id, data });

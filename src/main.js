@@ -55,12 +55,19 @@ function launch(opts, onDone) {
   try {
     game = new Game(canvas, { ...opts, skins }, settings, async (result) => {
       back();
-      if (result?.crashed) { menu.error('The match stopped because of an error', result.error); return; }
+      if (result?.crashed) {
+        // an online match has to be left on the server too, or it still counts
+        // you (and your party) as playing and won't let you queue again
+        if (opts.net) net.rpc('room.leave').catch?.(() => {});
+        menu.error('The match stopped because of an error', result.error);
+        return;
+      }
       await onDone(result);
     });
   } catch (e) {
     console.error(e);
     back();
+    if (opts.net) net.rpc('room.leave').catch?.(() => {});
     menu.error('The match failed to start', e);
     return;
   }

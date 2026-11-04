@@ -132,5 +132,15 @@ ok(rep.ok, 'host reported the result');
 const resA = await a.waitEv('match.result'), resB = await b.waitEv('match.result');
 ok(resA.ranked?.placement && resB.ranked?.placement && resA.reward.credits > 0, 'ranked placements + rewards applied to both players');
 
+// a match that ends without a report (the host's game crashed) must not
+// leave the party stuck "in a match"
+ok((await a.rpc('mm.queue', { mode: 'casual', size: 2 })).ok, 'party can queue again after a finished match');
+const fa2 = await a.waitEv('match.found', 30000); await b.waitEv('match.found', 30000);
+ok(fa2.role === 'host', 'second match found');
+const again = await a.rpc('mm.queue', { mode: 'casual', size: 2 });
+ok(again.ok, 'host whose match crashed (no report, no leave) can queue again');
+ok((await b.waitEv('room.closed')).reason, 'the crashed match was closed for the other player');
+await a.rpc('mm.cancel');
+
 console.log('\nAll server checks passed.');
 process.exit(0);
