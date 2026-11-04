@@ -19,9 +19,9 @@ function defTitle(defId) {
   if (d.kind === 'sticker') return { weapon: 'Sticker', name: d.name };
   return { weapon: d.knife ? '★ ' + KNIFE_TYPES[d.knife] : WEAPON_NAMES[d.weapon], name: d.name };
 }
-function itemImg(it, el) {
+function itemImg(it, el, priority = false) {
   if (it.kind === 'sticker') el.src = stickerCanvas(STICKERS[it.defId]).toDataURL();
-  else if (it.kind === 'skin') thumbnail(it, url => { el.src = url; });
+  else if (it.kind === 'skin') thumbnail(it, url => { el.src = url; }, { priority });
 }
 
 export class OnlineUI {
@@ -282,7 +282,8 @@ export class OnlineUI {
     const box = document.createElement('div');
     box.className = 'picker';
     box.innerHTML = `<h4>Sell on the market</h4>
-      <p class="note">Other players can buy it at your price. The market keeps a 10% fee. Reference price: ${CR(ref)}.</p>
+      <div class="mk-now"><p class="note">Checking buy orders…</p></div>
+      <p class="note">Or list it at your own price for someone to buy. The market keeps a 10% fee. Reference price: ${CR(ref)}.</p>
       <label class="pricein">Price <input type="number" min="1" step="1" value="${Math.round(ref * 1.05)}"></label>
       <p class="note recv"></p>
       <div class="acts"><button class="pri" data-go="1">List item</button><button data-cancel="1">Cancel</button></div>`;
@@ -291,23 +292,39 @@ export class OnlineUI {
     const inp = box.querySelector('input'), recv = box.querySelector('.recv');
     const upd = () => { recv.innerHTML = `You receive ${CR(Math.floor((+inp.value || 0) * 0.9))}`; };
     inp.oninput = upd; upd();
+    // the best buy order: sell to it at once
+    net.rpc('market.item', { defId: it.defId }).then(r => {
+      const now = box.querySelector('.mk-now');
+      if (!now) return;
+      const best = r.orders?.[0];
+      now.innerHTML = best
+        ? `<p class="note">Highest buy order: ${CR(best.price)} (${best.qty} wanted).</p><button class="pri" data-now="1">Sell now · you receive ${CR(Math.floor(best.price * 0.9))}</button>`
+        : '<p class="note">No buy orders for this item right now.</p>';
+    });
+    const close = () => { const layer = this.m.$('.modal-layer'); layer.innerHTML = ''; layer.onclick = null; after?.(); };
     box.onclick = async (e) => {
       e.stopPropagation();
       const b = e.target.closest('button'); if (!b) return;
       if (b.dataset.cancel) return box.remove();
+      if (b.dataset.now) {
+        const r = await net.rpc('market.sellToOrder', { uid: it.uid });
+        if (r.error) return this.m.toast(r.error);
+        if (r.profile) P.setRemote(r.profile);
+        this.m.toast(`Sold for ${fmt(r.price)} credits (you receive ${fmt(r.received)})`);
+        return close();
+      }
       const r = await net.rpc('market.list', { uid: it.uid, price: +inp.value });
       if (r.error) return this.m.toast(r.error);
       if (r.profile) P.setRemote(r.profile);
-      this.m.toast('Listed on the market');
-      const layer = this.m.$('.modal-layer'); layer.innerHTML = ''; layer.onclick = null;
-      after?.();
+      this.m.toast(r.sold ? `A buy order took it at once for ${fmt(r.price)} credits` : 'Listed on the market');
+      close();
     };
   }
 
   async renderMarket(page) {
     const q = this.marketQuery || '';
     page.innerHTML = `<div class="mk-head"><h3>Market</h3><form class="mk-search"><input name="q" placeholder="Search skins, knives, stickers" value="${h(q)}"></form>
-      <button class="mk-mine">My listings</button></div><div class="mk-body"><p class="note">Loading…</p></div>`;
+      <button class="mk-mine">My listings &amp; orders</button></div><div class="mk-body"><p class="note">Loading…</p></div>`;
     page.querySelector('.mk-search').onsubmit = (e) => { e.preventDefault(); this.marketQuery = e.target.q.value; this.renderMarket(page); };
     page.querySelector('.mk-mine').onclick = () => this.renderMine(page);
     const r = await net.rpc('market.overview', { query: q });
@@ -315,54 +332,93 @@ export class OnlineUI {
     if (!body) return;
     if (r.error) { body.innerHTML = `<p class="note">${h(r.error)}</p>`; return; }
     if (!r.items.length) { body.innerHTML = '<p class="note">No listings or sales yet. List an item from your inventory to start the market.</p>'; return; }
-    body.innerHTML = `<table class="mk-table"><tr><th></th><th>Item</th><th>Listings</th><th>Lowest</th><th>Last sale</th><th>24h sales</th></tr>
-      ${r.items.map(e => { const t = defTitle(e.defId), d = SKINS[e.defId] || STICKERS[e.defId]; return `<tr data-def="${e.defId}"><td><img data-def="${e.defId}" alt=""></td><td style="--rc:${RARITY[d.rarity].color}"><span class="w">${h(t.weapon)}</span><b>${h(t.name)}</b></td><td>${e.listings}</td><td>${e.lowest != null ? CR(e.lowest) : '—'}</td><td>${e.lastSale ? CR(e.lastSale.price) : '—'}</td><td>${e.sales24}</td></tr>`; }).join('')}</table>`;
-    for (const img of body.querySelectorAll('img[data-def]')) {
-      const id = img.dataset.def;
-      if (STICKERS[id]) img.src = stickerCanvas(STICKERS[id]).toDataURL();
-      else thumbnail({ defId: id, float: 0.1, seed: 1, stickers: [] }, url => { img.src = url; });
-    }
+    body.innerHTML = `<table class="mk-table"><tr><th></th><th>Item</th><th>Listings</th><th>Lowest price</th><th>Highest buy order</th><th>Last sale</th><th>24h sales</th></tr>
+      ${r.items.map(e => { const t = defTitle(e.defId), d = SKINS[e.defId] || STICKERS[e.defId]; return `<tr data-def="${e.defId}"><td><img data-def="${e.defId}" alt=""></td><td style="--rc:${RARITY[d.rarity].color}"><span class="w">${h(t.weapon)}</span><b>${h(t.name)}</b></td><td>${e.listings}</td><td>${e.lowest != null ? CR(e.lowest) : '—'}</td><td>${e.highestBid != null ? CR(e.highestBid) : '—'}</td><td>${e.lastSale ? CR(e.lastSale.price) : '—'}</td><td>${e.sales24}</td></tr>`; }).join('')}</table>`;
+    // previews only for rows that scroll into view (the list can be hundreds long)
+    const io = new IntersectionObserver((ents) => {
+      for (const e of ents) {
+        if (!e.isIntersecting) continue;
+        io.unobserve(e.target);
+        const img = e.target, id = img.dataset.def;
+        if (STICKERS[id]) img.src = stickerCanvas(STICKERS[id]).toDataURL();
+        else thumbnail({ defId: id, float: 0.1, seed: 1, stickers: [] }, url => { img.src = url; });
+      }
+    }, { rootMargin: '300px' });
+    for (const img of body.querySelectorAll('img[data-def]')) io.observe(img);
     body.onclick = (e) => { const tr = e.target.closest('tr[data-def]'); if (tr) this.renderItem(page, tr.dataset.def); };
   }
 
   async renderItem(page, defId) {
     const r = await net.rpc('market.item', { defId });
+    if (r.error) { this.m.toast(r.error); return; }
     const t = defTitle(defId), d = SKINS[defId] || STICKERS[defId];
     const me = net.user?.id;
+    // copies of this item you own that aren't listed (to sell into a buy order)
+    const own = (P.getProfile().items || []).filter(it => it.defId === defId && !it.listed);
     page.innerHTML = `<div class="mk-head"><button class="mk-back">← Market</button><h3 style="color:${RARITY[d.rarity].color}">${h(t.weapon)} | ${h(t.name)}</h3></div>
       <div class="mk-item">
         <section><h4>Price history <small>${r.sales.length} sales · reference ${CR(r.reference)}</small></h4><canvas class="chart" width="900" height="260"></canvas>
           <h4>Recent sales</h4><table class="mk-table small">${r.sales.slice(-12).reverse().map(s => `<tr><td>${new Date(s.t).toLocaleString()}</td><td>${CR(s.price)}</td><td>${s.float != null ? s.float.toFixed(4) : ''}</td></tr>`).join('') || '<tr><td>No sales yet</td></tr>'}</table></section>
-        <section><h4>Listings <small>${r.listings.length}</small></h4>
+        <section><h4>Buy orders <small>${r.orders.length ? `highest ${fmt(r.orders[0].price)}` : 'none yet'}</small></h4>
+          <table class="mk-table small">${r.orders.map(o => `<tr><td>${CR(o.price)}</td><td>${o.qty} wanted${o.mine ? ` <small>(${o.mine} yours)</small>` : ''}</td></tr>`).join('') || '<tr><td>No one is buying this right now.</td></tr>'}</table>
+          <form class="mk-order"><label class="pricein">Price <input name="price" type="number" min="1" step="1" value="${Math.max(1, Math.round((r.orders[0]?.price || r.reference * 0.85) + 1))}"></label>
+            <label class="pricein">Quantity <input name="qty" type="number" min="1" max="100" step="1" value="1"></label>
+            <button class="pri" type="submit">Place buy order</button><p class="note mk-total"></p></form>
+          ${r.myOrders.length ? `<h4>Your orders</h4><table class="mk-table small">${r.myOrders.map(o => `<tr><td>${CR(o.price)}</td><td>${o.qty} waiting</td><td><button data-cancel-order="${o.id}">Cancel</button></td></tr>`).join('')}</table>` : ''}
+          ${own.length ? `<h4>Sell yours <small>to the highest buy order</small></h4><table class="mk-table small">${own.map(it => `<tr><td>${it.kind === 'skin' ? `${condition(it.float).name}<small class="mono"> ${it.float.toFixed(6)}</small>` : 'Sticker'}</td><td>${r.orders[0] ? `<button class="pri" data-sell="${it.uid}">Sell now · ${fmt(Math.floor(r.orders[0].price * 0.9))}</button>` : '<small>no buy orders</small>'}</td></tr>`).join('')}</table>` : ''}
+          <h4>Listings <small>${r.listings.length}</small></h4>
           <table class="mk-table">${r.listings.map(l => `<tr><td><img data-l="${l.id}" alt=""></td><td>${l.item.kind === 'skin' ? `${condition(l.item.float).name}<small class="mono"> ${l.item.float.toFixed(6)} · #${l.item.seed}</small>${l.item.stickers?.length ? `<small> · ${l.item.stickers.length} stickers</small>` : ''}` : ''}<small> · ${h(l.seller)}</small></td><td>${CR(l.price)}</td><td>${l.sellerId === me ? `<button data-cancel="${l.id}">Cancel</button>` : `<button class="pri" data-buy="${l.id}" data-price="${l.price}">Buy</button>`}</td></tr>`).join('') || '<tr><td>No one is selling this right now.</td></tr>'}</table>
         </section>
       </div>`;
-    for (const img of page.querySelectorAll('img[data-l]')) { const l = r.listings.find(x => x.id === img.dataset.l); itemImg(l.item, img); }
+    for (const img of page.querySelectorAll('img[data-l]')) { const l = r.listings.find(x => x.id === img.dataset.l); itemImg(l.item, img, true); }
     this.drawChart(page.querySelector('.chart'), r.sales, r.reference);
     page.querySelector('.mk-back').onclick = () => this.renderMarket(page);
+    const form = page.querySelector('.mk-order'), total = form.querySelector('.mk-total');
+    const updTotal = () => {
+      const p = Math.round(+form.price.value || 0), q = Math.round(+form.qty.value || 0), low = r.listings[0]?.price;
+      total.innerHTML = `${CR(p * q)} held until the order fills or you cancel it.${low != null && p >= low ? ' At or above the cheapest listing, so it buys straight away.' : ''}`;
+    };
+    form.oninput = updTotal; updTotal();
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const res = await net.rpc('market.order', { defId, price: +form.price.value, qty: +form.qty.value });
+      if (res.error) return this.m.toast(res.error);
+      if (res.profile) P.setRemote(res.profile);
+      this.m.toast(res.bought ? `Bought ${res.bought} straight away${res.waiting ? `, ${res.waiting} still on order` : ''}` : 'Buy order placed');
+      this.renderItem(page, defId);
+    };
     page.querySelector('.mk-item').onclick = async (e) => {
-      const b = e.target.closest('button'); if (!b) return;
-      let res;
-      if (b.dataset.buy) { if (!confirm(`Buy for ${fmt(+b.dataset.price)} credits?`)) return; res = await net.rpc('market.buy', { id: b.dataset.buy }); }
-      if (b.dataset.cancel) res = await net.rpc('market.cancel', { id: b.dataset.cancel });
-      if (res?.error) return this.m.toast(res.error);
-      if (res?.profile) P.setRemote(res.profile);
-      this.m.toast(b.dataset.buy ? 'Purchased: it is in your inventory' : 'Listing cancelled');
+      const b = e.target.closest('button'); if (!b || b.type === 'submit') return;
+      let res, msg;
+      if (b.dataset.buy) { if (!confirm(`Buy for ${fmt(+b.dataset.price)} credits?`)) return; res = await net.rpc('market.buy', { id: b.dataset.buy }); msg = 'Purchased: it is in your inventory'; }
+      if (b.dataset.cancel) { res = await net.rpc('market.cancel', { id: b.dataset.cancel }); msg = 'Listing cancelled'; }
+      if (b.dataset.cancelOrder) { res = await net.rpc('market.cancelOrder', { id: b.dataset.cancelOrder }); msg = `Order cancelled, ${fmt(res?.refunded || 0)} credits returned`; }
+      if (b.dataset.sell) { res = await net.rpc('market.sellToOrder', { uid: b.dataset.sell }); msg = `Sold for ${fmt(res?.price || 0)} credits (you receive ${fmt(res?.received || 0)})`; }
+      if (!res) return;
+      if (res.error) return this.m.toast(res.error);
+      if (res.profile) P.setRemote(res.profile);
+      this.m.toast(msg);
       this.renderItem(page, defId);
     };
   }
 
   async renderMine(page) {
     const r = await net.rpc('market.mine');
-    page.innerHTML = `<div class="mk-head"><button class="mk-back">← Market</button><h3>My listings</h3></div>
-      <table class="mk-table">${r.listings.map(l => { const t = defTitle(l.item.defId); return `<tr><td><img data-l="${l.id}" alt=""></td><td><span class="w">${h(t.weapon)}</span><b>${h(t.name)}</b></td><td>${CR(l.price)}</td><td>${new Date(l.created).toLocaleDateString()}</td><td><button data-cancel="${l.id}">Cancel</button></td></tr>`; }).join('') || '<tr><td>You have no active listings.</td></tr>'}</table>`;
+    const orders = r.orders || [];
+    page.innerHTML = `<div class="mk-head"><button class="mk-back">← Market</button><h3>My listings and buy orders</h3></div>
+      <h4 class="mk-sub">Listings</h4>
+      <table class="mk-table">${r.listings.map(l => { const t = defTitle(l.item.defId); return `<tr><td><img data-l="${l.id}" alt=""></td><td><span class="w">${h(t.weapon)}</span><b>${h(t.name)}</b></td><td>${CR(l.price)}</td><td>${new Date(l.created).toLocaleDateString()}</td><td><button data-cancel="${l.id}">Cancel</button></td></tr>`; }).join('') || '<tr><td>You have no active listings.</td></tr>'}</table>
+      <h4 class="mk-sub">Buy orders</h4>
+      <table class="mk-table">${orders.map(o => { const t = defTitle(o.defId), d = SKINS[o.defId] || STICKERS[o.defId]; return `<tr data-def="${o.defId}"><td style="--rc:${d ? RARITY[d.rarity].color : '#777'}"><span class="w">${h(t.weapon)}</span><b>${h(t.name)}</b></td><td>${CR(o.price)} each</td><td>${o.qty} waiting</td><td>${CR(o.price * o.qty)} held</td><td><button data-cancel-order="${o.id}">Cancel</button></td></tr>`; }).join('') || '<tr><td>You have no buy orders. Place one from any item’s page.</td></tr>'}</table>`;
     for (const img of page.querySelectorAll('img[data-l]')) { const l = r.listings.find(x => x.id === img.dataset.l); itemImg(l.item, img); }
     page.querySelector('.mk-back').onclick = () => this.renderMarket(page);
     page.onclick = async (e) => {
-      const b = e.target.closest('[data-cancel]'); if (!b) return;
-      const res = await net.rpc('market.cancel', { id: b.dataset.cancel });
+      const b = e.target.closest('[data-cancel], [data-cancel-order]');
+      if (!b) { const tr = e.target.closest('tr[data-def]'); if (tr) this.renderItem(page, tr.dataset.def); return; }
+      const res = b.dataset.cancel ? await net.rpc('market.cancel', { id: b.dataset.cancel }) : await net.rpc('market.cancelOrder', { id: b.dataset.cancelOrder });
       if (res.error) return this.m.toast(res.error);
       if (res.profile) P.setRemote(res.profile);
+      if (res.refunded) this.m.toast(`Order cancelled, ${fmt(res.refunded)} credits returned`);
       this.renderMine(page);
     };
   }

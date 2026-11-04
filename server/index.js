@@ -15,6 +15,7 @@ import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { openDb } from './db.js';
+import { Market } from './market.js';
 import * as E from '../src/shared/economy.js';
 import { SKINS, STICKERS, itemDef, condition } from '../src/items/catalog.js';
 import { freshLadder, applyMatch, applyDecay, mmrToRankIndex, skillForMMR, RANKS, TIERS, LADDERS } from '../src/ranked.js';
@@ -222,24 +223,9 @@ function ladderPosition(lid, mmr, exclude) {
 }
 
 // ================================================================ market
-function marketSummary(query = '') {
-  const q = query.toLowerCase();
-  const byDef = new Map();
-  const add = (defId) => { if (!byDef.has(defId)) byDef.set(defId, { defId, listings: 0, lowest: null, sales24: 0, lastSale: null }); return byDef.get(defId); };
-  for (const l of D.listings) { const s = add(l.item.defId); s.listings++; s.lowest = s.lowest == null ? l.price : Math.min(s.lowest, l.price); }
-  const dayAgo = now() - 86400000;
-  for (const s of D.sales) { const e = add(s.defId); if (s.t > dayAgo) e.sales24++; if (!e.lastSale || s.t > e.lastSale.t) e.lastSale = { price: s.price, t: s.t }; }
-  let out = [...byDef.values()];
-  if (q) out = out.filter(e => { const d = SKINS[e.defId] || STICKERS[e.defId]; return d && (d.name.toLowerCase().includes(q) || (d.weapon || '').includes(q) || (d.knife || '').includes(q)); });
-  return out.sort((a, b) => b.sales24 - a.sales24 || b.listings - a.listings).slice(0, 300);
-}
-function marketItem(defId) {
-  const listings = D.listings.filter(l => l.item.defId === defId).sort((a, b) => a.price - b.price)
-    .map(l => ({ id: l.id, price: l.price, item: l.item, seller: D.users[l.seller]?.name || '?', sellerId: l.seller, created: l.created }));
-  const sales = D.sales.filter(s => s.defId === defId).slice(-400);
-  const ref = E.marketPrice({ kind: SKINS[defId] ? 'skin' : 'sticker', defId, float: 0.2, seed: 1, stickers: [] });
-  return { defId, listings, sales, reference: ref };
-}
+// Listings, buy orders and the bot traders live in server/market.js. Bots can
+// be switched off with MARKET_BOTS=0.
+let market = null;
 
 // ================================================================ trades
 function tradeView(t) {
@@ -252,6 +238,8 @@ function invalidateTradesWith(itemUid) {
 }
 
 // ================================================================ handlers
+market = new Market({ D, db, E, push, profileOf, fee: MARKET_FEE, bots: process.env.MARKET_BOTS !== '0' });
+
 const handlers = {
   // ---- auth
   'auth.register'(ws, { name, password }) {
@@ -319,54 +307,26 @@ const handlers = {
   },
 
   // ---- market
-  'market.overview'(ws, { query }) { return { items: marketSummary(query) }; },
-  'market.item'(ws, { defId }) { return marketItem(defId); },
-  'market.mine'(ws) { return { listings: D.listings.filter(l => l.seller === ws.user.id) }; },
+  'market.overview'(ws, { query }) { return { items: market.summary(String(query || '')) }; },
+  'market.item'(ws, { defId }) { return market.item(String(defId || ''), ws.user.id); },
+  'market.mine'(ws) { return market.mine(ws.user.id); },
   'market.list'(ws, { uid, price }) {
-    const u = ws.user, it = E.findItem(u, uid);
-    price = Math.round(+price);
-    if (!it) return { error: 'Item not found' };
-    if (it.listed) return { error: 'Already listed' };
-    if (!(price >= 1 && price <= 1e7)) return { error: 'Price must be between 1 and 10,000,000' };
-    if (D.listings.filter(l => l.seller === u.id).length >= 50) return { error: 'You can have at most 50 listings' };
-    it.listed = true;
-    for (const [k, v] of Object.entries(u.equipped)) if (v === uid) delete u.equipped[k];
-    D.listings.push({ id: db.id('l'), seller: u.id, item: it, price, created: now() });
-    invalidateTradesWith(uid);
-    return withSave(ws, { ok: true });
+    const r = market.list(ws.user, uid, price);
+    if (!r.error) invalidateTradesWith(uid);
+    return withSave(ws, r);
   },
-  'market.cancel'(ws, { id }) {
-    const l = D.listings.find(x => x.id === id && x.seller === ws.user.id);
-    if (!l) return { error: 'Listing not found' };
-    D.listings = D.listings.filter(x => x !== l);
-    const it = E.findItem(ws.user, l.item.uid); if (it) delete it.listed;
-    return withSave(ws, { ok: true });
-  },
+  'market.cancel'(ws, { id }) { return withSave(ws, market.cancel(ws.user, id)); },
   'market.buy'(ws, { id }) {
-    const buyer = ws.user;
-    const l = D.listings.find(x => x.id === id);
-    if (!l) return { error: 'That listing has already sold' };
-    if (l.seller === buyer.id) return { error: 'You cannot buy your own listing' };
-    if (buyer.credits < l.price) return { error: 'Not enough credits' };
-    const seller = D.users[l.seller];
-    const it = E.findItem(seller, l.item.uid);
-    if (!it) { D.listings = D.listings.filter(x => x !== l); return { error: 'Listing is no longer valid' }; }
-    // atomic swap
-    D.listings = D.listings.filter(x => x !== l);
-    E.removeItem(seller, it.uid);
-    delete it.listed;
-    it.acquired = now();
-    buyer.items.push(it);
-    buyer.credits -= l.price;
-    const proceeds = Math.floor(l.price * (1 - MARKET_FEE));
-    seller.credits += proceeds;
-    D.sales.push({ defId: it.defId, price: l.price, float: it.float ?? null, t: now() });
-    if (D.sales.length > 50000) D.sales.splice(0, D.sales.length - 50000);
-    buyer.history.unshift({ t: now(), type: 'buy', item: it.defId, value: l.price });
-    seller.history.unshift({ t: now(), type: 'market-sale', item: it.defId, value: proceeds });
-    push(seller.id, 'profile', profileOf(seller));
-    push(seller.id, 'toast', `Your ${itemDef(it)?.name} sold for ${l.price} credits (you receive ${proceeds})`);
-    return withSave(ws, { ok: true, item: it });
+    const r = market.buy(ws.user, id);
+    if (r.item) invalidateTradesWith(r.item.uid);
+    return withSave(ws, r);
+  },
+  'market.order'(ws, { defId, price, qty }) { return withSave(ws, market.order(ws.user, String(defId || ''), price, qty)); },
+  'market.cancelOrder'(ws, { id }) { return withSave(ws, market.cancelOrder(ws.user, id)); },
+  'market.sellToOrder'(ws, { uid, orderId }) {
+    const r = market.sellToOrder(ws.user, uid, orderId);
+    if (!r.error) invalidateTradesWith(uid);
+    return withSave(ws, r);
   },
 
   // ---- friends

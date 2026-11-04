@@ -2,8 +2,8 @@
 // is saved shortly after each change, to one of two places:
 //
 //  - DATABASE_URL set (a Neon or any other Postgres database):
-//      vantage_kv     one row per account, plus rows for market listings,
-//                     trades and the id counter. Each save writes only the
+//      vantage_kv     one row per account, plus rows for market listings, buy
+//                     orders, trades and the id counter. Each save writes only the
 //                     rows whose JSON changed, inside one transaction.
 //      vantage_sales  market sales, append-only (price history), so a sale
 //                     inserts one row instead of rewriting the whole history.
@@ -11,7 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const EMPTY = () => ({ users: {}, listings: [], sales: [], trades: [], nextId: 1 });
+const EMPTY = () => ({ users: {}, listings: [], orders: [], sales: [], trades: [], nextId: 1 });
 const SALES_IN_MEMORY = 50000;   // must match the cap in index.js
 
 // opts: { file, url, Pool }  (Pool lets tests pass a stand-in for pg's Pool)
@@ -66,7 +66,7 @@ export function pgConfig(url) {
 
 // The vantage_kv rows that make up `data`, by row key (sales live in their own table).
 function rowsOf(data) {
-  const out = new Map([['meta', { nextId: data.nextId }], ['listings', data.listings], ['trades', data.trades]]);
+  const out = new Map([['meta', { nextId: data.nextId }], ['listings', data.listings], ['orders', data.orders], ['trades', data.trades]]);
   for (const [id, u] of Object.entries(data.users)) out.set('user:' + id, u);
   return out;
 }
@@ -108,7 +108,7 @@ async function openPostgres(url, PoolClass) {
   for (const { k, v } of res.rows) {
     const val = typeof v === 'string' ? JSON.parse(v) : v;
     if (k === 'meta') data.nextId = val.nextId || 1;
-    else if (k === 'listings' || k === 'trades') data[k] = val;
+    else if (k === 'listings' || k === 'trades' || k === 'orders') data[k] = val;
     else if (k === 'sales') { legacySales = val; continue; }   // older layout: migrated below
     else if (k.startsWith('user:')) data.users[k.slice(5)] = val;
     else continue;

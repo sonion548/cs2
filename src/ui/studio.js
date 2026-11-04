@@ -177,19 +177,24 @@ function deliver(k, url) {
 
 // Calls cb(url) once the thumbnail is ready. Visible requests go first;
 // background: true queues it behind them and renders in idle time.
-export function thumbnail(item, cb, { background = false } = {}) {
+// priority: render before anything else that's waiting (what's on screen right now)
+export function thumbnail(item, cb, { background = false, priority = false } = {}) {
   const k = thumbKey(item);
   if (thumbCache.has(k)) { cb?.(thumbCache.get(k)); return; }
   if (pending.has(k)) {
     if (cb) pending.get(k).push(cb);
     // a visible request for something already waiting in the idle queue gets promoted
-    if (!background) { const i = idleQueue.findIndex(q => q[1] === k); if (i >= 0) queue.push(...idleQueue.splice(i, 1)); }
+    if (!background) {
+      const i = idleQueue.findIndex(q => q[1] === k);
+      if (i >= 0) queue[priority ? 'unshift' : 'push'](...idleQueue.splice(i, 1));
+      else if (priority) { const j = queue.findIndex(q => q[1] === k); if (j > 0) queue.unshift(...queue.splice(j, 1)); }
+    }
     return;
   }
   pending.set(k, cb ? [cb] : []);
   idbGet(k).then((url) => {
     if (url) { deliver(k, url); return; }
-    (background ? idleQueue : queue).push([item, k]);
+    (background ? idleQueue : queue)[priority ? 'unshift' : 'push']([item, k]);
     if (!busy) pump();
   });
 }

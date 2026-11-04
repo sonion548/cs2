@@ -52,19 +52,62 @@ const tlist = await b.rpc('trade.list');
 const done = await b.rpc('trade.respond', { id: tlist.trades[0].id, accept: true });
 ok(done.profile.items.some(i => i.uid === skin.uid), 'trade accepted and items swapped');
 
-// market: B lists the skin, A buys it back
-const listed = await b.rpc('market.list', { uid: skin.uid, price: 300 });
-ok(listed.ok, 'item listed on the market');
-const over = await a.rpc('market.overview', {});
-ok(over.items.some(e => e.defId === skin.defId), 'market overview shows the listing');
-const detail = await a.rpc('market.item', { defId: skin.defId });
-const before = (await a.rpc('profile.get')).profile.credits;
-const bought = await a.rpc('market.buy', { id: detail.listings[0].id });
-ok(bought.ok && bought.profile.credits === before - 300, 'market purchase charged the buyer');
-const sellerAfter = (await b.rpc('profile.get')).profile.credits;
-ok(sellerAfter === rb.profile.credits + 270, 'seller received price minus 10% fee');
-const hist = await a.rpc('market.item', { defId: skin.defId });
-ok(hist.sales.length >= 1, 'sale recorded in price history');
+// market. With bot traders on (the default) the market is full of bot
+// listings and buy orders; with MARKET_BOTS=0 it's players only.
+const overview = await a.rpc('market.overview', {});
+const bots = overview.items.filter(e => e.listings > 0).length > 100;
+if (!bots) {
+  // B lists the skin, A buys it back
+  const listed = await b.rpc('market.list', { uid: skin.uid, price: 300 });
+  ok(listed.ok && !listed.sold, 'item listed on the market');
+  const over = await a.rpc('market.overview', {});
+  ok(over.items.some(e => e.defId === skin.defId), 'market overview shows the listing');
+  const detail = await a.rpc('market.item', { defId: skin.defId });
+  const before = (await a.rpc('profile.get')).profile.credits;
+  const bought = await a.rpc('market.buy', { id: detail.listings.find(l => l.sellerId === rb.user.id).id });
+  ok(bought.ok && bought.profile.credits === before - 300, 'market purchase charged the buyer');
+  const sellerAfter = (await b.rpc('profile.get')).profile.credits;
+  ok(sellerAfter === rb.profile.credits + 270, 'seller received price minus 10% fee');
+  const hist = await a.rpc('market.item', { defId: skin.defId });
+  ok(hist.sales.length >= 1, 'sale recorded in price history');
+  // buy orders: B wants two at 150, A sells into the order, B cancels the rest
+  const bc0 = (await b.rpc('profile.get')).profile.credits;
+  const ord = await b.rpc('market.order', { defId: skin.defId, price: 150, qty: 2 });
+  ok(ord.ok && ord.waiting === 2 && ord.profile.credits === bc0 - 300, 'buy order placed, credits held');
+  const ac0 = (await a.rpc('profile.get')).profile.credits;
+  const sold = await a.rpc('market.sellToOrder', { uid: skin.uid });
+  ok(sold.ok && sold.profile.credits === ac0 + 135 && !sold.profile.items.some(i => i.uid === skin.uid), 'sold into the buy order (minus fee)');
+  const bp = (await b.rpc('profile.get')).profile;
+  ok(bp.items.some(i => i.uid === skin.uid), 'buy order delivered the item');
+  const mineB = await b.rpc('market.mine');
+  ok(mineB.orders.length === 1 && mineB.orders[0].qty === 1, 'order has one left to fill');
+  const canc = await b.rpc('market.cancelOrder', { id: mineB.orders[0].id });
+  ok(canc.ok && canc.profile.credits === bp.credits + 150, 'cancelled order returned the held credits');
+  // a listing at or below a waiting order sells to it at once
+  const ord2 = await a.rpc('market.order', { defId: skin.defId, price: 120, qty: 1 });
+  const instant = await b.rpc('market.list', { uid: skin.uid, price: 100 });
+  ok(ord2.ok && instant.ok && instant.sold && instant.price === 120, 'new listing filled a waiting buy order at its price');
+} else {
+  ok(overview.items.some(e => e.highestBid > 0), 'bot traders place buy orders');
+  ok(overview.items.some(e => e.sales24 > 0), 'bot traders make sales (price history)');
+  // buy the cheapest bot listing A can afford, then sell it straight back to the best order
+  const credits = (await a.rpc('profile.get')).profile.credits;
+  const cheap = overview.items.filter(e => e.lowest != null && e.lowest <= credits && e.highestBid).sort((x, y) => x.lowest - y.lowest)[0];
+  ok(cheap, 'an affordable bot listing exists');
+  const det = await a.rpc('market.item', { defId: cheap.defId });
+  const lst = det.listings.find(l => l.bot && l.price <= credits);
+  const got = await a.rpc('market.buy', { id: lst.id });
+  ok(got.ok && got.profile.credits === credits - lst.price, 'bought a bot listing');
+  const back = await a.rpc('market.sellToOrder', { uid: got.item.uid });
+  ok(back.ok && back.price < lst.price, 'sold to a bot buy order for less than it cost (no credit loop)');
+  // an order far below value just waits; cancelling returns the credits
+  const c1 = back.profile.credits;
+  const low = await a.rpc('market.order', { defId: cheap.defId, price: 1, qty: 3 });
+  ok(low.ok && low.waiting === 3 && low.profile.credits === c1 - 3, 'low buy order waits with credits held');
+  const mineA = await a.rpc('market.mine');
+  const cl = await a.rpc('market.cancelOrder', { id: mineA.orders[0].id });
+  ok(cl.ok && cl.profile.credits === c1, 'cancelled order refunded');
+}
 
 // party + ranked vs bots queue
 const inv = await a.rpc('party.invite', { id: rb.user.id });
