@@ -204,6 +204,22 @@ dropped them.
 - Knives held like CS in first person (tip angled inward; reverse grip karambit, punch grip push dagger), and kept
   weapons start each round with a full magazine and reserve
 
+## Stage 8 (this build)
+
+- **Bots fight back**: reactions from 0.22 s (Elite) to 0.6 s (Recruit), aim that is quick when the crosshair was
+  already close, tracking that leads a moving target (a change of strafe direction still throws it off for a moment),
+  turning to face whoever shot them from an unseen angle, backing off to reload, and walking with the crosshair on the
+  last place an enemy was seen or heard. A Veteran bot now kills a standing player at 18 m in about a second.
+- **Teammate outlines**: a white glow around allies wherever a wall or object hides them (Settings > Graphics)
+- **Hands that hold pistols properly**: a second pair of first-person arms shaped for guns (index finger along the
+  frame, fingers wrapped round the grip, left hand cupping the right) replaces the closed fist on every gun
+- **Buy menu**: every click registers (the menu no longer rebuilds itself under the cursor)
+- **Market buy orders and bot traders**: place an order to buy any copy of an item at your price (credits held
+  until it fills or you cancel), sell instantly to the best order, and trade with bot traders that keep every item
+  listed, hold buy orders, buy fairly priced player listings, fill fair player orders and build up price history.
+  Bots always buy cheaper than they sell. `MARKET_BOTS=0` turns them off.
+- Fixed a crash when "Show FPS" was turned on
+
 ## Blender models
 
 Weapons, knives, characters and the Dunehold map are modelled with Blender scripts in `blender/` (see
