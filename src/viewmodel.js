@@ -39,7 +39,10 @@ const GRIP_R = {
 // hand frame in the knife's own axes. The karambit is held in a reverse grip
 // (blade out of the little-finger side), the push dagger punched forward.
 const KNIFE_HOLD = {
-  forward: { tip: V3(-0.66, 0.44, -0.6), edge: V3(-0.25, -0.8, -0.5), k: V3(0, -1, 0), palm: V3(-1, 0, 0), pos: V3(0.11, -0.115, -0.25) },
+  // a fist with the knuckles forward and the palm down; the blade comes out of
+  // the thumb side and points in toward the centre, its flat tilted to you
+  // (the handle sits diagonally across the palm, as in a real hammer grip)
+  forward: { tip: V3(-0.9, 0.25, -0.35), edge: V3(0.38, 0.11, -0.92), k: V3(0, -0.94, -0.34), palm: V3(-1, 0, 0), pos: V3(0.1, -0.1, -0.24) },
   reverse: { tip: V3(-0.42, -0.62, -0.66), edge: V3(-0.5, 0.25, -0.8), k: V3(0, -1, 0), palm: V3(1, 0, 0), pos: V3(0.1, -0.08, -0.24) },
   punch: { tip: V3(-0.42, 0.18, -0.89), edge: V3(0, -1, 0), k: V3(0, 0, -1), palm: V3(0, -1, 0), pos: V3(0.1, -0.11, -0.26) },
 };
@@ -49,8 +52,11 @@ const GUN_YAW = { rifle: 0.05, sniper: 0.04, pistol: 0.04, grenade: 0.0, bomb: 0
 
 // Where each hand's fingers close, relative to the gun's grip anchor (gun
 // units: +x right, +y up, +z back toward you), for the skinned arms.
+// The right hand sits far enough back that the back of the grip is inside the
+// palm (before, it poked out behind the hand), the web of the hand up under
+// the slide; the left hand follows it round.
 const HAND_AT = {
-  pistol: { R: V3(0.012, -0.01, 0), L: V3(-0.035, -0.044, 0) },
+  pistol: { R: V3(0.012, 0, 0.034), L: V3(-0.035, -0.036, 0.032) },
 };
 
 const GRIP_L = {
@@ -80,11 +86,11 @@ const INSPECT = {
   ],
   forward: [
     [0, 0, 0, 0, 0, 0, 0],
-    [0.4, 0.12, 0.6, 0, -0.09, 0.0585, 0.03],
-    [1.2, 0.18, 0.66, 0, -0.0975, 0.065, 0.035],
-    [1.65, 0.08, 0.6, 0, -0.09, 0.065, 0.035],
-    [2.6, 0.2, 0.68, 0, -0.0975, 0.065, 0.035],
-    [3.05, 0.04, 0.12, 0, -0.015, 0.013, 0.005],
+    [0.4, 0.12, -0.5, 0, -0.09, 0.0585, 0.03],
+    [1.2, 0.18, -0.55, 0, -0.0975, 0.065, 0.035],
+    [1.65, 0.08, -0.5, 0, -0.09, 0.065, 0.035],
+    [2.6, 0.2, -0.56, 0, -0.0975, 0.065, 0.035],
+    [3.05, 0.04, -0.1, 0, -0.015, 0.013, 0.005],
     [3.3, 0, 0, 0, 0, 0, 0],
   ],
   reverse: [
