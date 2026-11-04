@@ -1218,10 +1218,12 @@ export class Game {
     // Ultra redraws shadows every frame, and hidden chunks would lose theirs: draw everything there
     if (this.q.shadows !== 'dynamic') this.guard(() => this.level.pvs?.update(this.camera.position));
     const r = this.renderer;
+    // inside a smoke: one flat fill over the world, under the hands (and no
+    // puffs drawn behind it once it covers everything)
+    const fog = this.grenades.smokeAt(this.camera.position);
+    this.grenades.hideClouds(fog > 0.97);
     r.clear();
     r.render(this.scene, this.camera);
-    // inside a smoke: one flat fill over the world, under the hands
-    const fog = this.grenades.smokeAt(this.camera.position);
     if (fog > 0.01) this.drawSmokeFill(fog);
     if (showVm) { r.clearDepth(); r.render(this.vm.scene, this.vm.camera); }
     this.guard(() => this.hud.update(dt));

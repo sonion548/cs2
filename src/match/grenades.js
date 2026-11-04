@@ -79,6 +79,9 @@ function smokeMaterial(map) {
         mvPosition.xy += vec2(c.x * cos(a) - c.y * sin(a), c.x * sin(a) + c.y * cos(a)) * s;
         vFade = smoothstep(0.5, 2.4, -mvPosition.z);
         vUv = vec2((uv.x + aTile) / 3.0, uv.y);
+        // a puff faded out next to the camera is moved past the far plane, so
+        // its (usually screen-filling) quad costs no pixels at all
+        if (vFade < 0.01) { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); return; }
         gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>
       }`,
@@ -339,6 +342,8 @@ export class Grenades {
       if (s.t > duration + fade) this.removeSmoke(s);
     }
   }
+  // deep inside a cloud the flat fill covers the whole view: skip drawing puffs then
+  hideClouds(hide) { for (const s of this.smokes) s.mesh.visible = !hide; }
   removeSmoke(s) {
     this.g.scene.remove(s.mesh);
     s.mesh.geometry.dispose(); s.mesh.material.dispose();
