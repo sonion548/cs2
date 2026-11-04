@@ -61,25 +61,52 @@ const GRIP_L = {
   bomb: [V3(0, -0.2, -1), V3(1, 0, 0)],
 };
 
-// Inspect keyframes: [t, rotX, rotY, rotZ, dx, dy, dz]
+// Inspect keyframes. Guns: [t, rotX, rotY, rotZ, dx, dy, dz], turns of the
+// gun in view space. Knives, one set per grip: [t, roll, flex, 0, dx, dy, dz],
+// turns about the hand's own axes through the grip (roll is the forearm
+// turning over, flex the wrist bending, which for a knife held across the palm
+// turns the flat of the blade to you). All of it stays inside what a wrist and
+// forearm can do: the old keys rolled guns 90 degrees and spun knives a full
+// turn with the hand attached, which wrung the arms. Showing the other face of
+// a blade, the karambit spin and the butterfly flip happen in the fingers.
 const INSPECT = {
   default: [
     [0, 0, 0, 0, 0, 0, 0],
-    [0.5, 0.15, 0.9, 0.55, -0.08, 0.04, 0.06],
-    [1.6, 0.2, 1.1, 0.7, -0.09, 0.05, 0.07],
-    [2.2, -0.25, -0.5, -1.35, -0.05, 0.03, 0.03],
-    [3.1, -0.3, -0.6, -1.5, -0.05, 0.04, 0.03],
-    [3.7, 0, 0, 0, 0, 0, 0],
+    [0.45, 0.06, 0.5, 0.55, -0.075, 0.04, 0.05],
+    [1.5, 0.1, 0.58, 0.62, -0.08, 0.045, 0.055],
+    [2.05, 0.08, 0.2, -0.6, -0.05, 0.03, 0.035],
+    [2.9, 0.1, 0.24, -0.66, -0.05, 0.035, 0.035],
+    [3.5, 0, 0, 0, 0, 0, 0],
   ],
-  melee: [
+  forward: [
     [0, 0, 0, 0, 0, 0, 0],
-    [0.4, 0.2, 0.9, 1.4, -0.08, 0.05, 0.04],
-    [1.2, 0.2, 1.0, 1.55, -0.08, 0.06, 0.04],
-    [1.7, 0.0, 0.6, Math.PI * 2 + 0.2, -0.04, 0.04, 0.02],
-    [2.6, -0.2, -0.4, Math.PI * 2 - 0.4, -0.04, 0.03, 0.02],
-    [3.2, 0, 0, Math.PI * 2, 0, 0, 0],
+    [0.4, 0.12, 0.6, 0, -0.09, 0.0585, 0.03],
+    [1.2, 0.18, 0.66, 0, -0.0975, 0.065, 0.035],
+    [1.65, 0.08, 0.6, 0, -0.09, 0.065, 0.035],
+    [2.6, 0.2, 0.68, 0, -0.0975, 0.065, 0.035],
+    [3.05, 0.04, 0.12, 0, -0.015, 0.013, 0.005],
+    [3.3, 0, 0, 0, 0, 0, 0],
+  ],
+  reverse: [
+    [0, 0, 0, 0, 0, 0, 0],
+    [0.4, 0.6, 0.05, 0, -0.09, 0.0585, 0.03],
+    [1.6, 0.7, 0.1, 0, -0.0975, 0.065, 0.035],
+    [2.5, 0.75, 0.15, 0, -0.09, 0.065, 0.035],
+    [3.3, 0, 0, 0, 0, 0, 0],
+  ],
+  punch: [
+    [0, 0, 0, 0, 0, 0, 0],
+    [0.45, 0.55, -0.25, 0, -0.09, 0.0585, 0.03],
+    [1.4, 0.62, -0.3, 0, -0.0975, 0.065, 0.035],
+    [2, -0.35, 0.15, 0, -0.075, 0.052, 0.03],
+    [2.8, -0.4, 0.2, 0, -0.075, 0.052, 0.03],
+    [3.3, 0, 0, 0, 0, 0, 0],
   ],
 };
+// forward-grip knives flip half a turn in the fingers to show the other face, then back
+const twirlAt = (T) => T < 1.2 ? 0 : T < 1.65 ? Math.PI * ease((T - 1.2) / 0.45) : T < 2.6 ? Math.PI : T < 3.05 ? Math.PI * (1 + ease((T - 2.6) / 0.45)) : 0;
+const DEF_GRIP = new THREE.Vector3(0, -0.04, 0.03);
+const AXIS_Z = new THREE.Vector3(0, 0, 1);
 
 function sampleKeys(keys, t) {
   if (t >= keys[keys.length - 1][0]) return keys[keys.length - 1].slice(1);
@@ -347,6 +374,7 @@ export class ViewModel {
     this.cyl = part('cylinder'); this.cylTurn = 0; this.cylTarget = 0;
     this.bfA = part('bfA'); this.bfB = part('bfB');
     this.kPivot = part('karambitPivot');
+    this.twirlA = 0;
     this.deployT = 0; this.deployDur = Math.max(0.2, deployTime);
     this.inspectT = -1; this.reloadT = -1; this.cycleT = -1; this.throwT = -1; this.windT = -1;
     this.gun.visible = true;
@@ -481,29 +509,56 @@ export class ViewModel {
     }
 
     // inspect
+    let twirl = 0, dropL = 0;
+    const iq = (this._iq ||= new THREE.Quaternion()).identity();
     if (this.inspectT >= 0) {
-      const keys = this.type === 'melee' ? INSPECT.melee : INSPECT.default;
+      const melee = this.type === 'melee', style = melee ? KNIFE_STYLE[this.knifeType] || 'forward' : null;
+      const keys = melee ? INSPECT[style] : INSPECT.default;
       this.inspectT += dt;
       const k = sampleKeys(keys, this.inspectT);
-      rot.x += k[0]; rot.y += k[1]; rot.z += k[2];
+      if (melee && this.knifeHold) {
+        const h = this.knifeHold, across = new THREE.Vector3().crossVectors(h.k, h.palm).normalize();
+        iq.setFromAxisAngle(h.k, k[0]).multiply(new THREE.Quaternion().setFromAxisAngle(across, k[1]));
+      } else { rot.x += k[0]; rot.y += k[1]; rot.z += k[2]; }
       pos.x += k[3] * 0.6; pos.y += k[4] * 0.6; pos.z += k[5] * 0.6;
-      const T = this.inspectT;
+      const T = this.inspectT, end = keys[keys.length - 1][0];
       if (this.bfA) {
         const open = T < 2.8 ? Math.abs(Math.sin(T * Math.PI * 1.2)) : 0;
         this.bfA.rotation.z = open * Math.PI;
         this.bfB.rotation.z = -open * Math.PI;
       }
-      if (this.kPivot) this.kPivot.rotation.z = T > 0.4 && T < 1.6 ? (T - 0.4) / 1.2 * Math.PI * 4 : 0;
-      if (this.inspectT > keys[keys.length - 1][0]) { this.inspectT = -1; if (this.bfA) { this.bfA.rotation.z = 0; this.bfB.rotation.z = 0; } }
+      if (this.kPivot) this.kPivot.rotation.z = T > 0.4 && T < 1.6 ? ease((T - 0.4) / 1.2) * Math.PI * 4 : 0;
+      else if (melee && !this.bfA && style === 'forward') twirl = twirlAt(T);
+      // pistols: the support hand lets go while the gun is turned over
+      if (this.type === 'pistol') dropL = ease(Math.max(0, Math.min(1, T / 0.35, (end - T) / 0.45)));
+      if (T > end) { this.inspectT = -1; twirl = 0; dropL = 0; iq.identity(); if (this.bfA) { this.bfA.rotation.z = 0; this.bfB.rotation.z = 0; } }
     }
+    this.setTwirl(twirl);
 
     this.root.position.copy(pos);
     this.root.quaternion.setFromEuler(rot).multiply(this.baseQ || new THREE.Quaternion());
-    this.solveArms(handR, magReach);
+    if (iq.w < 0.999999) {
+      // a turn of the hand pivots on the grip, so the fist stays where it is
+      const g = (this.gun.userData.grip || DEF_GRIP).clone().multiplyScalar(this.holder.scale.x);
+      const before = g.clone().applyQuaternion(this.root.quaternion);
+      this.root.quaternion.multiply(iq);
+      this.root.position.add(before.sub(g.applyQuaternion(this.root.quaternion)));
+    }
+    this.solveArms(handR, magReach, dropL);
+  }
+
+  // Spin the knife in the fingers, about its own length through the grip.
+  // The hands follow the holder, not the knife, so they stay still.
+  setTwirl(a) {
+    if (a === (this.twirlA || 0)) return;
+    this.twirlA = a;
+    const g = this.gun.userData.grip || DEF_GRIP;
+    this.gun.quaternion.setFromAxisAngle(AXIS_Z, a);
+    this.gun.position.copy(g).sub(g.clone().applyQuaternion(this.gun.quaternion));
   }
 
   // Hands go where the weapon is this frame; shoulders stay fixed to the camera.
-  solveArms(handROverride, magReach) {
+  solveArms(handROverride, magReach, dropL = 0) {
     this.root.updateMatrixWorld(true);
     const ud = this.gun.userData;
     const local = (v) => this.armSpace.worldToLocal(v);
@@ -520,8 +575,9 @@ export class ViewModel {
     let R = local(world(this.skinned ? grip.clone().add(at?.R || V3(0, 0, 0)) : grip.clone().add(new THREE.Vector3(0.012, -0.01, 0))));
     if (handROverride) R.lerp(local(handROverride.clone()), 0.8);
     if (this.throwT >= 0 || (t === 'grenade' && !this.gun.visible)) R = local(world(grip.clone()));
-    // the gun's axes in arm space, so the hands turn with it (kick, reload, inspect, swing)
-    const gunQ = this.armSpace.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(this.gun.getWorldQuaternion(new THREE.Quaternion()));
+    // the gun's axes in arm space, so the hands turn with it (kick, reload, inspect, swing);
+    // taken from the holder so a knife twirling in the fingers doesn't turn the hand
+    const gunQ = this.armSpace.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(this.holder.getWorldQuaternion(new THREE.Quaternion()));
     const inGun = (v) => v.clone().applyQuaternion(gunQ);
     if (this.skinned) {
       const [k, palm] = t === 'melee' && this.knifeHold ? [this.knifeHold.k, this.knifeHold.palm] : (GRIP_R[t] || GRIP_R.rifle);
@@ -535,6 +591,9 @@ export class ViewModel {
       const magP = this.mag ? local(this.mag.getWorldPosition(new THREE.Vector3())) : L.clone().add(new THREE.Vector3(0, -0.15, 0.08));
       L.lerp(magP, magReach);
     }
+    // the support hand drops out of view (pistol inspect)
+    if (L && dropL > 0) L.lerp(L.clone().add(new THREE.Vector3(-0.06, -0.42, 0.12)), dropL);
+    if (L && dropL > 0.97) L = null;
     if (this.skinned) {
       this.armL.visible = !!L;
       if (L) {
