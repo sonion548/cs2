@@ -514,6 +514,8 @@ export class Menu {
         <div class="row"><label>Show FPS</label><input type="checkbox" data-s="showFps" ${s.showFps ? 'checked' : ''}><output></output></div>
         <div class="row"><label>Teammate outlines</label><input type="checkbox" data-s="allyOutline" ${s.allyOutline !== false ? 'checked' : ''}><output></output></div>
         <p class="note">A white glow around teammates that shows through walls.</p>
+        <div class="row"><label>Enemy outlines</label><input type="checkbox" data-s="enemyOutline" ${s.enemyOutline !== false ? 'checked' : ''}><output></output></div>
+        <p class="note">A red glow around enemies you can see, so they stand out. It never shows through walls or smoke.</p>
         <h3>Audio</h3>
         <div class="row"><label>Master volume</label><input type="range" min="0" max="1" step="0.01" data-s="volume" value="${s.volume}"><output>${s.volume}</output></div>
         <h3>Crosshair</h3>
