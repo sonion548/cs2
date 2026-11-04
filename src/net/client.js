@@ -21,7 +21,8 @@ class Net {
   }
 
   on(ev, fn) { if (!this.handlers.has(ev)) this.handlers.set(ev, new Set()); this.handlers.get(ev).add(fn); return () => this.handlers.get(ev).delete(fn); }
-  emit(ev, data) { for (const fn of this.handlers.get(ev) || []) fn(data); }
+  // one failing handler must not stop the others (or the socket) from working
+  emit(ev, data) { for (const fn of this.handlers.get(ev) || []) { try { fn(data); } catch (e) { console.error(`Handler for "${ev}" failed:`, e); } } }
   setStatus(s) { this.status = s; this.emit('status', s); }
 
   connect(url = defaultUrl()) {

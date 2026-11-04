@@ -43,6 +43,64 @@ function glowTexture() {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 
+// three puff variants side by side, for the instanced smoke
+function puffAtlas() {
+  const S = 128, c = document.createElement('canvas'); c.width = S * 3; c.height = S;
+  const x = c.getContext('2d');
+  [3, 7, 13].forEach((seed, k) => {
+    const r = rng(seed);
+    for (let i = 0; i < 26; i++) {
+      const px = k * S + S / 2 + (r() - 0.5) * S * 0.45, py = S / 2 + (r() - 0.5) * S * 0.45, rad = S * (0.16 + r() * 0.2);
+      const g = x.createRadialGradient(px, py, 0, px, py, rad);
+      const v = 200 + r() * 40;
+      g.addColorStop(0, `rgba(${v},${v},${v - 6},0.5)`); g.addColorStop(1, `rgba(${v},${v},${v},0)`);
+      x.save(); x.beginPath(); x.rect(k * S, 0, S, S); x.clip(); x.fillStyle = g; x.fillRect(k * S, 0, S, S); x.restore();
+    }
+  });
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const SMOKE_QUAD = new THREE.PlaneGeometry(1, 1);
+function smokeMaterial(map) {
+  const m = new THREE.ShaderMaterial({
+    uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
+      uMap: { value: null }, uCenter: { value: new THREE.Vector3() }, uGrow: { value: 0 }, uOpacity: { value: 0 }, uTime: { value: 0 },
+      uColor: { value: new THREE.Color(0xc4c0b8) },
+    }]),
+    vertexShader: `
+      attribute vec3 aOff; attribute float aSize; attribute float aRot; attribute float aTile;
+      uniform vec3 uCenter; uniform float uGrow; uniform float uTime;
+      varying vec2 vUv; varying float vFade;
+      #include <fog_pars_vertex>
+      void main() {
+        vec3 wp = uCenter + aOff * (0.35 + 0.65 * uGrow);
+        vec4 mvPosition = viewMatrix * vec4(wp, 1.0);
+        float s = aSize * (0.4 + 0.6 * uGrow), a = aRot * uTime + aTile * 2.1;
+        vec2 c = position.xy;
+        mvPosition.xy += vec2(c.x * cos(a) - c.y * sin(a), c.x * sin(a) + c.y * cos(a)) * s;
+        vFade = smoothstep(0.5, 2.4, -mvPosition.z);
+        vUv = vec2((uv.x + aTile) / 3.0, uv.y);
+        gl_Position = projectionMatrix * mvPosition;
+        #include <fog_vertex>
+      }`,
+    fragmentShader: `
+      uniform sampler2D uMap; uniform vec3 uColor; uniform float uOpacity;
+      varying vec2 vUv; varying float vFade;
+      #include <fog_pars_fragment>
+      void main() {
+        vec4 t = texture2D(uMap, vUv);
+        float a = t.a * uOpacity * vFade;
+        if (a < 0.004) discard;
+        gl_FragColor = vec4(uColor * t.rgb, a);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+        #include <fog_fragment>
+      }`,
+    transparent: true, depthWrite: false, fog: true,
+  });
+  m.uniforms.uMap.value = map;
+  return m;
+}
+
 export class Grenades {
   constructor(game) {
     this.g = game;
@@ -123,7 +181,7 @@ export class Grenades {
       else if (d === 'decoy' && (n.rest > 1.6 || n.t > 4)) this.detonate(n);
       else if ((d === 'molotov' || d === 'incendiary') && n.t > NADE.fire.airFuse) this.detonate(n);
     }
-    this.updateSmokes(dt, now);
+    this.updateSmokes(dt);
     this.updateFires(dt, now);
     for (const dc of [...this.decoys]) {
       if (now > dc.until) { this.decoys.splice(this.decoys.indexOf(dc), 1); g.scene.remove(dc.mesh); continue; }
@@ -224,37 +282,65 @@ export class Grenades {
     if (s > 0) { const dur = 0.3 + 4.7 * s; ch.blindUntil = g.time + dur; ch.blindPeak = s; g.hud.flash(s, dur); }
   }
 
+  // A smoke cloud is one draw call: an instanced quad drawn as camera-facing
+  // puffs (fewer on lower settings). Puffs right in front of the camera fade
+  // out, and smokeAt() drives one flat fill instead: standing inside the
+  // cloud used to mean 70 full-screen see-through layers every frame.
   smoke(n) {
     const g = this.g;
     const c = n.pos.clone(); c.y = Math.max(c.y, 0) + NADE.smoke.height * 0.5;
-    const cloud = { center: c, t: 0, sprites: [], r: NADE.smoke.radius };
-    for (let i = 0; i < 70; i++) {
-      const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * cloud.r * 0.85;
-      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.puffTex[i % 3], color: 0xc4c0b8, transparent: true, depthWrite: false, opacity: 0 }));
-      s.userData = { off: new THREE.Vector3(Math.cos(a) * rr, (Math.random() - 0.35) * NADE.smoke.height, Math.sin(a) * rr), size: 2.6 + Math.random() * 1.8, rot: (Math.random() - 0.5) * 0.3 };
-      s.position.copy(c);
-      g.scene.add(s); cloud.sprites.push(s);
+    const r = NADE.smoke.radius;
+    const count = { low: 14, medium: 20, high: 26, ultra: 32 }[g.q?.key] || 24;
+    const big = Math.sqrt(26 / count);   // fewer puffs, each a little bigger
+    // its own copy of the quad, so freeing one cloud never frees another's buffers
+    const geo = new THREE.InstancedBufferGeometry().copy(SMOKE_QUAD);
+    const off = new Float32Array(count * 3), size = new Float32Array(count), rot = new Float32Array(count), tile = new Float32Array(count);
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * r * 0.85;
+      off[i * 3] = Math.cos(a) * rr; off[i * 3 + 1] = (Math.random() - 0.35) * NADE.smoke.height; off[i * 3 + 2] = Math.sin(a) * rr;
+      size[i] = (2.6 + Math.random() * 1.8) * big; rot[i] = (Math.random() - 0.5) * 0.3; tile[i] = i % 3;
     }
-    this.smokes.push(cloud);
+    geo.setAttribute('aOff', new THREE.InstancedBufferAttribute(off, 3));
+    geo.setAttribute('aSize', new THREE.InstancedBufferAttribute(size, 1));
+    geo.setAttribute('aRot', new THREE.InstancedBufferAttribute(rot, 1));
+    geo.setAttribute('aTile', new THREE.InstancedBufferAttribute(tile, 1));
+    geo.instanceCount = count;
+    const mat = smokeMaterial(this.puffAtlas ||= puffAtlas());
+    mat.uniforms.uCenter.value = c;
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.frustumCulled = false;
+    mesh.renderOrder = 2;
+    g.scene.add(mesh);
+    this.smokes.push({ center: c, t: 0, r, mesh, opacity: 0 });
     g.audio.smoke?.(c);
     // smoke puts out fires it covers
-    for (const f of [...this.fires]) if (f.center.distanceTo(new THREE.Vector3(c.x, f.center.y, c.z)) < cloud.r + f.r * 0.5) this.endFire(f);
+    for (const f of [...this.fires]) if (f.center.distanceTo(new THREE.Vector3(c.x, f.center.y, c.z)) < r + f.r * 0.5) this.endFire(f);
   }
-  updateSmokes(dt, now) {
+  updateSmokes(dt) {
     const { duration, fade } = NADE.smoke;
     for (const s of [...this.smokes]) {
       s.t += dt;
       const grow = Math.min(1, s.t / 1.3), out = s.t > duration ? Math.max(0, 1 - (s.t - duration) / fade) : 1;
       s.opacity = grow * out;
-      for (const sp of s.sprites) {
-        const u = sp.userData;
-        sp.position.copy(s.center).addScaledVector(u.off, 0.35 + 0.65 * grow);
-        sp.scale.setScalar(u.size * (0.4 + 0.6 * grow));
-        sp.material.opacity = 0.92 * s.opacity;
-        sp.material.rotation += u.rot * dt;
-      }
-      if (s.t > duration + fade) { for (const sp of s.sprites) { this.g.scene.remove(sp); sp.material.dispose(); } this.smokes.splice(this.smokes.indexOf(s), 1); }
+      const u = s.mesh.material.uniforms;
+      u.uGrow.value = grow; u.uOpacity.value = 0.92 * s.opacity; u.uTime.value = s.t;
+      if (s.t > duration + fade) this.removeSmoke(s);
     }
+  }
+  removeSmoke(s) {
+    this.g.scene.remove(s.mesh);
+    s.mesh.geometry.dispose(); s.mesh.material.dispose();
+    const i = this.smokes.indexOf(s); if (i >= 0) this.smokes.splice(i, 1);
+  }
+  // How deep a point (the camera) is inside smoke: 0 outside, 1 fully covered.
+  smokeAt(p) {
+    let best = 0;
+    for (const s of this.smokes) {
+      const dx = p.x - s.center.x, dz = p.z - s.center.z, dy = (p.y - s.center.y) * (s.r / (NADE.smoke.height * 0.8));
+      const d = Math.sqrt(dx * dx + dy * dy + dz * dz) / s.r;
+      best = Math.max(best, Math.min(1, Math.max(0, (1.02 - d) / 0.42)) * s.opacity);
+    }
+    return best;
   }
   // true if the segment a→b passes through a (mostly formed) smoke cloud
   blocksSight(a, b) {
@@ -351,7 +437,7 @@ export class Grenades {
   clear() {
     const sc = this.g.scene;
     for (const n of this.flying) sc.remove(n.mesh);
-    for (const s of this.smokes) for (const sp of s.sprites) { sc.remove(sp); sp.material.dispose(); }
+    for (const s of [...this.smokes]) this.removeSmoke(s);
     for (const f of [...this.fires]) this.endFire(f);
     for (const d of this.decoys) sc.remove(d.mesh);
     for (const f of this.fx) { if (f.sprite) sc.remove(f.sprite); }

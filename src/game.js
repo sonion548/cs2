@@ -124,9 +124,26 @@ export class Game {
     this.resize();
     if (!this.net || this.net.isHost) this.startRound();
     else this.clientStart();
-    // A lost graphics context can't be drawn to again: say so instead of showing black.
-    this.onContextLost = (e) => { e.preventDefault(); this.crash(new Error('The graphics context was lost (the GPU driver reset, or too many 3D views were open).')); };
+    // The browser can take the graphics context away (a GPU driver reset, too
+    // many 3D views open). The match keeps running underneath; three.js
+    // re-uploads everything when the context comes back, and only a context
+    // that never returns ends the match.
+    this.onContextLost = (e) => {
+      e.preventDefault();
+      if (this.contextLost) return;
+      this.contextLost = true;
+      this.hud.notice('Graphics reset: recovering...', 8);
+      this.lostTimer = setTimeout(() => {
+        if (this.contextLost) this.crash(new Error('The graphics context was lost and did not come back (the GPU driver reset, or too many 3D views were open).'));
+      }, 10000);
+    };
+    this.onContextRestored = () => {
+      this.contextLost = false; clearTimeout(this.lostTimer);
+      this.hud.notice('Graphics restored', 1.5);
+      try { this.bakeShadows(); } catch (err) { console.warn('Shadow redraw skipped:', err); }
+    };
     canvas.addEventListener('webglcontextlost', this.onContextLost);
+    canvas.addEventListener('webglcontextrestored', this.onContextRestored);
     // Compile every shader up front (behind the loading screen) so the first
     // frames don't stall; the round clock starts once that's done.
     this.loaded = false;
@@ -556,23 +573,35 @@ export class Game {
       const cells = sites[L].filter(v => this.level.nav.walkable(...this.level.nav.cellOf(v)));
       return pick(cells.length ? cells : sites[L]);
     };
-    this.tSite = Math.random() < 0.55 ? 'A' : 'B';
+    const list = this.siteList();
+    if (!list.length) return;
+    this.tSite = list.length > 1 && Math.random() >= 0.55 ? list[1] : list[0];
     let i = 0;
     for (const b of this.bots) {
       b.holdUntil = 0; b.lookYaw = b.yaw;
       if (b.team === 'T') {
-        const L = b.hasBomb || Math.random() < 0.8 ? this.tSite : OTHER_SITE[this.tSite];
-        b.setGoal(goalOf(L), 'attack');
+        const other = list.find(L => L !== this.tSite);
+        const L = b.hasBomb || !other || Math.random() < 0.8 ? this.tSite : other;
+        b.setGoal(goalOf(L).clone(), 'attack');
       } else {
-        const L = i++ % 2 === 0 ? 'A' : 'B';
-        b.setGoal(goalOf(L), 'hold');
+        const L = list[i++ % list.length];
+        b.setGoal(goalOf(L).clone(), 'hold');
       }
     }
   }
 
+  // The bombsites this map has: 'A' and 'B', or only 'A' on the small maps.
+  siteList() {
+    return (this._sites ||= ['A', 'B'].filter(L => this.level.sites[L]?.length));
+  }
+  // A walkable spot on a site (a site the map doesn't have means its first one).
+  // Asking small maps for site B used to throw and end the match.
   siteGoal(L) {
-    const cells = this.level.sites[L].filter(v => this.level.nav.walkable(...this.level.nav.cellOf(v)));
-    const list = cells.length ? cells : this.level.sites[L];
+    if (!this.level.sites[L]?.length) L = this.siteList()[0];
+    const all = L ? this.level.sites[L] : null;
+    if (!all?.length) return this.level.spawns[this.playerTeam === 'T' ? 'CT' : 'T'][0].clone();
+    const cells = all.filter(v => this.level.nav.walkable(...this.level.nav.cellOf(v)));
+    const list = cells.length ? cells : all;
     return list[Math.floor(Math.random() * list.length)].clone();
   }
 
@@ -586,7 +615,8 @@ export class Game {
       return;
     }
     if (this.bomb.state === 'planted') { bot.setGoal(this.bomb.pos.clone(), bot.team === 'CT' ? 'retake' : 'guard'); return; }
-    bot.setGoal(this.siteGoal(Math.random() < 0.5 ? 'A' : 'B'), 'hunt');
+    const list = this.siteList();
+    bot.setGoal(this.siteGoal(list[Math.floor(Math.random() * list.length)]), 'hunt');
   }
 
   // Sound for bots: anyone on the other side within `radius` hears it.
@@ -1047,16 +1077,29 @@ export class Game {
     const raw = Math.max(0, (t - this.last) / 1000);
     let dt = Math.min(0.05, raw);
     this.last = t;
-    this.dyn.frame(Math.min(raw, 0.25));
+    let ok = true;
     try {
+      this.dyn.frame(Math.min(raw, 0.25));
       if (!this.paused || this.net) {
         // fixed sub-steps keep movement deterministic at low frame rates
         const steps = Math.ceil(dt / (1 / 120));
         const h = dt / steps;
         for (let i = 0; i < steps; i++) this.tick(h);
       }
-      if (this.running) this.render(dt);
-    } catch (e) { this.crash(e); }
+    } catch (e) { ok = false; this.frameFailed(e); }
+    if (this.running && !this.contextLost) {
+      try { this.render(dt); } catch (e) { ok = false; this.frameFailed(e); }
+    }
+    if (ok) this.badFrames = 0;
+  }
+
+  // One frame throwing used to end the whole match. Now it is logged (once per
+  // kind of error) and the next frame carries on; only a match that fails
+  // every frame for about three seconds is stopped and reported.
+  frameFailed(e) {
+    this.badFrames = (this.badFrames || 0) + 1;
+    this.logError(e);
+    if (this.badFrames > 180) this.crash(e);
   }
 
   tick(dt) {
@@ -1066,10 +1109,10 @@ export class Game {
       this.stateTimer -= dt;
       this.freeze = this.state === 'freeze';
       this.updatePlayer(dt);
-      for (const b of this.bots) b.update(dt, this.time);
-      this.grenades.update(dt);
-      this.drops.update(dt);
-      this.bomb.updateClient?.(dt);
+      for (const b of this.bots) this.guard(() => b.update(dt, this.time));
+      this.guard(() => this.grenades.update(dt));
+      this.guard(() => this.drops.update(dt));
+      this.guard(() => this.bomb.updateClient?.(dt));
       this.net.tick(dt);
       return;
     }
@@ -1087,12 +1130,26 @@ export class Game {
       this.startRound();
     }
     this.updatePlayer(dt);
-    for (const b of this.bots) b.update(dt, this.time);
-    this.strategy.update();
-    this.bomb.update(dt);
-    this.grenades.update(dt);
-    this.drops.update(dt);
-    this.net?.tick(dt);
+    for (const b of this.bots) this.guard(() => b.update(dt, this.time));
+    this.guard(() => this.strategy.update());
+    this.guard(() => this.bomb.update(dt));
+    this.guard(() => this.grenades.update(dt));
+    this.guard(() => this.drops.update(dt));
+    this.guard(() => this.net?.tick(dt));
+  }
+
+  // Runs one part of a frame. If it throws, the error is logged and the rest
+  // of the frame still runs: a bot or an effect that breaks skips a beat
+  // instead of taking the whole match down.
+  guard(fn) {
+    try { fn(); } catch (e) { this.logError(e); }
+  }
+  logError(e) {
+    const key = String(e?.stack || e).slice(0, 300);
+    this.seenErrors ||= new Set();
+    if (this.seenErrors.has(key) || this.seenErrors.size >= 20) return;
+    this.seenErrors.add(key);
+    console.error('Frame error (the match carries on):', e);
   }
 
   // ---------------------------------------------------------------- online client
@@ -1139,29 +1196,43 @@ export class Game {
   render(dt) {
     const p = this.player;
     this.updateCamera(dt);
-    this.updateEffects(dt);
+    this.guard(() => this.updateEffects(dt));
     const t = this.firstPersonTarget;
     let showVm = false;
     if (p.alive) {
       showVm = !p.scoped;
-      this.vm.update(dt, p.speed2D(), p.onGround, this.camera.aspect, this.camera.matrixWorld);
+      this.guard(() => this.vm.update(dt, p.speed2D(), p.onGround, this.camera.aspect, this.camera.matrixWorld));
     } else if (t && t.weapon) {
       // first-person spectating: show their gun and arms
       const key = t.weapon.id + '|' + t.id;
       if (this.spec.vmFor !== key) { this.spec.vmFor = key; this.vm.setWeapon(t.weapon.id, t.weapon.def.type, 0.2, this.skinOf(t, t.weapon.id)); }
       showVm = !t.scoped;
-      this.vm.update(dt, t.speed2D(), t.onGround, this.camera.aspect, this.camera.matrixWorld);
+      this.guard(() => this.vm.update(dt, t.speed2D(), t.onGround, this.camera.aspect, this.camera.matrixWorld));
     }
     if (p.alive) this.spec.vmFor = null;
-    this.updateCharacterLooks();
-    this.outlines.update();
+    this.guard(() => this.updateCharacterLooks());
+    this.guard(() => this.outlines.update());
     // Ultra redraws shadows every frame, and hidden chunks would lose theirs: draw everything there
-    if (this.q.shadows !== 'dynamic') this.level.pvs?.update(this.camera.position);
+    if (this.q.shadows !== 'dynamic') this.guard(() => this.level.pvs?.update(this.camera.position));
     const r = this.renderer;
     r.clear();
     r.render(this.scene, this.camera);
+    // inside a smoke: one flat fill over the world, under the hands
+    const fog = this.grenades.smokeAt(this.camera.position);
+    if (fog > 0.01) this.drawSmokeFill(fog);
     if (showVm) { r.clearDepth(); r.render(this.vm.scene, this.vm.camera); }
-    this.hud.update(dt);
+    this.guard(() => this.hud.update(dt));
+  }
+  drawSmokeFill(a) {
+    if (!this.smokeFill) {
+      const mat = new THREE.MeshBasicMaterial({ color: 0xaaa59e, transparent: true, depthTest: false, depthWrite: false });
+      const scene = new THREE.Scene(), cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+      const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); quad.frustumCulled = false;
+      scene.add(quad);
+      this.smokeFill = { scene, cam, mat, quad };
+    }
+    this.smokeFill.mat.opacity = Math.min(1, a) * 0.98;
+    this.renderer.render(this.smokeFill.scene, this.smokeFill.cam);
   }
 
   resize() {
@@ -1209,6 +1280,8 @@ export class Game {
     this.canvas.removeEventListener('contextmenu', this.h.ctx);
     window.removeEventListener('resize', this.onResize);
     this.canvas.removeEventListener('webglcontextlost', this.onContextLost);
+    this.canvas.removeEventListener('webglcontextrestored', this.onContextRestored);
+    clearTimeout(this.lostTimer);
     if (document.pointerLockElement) document.exitPointerLock();
     this.hud.dispose();
     this.net?.dispose();
@@ -1217,7 +1290,5 @@ export class Game {
     this.scene.traverse(o => { if (o.geometry) o.geometry.dispose(); });
   }
 }
-
-const OTHER_SITE = { A: 'B', B: 'A' };
 
 export { WEAPONS, MOVE };
