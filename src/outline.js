@@ -99,6 +99,20 @@ export class Outlines {
     return gr.blocksSight(cam, this.eye);
   }
 
+  // Builds every character's outline meshes ahead of time and leaves them
+  // visible for one shader warm-up (Game compiles the scene while the match
+  // loads), so the first enemy you see doesn't stall the frame while its
+  // outline shaders compile. The next update() hides what isn't needed.
+  prewarm(chars = this.g.characters) {
+    for (const ch of chars) {
+      if (!ch.model || ch === this.g.player) continue;
+      const o = ch.model.userData.outlines ||= {};
+      o.ally ||= build(ch.model, 'ally');
+      o.enemy ||= build(ch.model, 'enemy');
+      for (const p of [...o.ally, ...o.enemy]) p.visible = true;
+    }
+  }
+
   update() {
     const g = this.g;
     const allies = g.settings.allyOutline !== false, enemies = g.settings.enemyOutline !== false;

@@ -147,9 +147,12 @@ export class Game {
     // Compile every shader up front (behind the loading screen) so the first
     // frames don't stall; the round clock starts once that's done.
     this.loaded = false;
+    this.outlines.prewarm();
+    this.makeSmokeFill();
     this.ready = Promise.all([
       this.renderer.compileAsync(this.scene, this.camera),
       this.renderer.compileAsync(this.vm.scene, this.vm.camera),
+      this.renderer.compileAsync(this.smokeFill.scene, this.smokeFill.cam),
     ]).catch((e) => console.warn('Shader warm-up skipped:', e)).then(() => { this.bakeShadows(); this.loaded = true; this.last = performance.now(); });
     this.last = performance.now();
     this.running = true;
@@ -1223,14 +1226,15 @@ export class Game {
     if (showVm) { r.clearDepth(); r.render(this.vm.scene, this.vm.camera); }
     this.guard(() => this.hud.update(dt));
   }
+  makeSmokeFill() {
+    const mat = new THREE.MeshBasicMaterial({ color: 0xaaa59e, transparent: true, depthTest: false, depthWrite: false });
+    const scene = new THREE.Scene(), cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); quad.frustumCulled = false;
+    scene.add(quad);
+    this.smokeFill = { scene, cam, mat, quad };
+  }
   drawSmokeFill(a) {
-    if (!this.smokeFill) {
-      const mat = new THREE.MeshBasicMaterial({ color: 0xaaa59e, transparent: true, depthTest: false, depthWrite: false });
-      const scene = new THREE.Scene(), cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-      const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); quad.frustumCulled = false;
-      scene.add(quad);
-      this.smokeFill = { scene, cam, mat, quad };
-    }
+    if (!this.smokeFill) this.makeSmokeFill();
     this.smokeFill.mat.opacity = Math.min(1, a) * 0.98;
     this.renderer.render(this.smokeFill.scene, this.smokeFill.cam);
   }

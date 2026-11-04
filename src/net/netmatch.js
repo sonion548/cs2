@@ -65,7 +65,7 @@ export class NetMatch {
     this.send({ k: 'roster', list, to });
   }
   applyRoster(list) {
-    const g = this.g;
+    const g = this.g, added = [];
     for (const [id, name, team, human] of list) {
       if (this.byId.has(id)) continue;
       const b = new Bot(team, name, 0.5, g);
@@ -75,7 +75,11 @@ export class NetMatch {
       b.giveLoadout(team === 'T' ? 'ak47' : 'm4a1', team === 'T' ? 'glock' : 'usp');
       b.spawn(new THREE.Vector3(0, -50, 0), 0);
       this.add(b);
+      added.push(b);
     }
+    // compile the new players' outline shaders now (in the background where
+    // the browser can), not the first time one of them comes into view
+    if (added.length) { g.outlines.prewarm(added); g.renderer.compileAsync(g.scene, g.camera).catch(() => {}); }
   }
 
   // ---------------------------------------------------------------- per-frame

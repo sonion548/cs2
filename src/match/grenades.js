@@ -106,6 +106,12 @@ export class Grenades {
     this.g = game;
     this.flying = []; this.smokes = []; this.fires = []; this.decoys = []; this.fx = [];
     this.puffTex = [puffTexture(3), puffTexture(7), puffTexture(13)];
+    // An invisible cloud while the match loads, so the smoke shader compiles
+    // with the rest behind the loading screen instead of stalling the first
+    // smoke. Removed on the first update; its material is kept, which keeps
+    // the compiled shader cached for real clouds.
+    this.warm = this.cloudMesh(new THREE.Vector3(0, -100, 0), 1);
+    game.scene.add(this.warm);
     this.flameTex = flameTexture();
     this.glowTex = glowTexture();
     // A fixed set of lights, switched on and off as needed. Adding or removing a
@@ -152,6 +158,7 @@ export class Grenades {
 
   update(dt) {
     const g = this.g, world = g.level.world, now = g.time;
+    if (this.warm) { g.scene.remove(this.warm); this.keepWarm = this.warm.material; this.warm = null; }
     for (const n of [...this.flying]) {
       n.t += dt;
       if (n.rest < 1) {
@@ -290,7 +297,16 @@ export class Grenades {
     const g = this.g;
     const c = n.pos.clone(); c.y = Math.max(c.y, 0) + NADE.smoke.height * 0.5;
     const r = NADE.smoke.radius;
-    const count = { low: 14, medium: 20, high: 26, ultra: 32 }[g.q?.key] || 24;
+    const mesh = this.cloudMesh(c, { low: 14, medium: 20, high: 26, ultra: 32 }[g.q?.key] || 24);
+    g.scene.add(mesh);
+    this.smokes.push({ center: c, t: 0, r, mesh, opacity: 0 });
+    g.audio.smoke?.(c);
+    // smoke puts out fires it covers
+    for (const f of [...this.fires]) if (f.center.distanceTo(new THREE.Vector3(c.x, f.center.y, c.z)) < r + f.r * 0.5) this.endFire(f);
+  }
+  // count camera-facing puffs around c, drawn in one call
+  cloudMesh(c, count) {
+    const r = NADE.smoke.radius;
     const big = Math.sqrt(26 / count);   // fewer puffs, each a little bigger
     // its own copy of the quad, so freeing one cloud never frees another's buffers
     const geo = new THREE.InstancedBufferGeometry().copy(SMOKE_QUAD);
@@ -310,11 +326,7 @@ export class Grenades {
     const mesh = new THREE.Mesh(geo, mat);
     mesh.frustumCulled = false;
     mesh.renderOrder = 2;
-    g.scene.add(mesh);
-    this.smokes.push({ center: c, t: 0, r, mesh, opacity: 0 });
-    g.audio.smoke?.(c);
-    // smoke puts out fires it covers
-    for (const f of [...this.fires]) if (f.center.distanceTo(new THREE.Vector3(c.x, f.center.y, c.z)) < r + f.r * 0.5) this.endFire(f);
+    return mesh;
   }
   updateSmokes(dt) {
     const { duration, fade } = NADE.smoke;
