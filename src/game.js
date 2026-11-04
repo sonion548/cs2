@@ -20,6 +20,7 @@ import { Drops } from './match/drops.js';
 import { Decals } from './decals.js';
 import { Strategy } from './match/strategy.js';
 import { qualityOf, DynamicResolution } from './gfx.js';
+import { Outlines } from './outline.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 const DEG = Math.PI / 180;
@@ -43,7 +44,7 @@ export class Game {
     // --- renderer ---
     // graphics quality: preset (or the automatic pick) decides resolution, AA and shadows
     const q = this.q = qualityOf(settings);
-    const r = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: q.msaa, powerPreference: 'high-performance' });
+    const r = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: q.msaa, powerPreference: 'high-performance', stencil: true });
     this.dyn = new DynamicResolution(r, q, settings.dynamicRes !== false);
     r.shadowMap.enabled = q.shadows !== 'off';
     r.shadowMap.type = q.shadowSize >= 4096 ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
@@ -87,6 +88,7 @@ export class Game {
     }
 
     this.vm = new ViewModel(this.playerTeam, this.renderer);
+    this.outlines = new Outlines(this);
     this.hud = new Hud(this);
 
     // effects
@@ -1152,6 +1154,7 @@ export class Game {
     }
     if (p.alive) this.spec.vmFor = null;
     this.updateCharacterLooks();
+    this.outlines.update();
     // Ultra redraws shadows every frame, and hidden chunks would lose theirs: draw everything there
     if (this.q.shadows !== 'dynamic') this.level.pvs?.update(this.camera.position);
     const r = this.renderer;

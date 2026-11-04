@@ -662,7 +662,7 @@ def build(team):
     PARTS.clear()
     SHELLS.clear()
     P = PROFILES[team]
-    body = Body(**P['body'])
+    body = Body(**{**P['body'], **BODY_EXTRA})
     arm = build_armature(body.skel)
     M = Marks(body)
     win = P.get('window', (0.064, 0.022, 0.004))
@@ -815,6 +815,27 @@ def finish(team, arm, body, bake=True, size=2048, lift=None, bones=None, reduce=
 ARM_BONES = ['upperarm_R', 'forearm_R', 'hand_R', 'upperarm_L', 'forearm_L', 'hand_L']
 
 
+# Extra body settings for one build (the gun-holding arms change the hands).
+BODY_EXTRA = {}
+
+# First-person hands for guns: the right index finger lies straight along the
+# frame (off the trigger), the other fingers wrap a pistol grip, the thumb runs
+# forward along the frame; the left hand's fingers wrap round the right hand.
+GUN_HANDS = dict(
+    curl={'R': {1: 0.35, 2: 0.22, 3: 1.6, 4: 1.6, 5: 1.6}, 'L': {1: 0.85, 2: 1.35, 3: 1.4, 4: 1.45, 5: 1.45}},
+    spread={'R': {2: 14}},
+)
+
+
+def export_gun_arms(team, path, size=1024):
+    """The arms for holding guns (see GUN_HANDS); knives keep the fist."""
+    BODY_EXTRA.clear(); BODY_EXTRA.update(GUN_HANDS)
+    try:
+        export_arms(team, path, size=size)
+    finally:
+        BODY_EXTRA.clear()
+
+
 def export_arms(team, path, size=1024):
     """The arms as the player sees them: sleeves from the shoulder down and
     the gloves, skinned to six free bones (no hierarchy) that the viewmodel
@@ -881,6 +902,8 @@ def main(argv):
         if '--no-arms' not in argv:
             export_arms(team, os.path.join(out, f'arms_{team}.glb'), size=min(size, 1024))
             print(f'{team} arms: {stats()} tris')
+            export_gun_arms(team, os.path.join(out, f'arms_{team}_gun.glb'), size=min(size, 1024))
+            print(f'{team} gun arms: {stats()} tris')
     return report
 
 

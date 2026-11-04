@@ -47,6 +47,12 @@ const KNIFE_STYLE = { karambit: 'reverse', push: 'punch' };
 // guns point a touch inward, toward the crosshair
 const GUN_YAW = { rifle: 0.05, sniper: 0.04, pistol: 0.04, grenade: 0.0, bomb: 0.0 };
 
+// Where each hand's fingers close, relative to the gun's grip anchor (gun
+// units: +x right, +y up, +z back toward you), for the skinned arms.
+const HAND_AT = {
+  pistol: { R: V3(0.012, -0.01, 0), L: V3(-0.035, -0.044, 0) },
+};
+
 const GRIP_L = {
   rifle: [V3(0.75, 0.15, -0.6), V3(0.35, 0.95, 0)],    // under the handguard, fingers up its right side
   sniper: [V3(0.75, 0.15, -0.6), V3(0.35, 0.95, 0)],
@@ -261,12 +267,20 @@ export class ViewModel {
     this.armSpace = new THREE.Group();
     this.armSpace.scale.setScalar(0.55);
     this.scene.add(this.armSpace);
-    const src = assets.arms?.[team === 'CT' ? 'ct' : 't'];
+    const key = team === 'CT' ? 'ct' : 't';
+    const src = assets.arms?.[key];
     if (src) {
-      const arms = cloneSkinned(src);
-      arms.traverse(o => { if (o.isMesh) { o.castShadow = false; o.frustumCulled = false; } });
-      this.armSpace.add(arms);
-      this.armR = new SkinnedArm(arms, 1); this.armL = new SkinnedArm(arms, -1);
+      // two pairs of arms: a closed fist (knives, grenades, the bomb) and hands
+      // shaped for guns (index finger along the frame, fingers round the grip)
+      const make = (s) => {
+        const arms = cloneSkinned(s);
+        arms.traverse(o => { if (o.isMesh) { o.castShadow = false; o.frustumCulled = false; } });
+        this.armSpace.add(arms);
+        return { root: arms, R: new SkinnedArm(arms, 1), L: new SkinnedArm(arms, -1) };
+      };
+      this.fistArms = make(src);
+      this.gunArms = assets.arms[key + '_gun'] ? make(assets.arms[key + '_gun']) : null;
+      this.useArms(this.fistArms);
       this.skinned = true;
     } else {
       const M = armMaterials(team);
@@ -290,10 +304,17 @@ export class ViewModel {
     this.cycleT = -1; this.throwT = -1; this.windT = -1;
   }
 
+  useArms(set) {
+    if (!set) return;
+    for (const s of [this.fistArms, this.gunArms]) if (s) s.root.visible = s === set;
+    this.armR = set.R; this.armL = set.L;
+  }
+
   // id: weapon id; item: equipped inventory item for this weapon (or null).
   setWeapon(id, type, deployTime = 0.5, item = null) {
     if (this.gun) this.holder.remove(this.gun);
     this.id = id; this.type = type;
+    if (this.skinned) this.useArms(['melee', 'grenade', 'bomb'].includes(type) ? this.fistArms : (this.gunArms || this.fistArms));
     this.def = WEAPONS[id];
     const knifeType = item?.knife || (item ? SKINS[item.defId]?.knife : null) || 'standard';
     const modelId = id === 'knife' ? `knife:${knifeType}` : id;
@@ -495,7 +516,8 @@ export class ViewModel {
       this.shoulders ||= this.restShoulders();
       SR = this.shoulders.R; SL = this.shoulders.L;
     }
-    let R = local(world(this.skinned ? grip.clone() : grip.clone().add(new THREE.Vector3(0.012, -0.01, 0))));
+    const at = (this.handAt || HAND_AT)[t];
+    let R = local(world(this.skinned ? grip.clone().add(at?.R || V3(0, 0, 0)) : grip.clone().add(new THREE.Vector3(0.012, -0.01, 0))));
     if (handROverride) R.lerp(local(handROverride.clone()), 0.8);
     if (this.throwT >= 0 || (t === 'grenade' && !this.gun.visible)) R = local(world(grip.clone()));
     // the gun's axes in arm space, so the hands turn with it (kick, reload, inspect, swing)
@@ -508,7 +530,7 @@ export class ViewModel {
     // left hand: foregrip, pistol support, magazine during reloads, or out of view
     let L = null;
     if (ud.fore && t !== 'melee' && t !== 'grenade') L = local(world(ud.fore.clone().add(this.skinned ? new THREE.Vector3(0, -0.006, 0) : new THREE.Vector3(-0.02, -0.025, 0))));
-    else if (t === 'pistol') L = local(world(grip.clone().add(this.skinned ? new THREE.Vector3(-0.03, -0.016, 0.004) : new THREE.Vector3(-0.024, -0.022, 0.012))));
+    else if (t === 'pistol') L = local(world(grip.clone().add(this.skinned ? at.L : new THREE.Vector3(-0.024, -0.022, 0.012))));
     if (L && magReach > 0) {
       const magP = this.mag ? local(this.mag.getWorldPosition(new THREE.Vector3())) : L.clone().add(new THREE.Vector3(0, -0.15, 0.08));
       L.lerp(magP, magReach);

@@ -259,13 +259,16 @@ def _palm(P, side):
 
 
 def soldier_body(muscle=0.8, weight=0.55, height=0.55, proportions=0.85, ethnic=(0.2, 0.2, 0.6), eye_height=1.625,
-                 grip=1.0, abduct=9.0, elbow=14.0):
+                 grip=1.0, abduct=9.0, elbow=14.0, curl=None, spread=None):
     """Shaped, re-posed body in Blender space (metres, feet on Z=0).
 
     Arms hang at the sides (abduct degrees out, elbows bent `elbow` degrees
     forward, palms facing the thighs), fingers curl around an imaginary grip
-    (`grip` 0..1), legs come in to hip width. Returns a dict with verts,
-    faces/uvs/groups, posed MakeHuman bones and the game skeleton."""
+    (`grip` 0..1), legs come in to hip width. `curl` scales the curl per side
+    and finger ({'R': {2: 0.2, ...}}, 1 = thumb ... 5 = little finger) and
+    `spread` swings a finger toward the thumb in degrees (an index finger laid
+    along a gun's frame). Returns a dict with verts, faces/uvs/groups, posed
+    MakeHuman bones and the game skeleton."""
     V = to_blender(shaped(muscle=muscle, weight=weight, height=height, proportions=proportions, ethnic=ethnic))
     _, UV, F = base()
     body_idx = np.array(sorted({i for f, _, g in F if g == 'body' for i in f}))
@@ -330,19 +333,31 @@ def soldier_body(muscle=0.8, weight=0.55, height=0.55, proportions=0.85, ethnic=
         rots = {}
         for side in ('L', 'R'):
             n = _palm(bones, side)
+            cs = (curl or {}).get(side, {})
+            sp = (spread or {}).get(side, {})
+            thumb = bones[f'finger1-1.{side}'][0]
             for fi, angs in ((2, (38, 52, 30)), (3, (42, 55, 30)), (4, (46, 55, 30)), (5, (50, 52, 28))):
+                f = grip * cs.get(fi, 1.0)
                 for k, a in enumerate(angs, 1):
                     b = f'finger{fi}-{k}.{side}'
                     h, t, _ = bones[b]
                     d = (t - h) / np.linalg.norm(t - h)
                     ax = np.cross(d, n); ax /= np.linalg.norm(ax)
-                    rots[b] = rot(ax, np.radians(a) * grip)
+                    R = rot(ax, np.radians(a) * f)
+                    if k == 1 and sp.get(fi):
+                        # swing toward the thumb, within the palm plane
+                        toward = thumb - h
+                        toward = toward - n * np.dot(toward, n)
+                        sign = 1.0 if np.dot(np.cross(n, d), toward) > 0 else -1.0
+                        R = rot(n, sign * np.radians(sp[fi])) @ R
+                    rots[b] = R
+            f = grip * cs.get(1, 1.0)
             for k, a in enumerate((18, 22, 25), 1):
                 b = f'finger1-{k}.{side}'
                 h, t, _ = bones[b]
                 d = (t - h) / np.linalg.norm(t - h)
                 ax = np.cross(d, n); ax /= np.linalg.norm(ax)
-                rots[b] = rot(ax, np.radians(a) * grip)
+                rots[b] = rot(ax, np.radians(a) * f)
         apply(rots)
     # 5. legs in to about hip width (ankles a few cm outside the hip joints)
     rots = {}

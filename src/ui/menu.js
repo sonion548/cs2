@@ -512,6 +512,8 @@ export class Menu {
         <p class="note">Low: no shadows, lower resolution, simpler models. Medium: shadows drawn once, no anti-aliasing. High: sharper shadows and anti-aliasing. Ultra: shadows from players too, full resolution. Applies from the next match.</p>
         <div class="row"><label>Dynamic resolution</label><input type="checkbox" data-s="dynamicRes" ${s.dynamicRes !== false ? 'checked' : ''}><output></output></div>
         <div class="row"><label>Show FPS</label><input type="checkbox" data-s="showFps" ${s.showFps ? 'checked' : ''}><output></output></div>
+        <div class="row"><label>Teammate outlines</label><input type="checkbox" data-s="allyOutline" ${s.allyOutline !== false ? 'checked' : ''}><output></output></div>
+        <p class="note">A white glow around teammates that shows through walls.</p>
         <h3>Audio</h3>
         <div class="row"><label>Master volume</label><input type="range" min="0" max="1" step="0.01" data-s="volume" value="${s.volume}"><output>${s.volume}</output></div>
         <h3>Crosshair</h3>

@@ -241,7 +241,7 @@ export class Hud {
     const who = p.alive ? p : g.spec.target;
     setText(this.$('.place'), who ? this.placeAt(who.pos) : '');
     if (!this.$('.scoreboard').classList.contains('hidden')) this.renderScoreboard();
-    if (this.buyOpen) { if (!g.canBuy()) this.toggleBuy(false); else if ((this.buyTick = (this.buyTick || 0) + dt) > 0.25) { this.buyTick = 0; this.renderBuy(); } }
+    if (this.buyOpen) { if (!g.canBuy()) this.toggleBuy(false); else if ((this.buyTick = (this.buyTick || 0) + dt) > 0.25) { this.buyTick = 0; this.refreshBuy(); } }
   }
 
   contextHint() {
@@ -351,26 +351,44 @@ export class Hud {
   purchase(id) {
     const r = this.g.buy(this.g.player, id);
     if (r.error) this.notice(r.error, 1.5);
-    this.renderBuy();
+    this.refreshBuy();
   }
 
+  // Builds the menu, only when it opens or the category changes: rebuilding
+  // the buttons while it's open swallows clicks (a click needs the press and
+  // the release to land on the same element).
   renderBuy() {
     const g = this.g, p = g.player;
     const cats = BUY_MENU.map(([name, ids]) => [name, ids.filter(id => usableBy(id, p.team))]);
     const item = (id, i) => {
       const d = WEAPONS[id] || GEAR[id];
-      const block = buyBlock(p, id);
-      const owned = (d.slot === 1 || d.slot === 2) && p.weapons[d.slot]?.id === id;
-      return `<button data-item="${id}" class="${block && !owned ? 'no' : ''} ${owned ? 'own' : ''}" title="${block || ''}"><kbd>${i + 1}</kbd><span>${d.name}</span><b>$${priceFor(p, id)}</b>${d.cls && d.cls !== 'grenade' ? `<small>${d.cls}</small>` : ''}</button>`;
+      return `<button data-item="${id}"><kbd>${i + 1}</kbd><span>${d.name}</span><b></b>${d.cls && d.cls !== 'grenade' ? `<small>${d.cls}</small>` : ''}</button>`;
     };
     this.$('.buy').innerHTML = `
       <div class="buy-box">
-        <div class="buy-head"><h2>Buy</h2><div class="buy-money">$${p.money}</div><div class="buy-time">${g.state === 'freeze' ? 'Freeze time' : `${Math.max(0, Math.ceil(20 - g.roundTime))}s left`}</div><button data-close="1" class="x">Close</button></div>
+        <div class="buy-head"><h2>Buy</h2><div class="buy-money"></div><div class="buy-time"></div><button data-close="1" class="x">Close</button></div>
         <div class="buy-cats">${cats.map(([name], i) => `<button data-cat="${i}" class="${this.buyCat === i ? 'on' : ''}"><kbd>${i + 1}</kbd>${name}</button>`).join('')}</div>
         <div class="buy-items">${this.buyCat == null ? '<p class="hint">Pick a category (number keys or click).</p>' : cats[this.buyCat][1].map(item).join('')}</div>
         <p class="hint">Number keys: category, then item · ${keyLabel(g.binds.buy[0])} / Esc to close · buying a gun drops the one in that slot</p>
       </div>`;
     this.buyCats = cats;
+    this.refreshBuy();
+  }
+
+  // Money, time left, prices and what you can afford, updated in place.
+  refreshBuy() {
+    const g = this.g, p = g.player, root = this.$('.buy');
+    setText(root.querySelector('.buy-money'), '$' + p.money);
+    setText(root.querySelector('.buy-time'), g.state === 'freeze' ? 'Freeze time' : Math.max(0, Math.ceil(20 - g.roundTime)) + 's left');
+    for (const btn of root.querySelectorAll('button[data-item]')) {
+      const id = btn.dataset.item, d = WEAPONS[id] || GEAR[id];
+      const block = buyBlock(p, id);
+      const owned = (d.slot === 1 || d.slot === 2) && p.weapons[d.slot]?.id === id;
+      btn.classList.toggle('no', !!block && !owned);
+      btn.classList.toggle('own', owned);
+      if (btn.title !== (block || '')) btn.title = block || '';
+      setText(btn.querySelector('b'), '$' + priceFor(p, id));
+    }
   }
 
   buyKey(code) {

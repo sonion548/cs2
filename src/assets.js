@@ -25,6 +25,7 @@ export async function loadAssets(onProgress = () => {}) {
     ...MAPS.map(m => [m, `maps/${m}.glb`, (g) => { assets.maps[m] = g.scene; }]),
     ...CHARACTERS.map(c => [`char:${c}`, `characters/${c}.glb`, (g) => { assets.characters[c] = g.scene; }]),
     ...CHARACTERS.map(c => [`arms:${c}`, `characters/arms_${c}.glb`, (g) => { assets.arms[c] = g.scene; }]),
+    ...CHARACTERS.map(c => [`arms:${c}_gun`, `characters/arms_${c}_gun.glb`, (g) => { assets.arms[c + '_gun'] = g.scene; }]),
   ];
   let done = 0;
   const total = jobs.length + MAPS.length + MATCH_SURFACES.length;
