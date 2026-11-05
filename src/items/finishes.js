@@ -117,6 +117,24 @@ export const FINISH_TYPES = {
     });
   } },
 
+  doppler: { metal: 0.95, rough: 0.14, draw(ctx, W, H, p, seed) {
+    // candy-coloured anodised metal: smoky bands of colour flowing over dark
+    // steel, with a fine metallic flake. The phase's palette comes from the
+    // pattern template (patterns.js).
+    const cols = (p.palette || p.colors || ['#05030a', '#3a1a5a', '#c04ab0', '#ffb0e0']).map(C);
+    const white = C('#ffffff');
+    pixels(ctx, W, H, (x, y, o) => {
+      const w1 = fbm(x * 1.4, y * 1.4, seed, 5);
+      const w2 = fbm(x * 2.6 + w1 * 2.4, y * 2.6 - w1 * 1.8, seed + 11, 5);
+      const t = clamp01((w2 - 0.22) * 1.9);
+      const seg = t * (cols.length - 1), i = Math.min(cols.length - 2, Math.floor(seg));
+      let c = mixRgb(cols[i], cols[i + 1], smooth(0, 1, seg - i));
+      const flake = fbm(x * 90, y * 90, seed + 5, 1);
+      if (flake > 0.78) c = mixRgb(c, white, Math.min(0.35, (flake - 0.78) * 1.2));
+      set(o, c);
+    });
+  } },
+
   tempered: { metal: 0.95, rough: 0.25, draw(ctx, W, H, p, seed) {
     // heat-treated steel: patches of blue, gold and violet. Seed sets how much blue.
     const blueAmt = p.blue ?? 0.25 + ((seed * 7919) % 1000) / 1000 * 0.55;   // from the pattern template (patterns.js)

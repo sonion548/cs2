@@ -291,6 +291,9 @@ const KNIFE_FINISHES = [
   ['Black Marble', { type: 'marble', base: '#101014', vein: '#d8d8e0', vein2: '#2a2a34' }],
   ['Gold Vein', { type: 'kintsugi', base: '#141416' }],
   ['Hydro Dip', { type: 'hydro', colors: ['#1a0a3a', '#e8203a', '#ffd23a', '#3ad0ff'] }],
+  // phases and gems come from the pattern template (patterns.js)
+  ['Doppler Wave', { type: 'doppler' }],
+  ['Gamma Wave', { type: 'doppler', variant: 'gamma' }],
 ];
 
 // ---------------------------------------------------------------- stickers
@@ -356,7 +359,7 @@ for (const [type, label] of Object.entries(KNIFE_TYPES)) {
     const typeMult = { karambit: 1.8, butterfly: 1.7, combat: 1.4, bayonet: 1.2, kukri: 1.1 }[type] || 1;
     SKINS[id] = {
       id, kind: 'skin', weapon: `knife:${type}`, knife: type, name: fname, rarity: 'legendary', finish,
-      floatRange: finish && finish.type === 'gradient' ? [0, 0.08] : [0, 1],
+      floatRange: finish && (finish.type === 'gradient' || finish.type === 'doppler') ? [0, 0.08] : [0, 1],
       basePrice: Math.round((lo + (h % 1000) / 1000 * (hi - lo) * 0.4) * typeMult * (finish ? 1 : 0.7)), seedOffset: h % 997,
     };
   }

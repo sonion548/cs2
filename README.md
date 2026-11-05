@@ -257,6 +257,10 @@ dropped them.
   listings. Patterns live in `src/items/patterns.js`.
 - **Player matches pay more**: online matches against real players pay up to 2.5x the credits of the
   same result against bots (scaled by how much of the other team were people).
+- **Doppler knives**: two new knife finishes on every knife type. Doppler Wave is candy-coloured metal in
+  Phase 1-4 (Phase 2, pink, is the most sought after) with rare Ruby and Sapphire (1.5 in 100 each) and
+  Black Pearl (under 1 in 100) patterns; Gamma Wave is the green version with a rare Emerald (2 in 100).
+  Like real dopplers they only come Factory New or Minimal Wear.
 
 ## Blender models
 
