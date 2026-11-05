@@ -481,3 +481,12 @@ img:not([src]) { visibility: hidden; }
 .mk-now { margin: 6px 0 14px; } .mk-now button { border: 1px solid var(--accent); padding: 8px 14px; font: 600 14px var(--cond); text-transform: uppercase; letter-spacing: 1px; }
 .mk-sub { font: 600 13px var(--cond); text-transform: uppercase; letter-spacing: 1.5px; color: var(--dim); margin: 18px 0 8px; }
 .mk-table.small td { padding-top: 6px; padding-bottom: 6px; }
+
+/* market inspect: float slider */
+.mk-head .mk-insp { margin-left: auto; border-color: var(--accent); color: var(--text); }
+.mk-table img.insp { cursor: zoom-in; }
+.floatin { display: block; margin: 18px 0 6px; font: 600 13px var(--cond); text-transform: uppercase; letter-spacing: 1px; color: var(--dim); }
+.floatin span { display: flex; justify-content: space-between; margin-bottom: 8px; }
+.floatin b { color: var(--text); font-size: 15px; letter-spacing: 0; }
+.floatin input[type=range] { width: 100%; accent-color: var(--accent); }
+.mk-inspect .seedin { width: 90px; padding: 3px 6px; }

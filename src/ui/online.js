@@ -2,9 +2,10 @@
 // offers, matchmaking status and the player market.
 import { net } from '../net/client.js';
 import * as P from '../items/profile.js';
-import { SKINS, STICKERS, RARITY, condition, itemDef, itemTitle, WEAPON_NAMES } from '../items/catalog.js';
+import { SKINS, STICKERS, RARITY, CONDITIONS, condition, itemDef, itemTitle, WEAPON_NAMES } from '../items/catalog.js';
 import { KNIFE_TYPES } from '../shared/knives.js';
-import { thumbnail } from './studio.js';
+import { thumbnail, Viewer } from './studio.js';
+import { applySkin } from '../items/render.js';
 import { stickerCanvas } from '../items/stickers.js';
 import { audio } from '../audio.js';
 
@@ -358,7 +359,7 @@ export class OnlineUI {
     const me = net.user?.id;
     // copies of this item you own that aren't listed (to sell into a buy order)
     const own = (P.getProfile().items || []).filter(it => it.defId === defId && !it.listed);
-    page.innerHTML = `<div class="mk-head"><button class="mk-back">← Market</button><h3 style="color:${RARITY[d.rarity].color}">${h(t.weapon)} | ${h(t.name)}</h3></div>
+    page.innerHTML = `<div class="mk-head"><button class="mk-back">← Market</button><h3 style="color:${RARITY[d.rarity].color}">${h(t.weapon)} | ${h(t.name)}</h3>${SKINS[defId] ? '<button class="mk-insp" data-insp="1">Inspect in 3D</button>' : ''}</div>
       <div class="mk-item">
         <section><h4>Price history <small>value today ${CR(r.reference)} ${chg(r.change)}</small></h4>
           <div class="mk-range">${[[7, '7 days'], [30, '30 days'], [0, 'All']].map(([d, l]) => `<button data-range="${d}" class="${d === (this.chartRange ?? 30) ? 'on' : ''}">${l}</button>`).join('')}</div>
@@ -373,7 +374,7 @@ export class OnlineUI {
           ${r.myOrders.length ? `<h4>Your orders</h4><table class="mk-table small">${r.myOrders.map(o => `<tr><td>${CR(o.price)}</td><td>${o.qty} waiting</td><td><button data-cancel-order="${o.id}">Cancel</button></td></tr>`).join('')}</table>` : ''}
           ${own.length ? `<h4>Sell yours <small>to the highest buy order</small></h4><table class="mk-table small">${own.map(it => `<tr><td>${it.kind === 'skin' ? `${condition(it.float).name}<small class="mono"> ${it.float.toFixed(6)}</small>` : 'Sticker'}</td><td>${r.orders[0] ? `<button class="pri" data-sell="${it.uid}">Sell now · ${fmt(Math.floor(r.orders[0].price * 0.9))}</button>` : '<small>no buy orders</small>'}</td></tr>`).join('')}</table>` : ''}
           <h4>Listings <small>${r.listings.length}</small></h4>
-          <table class="mk-table">${r.listings.map(l => `<tr><td><img data-l="${l.id}" alt=""></td><td>${l.item.kind === 'skin' ? `${condition(l.item.float).name}<small class="mono"> ${l.item.float.toFixed(6)} · #${l.item.seed}</small>${l.item.stickers?.length ? `<small> · ${l.item.stickers.length} stickers</small>` : ''}` : ''}<small> · ${h(l.seller)}</small></td><td>${CR(l.price)}</td><td>${l.sellerId === me ? `<button data-cancel="${l.id}">Cancel</button>` : `<button class="pri" data-buy="${l.id}" data-price="${l.price}">Buy</button>`}</td></tr>`).join('') || '<tr><td>No one is selling this right now.</td></tr>'}</table>
+          <table class="mk-table">${r.listings.map(l => `<tr><td><img data-l="${l.id}" ${l.item.kind === 'skin' ? `data-insp-l="${l.id}" title="Inspect this one" class="insp"` : ''} alt=""></td><td>${l.item.kind === 'skin' ? `${condition(l.item.float).name}<small class="mono"> ${l.item.float.toFixed(6)} · #${l.item.seed}</small>${l.item.stickers?.length ? `<small> · ${l.item.stickers.length} stickers</small>` : ''}` : ''}<small> · ${h(l.seller)}</small></td><td>${CR(l.price)}</td><td>${l.sellerId === me ? `<button data-cancel="${l.id}">Cancel</button>` : `<button class="pri" data-buy="${l.id}" data-price="${l.price}">Buy</button>`}</td></tr>`).join('') || '<tr><td>No one is selling this right now.</td></tr>'}</table>
         </section>
       </div>`;
     for (const img of page.querySelectorAll('img[data-l]')) { const l = r.listings.find(x => x.id === img.dataset.l); itemImg(l.item, img, true); }
@@ -387,6 +388,9 @@ export class OnlineUI {
       draw();
     };
     page.querySelector('.mk-back').onclick = () => this.renderMarket(page);
+    // inspect: the header button shows a typical copy, a listing's picture that exact copy
+    page.querySelector('.mk-insp')?.addEventListener('click', () => this.inspectSkin(defId));
+    for (const img of page.querySelectorAll('img[data-insp-l]')) img.addEventListener('click', () => this.inspectSkin(defId, r.listings.find(x => x.id === img.dataset.inspL)?.item));
     const form = page.querySelector('.mk-order'), total = form.querySelector('.mk-total');
     const updTotal = () => {
       const p = Math.round(+form.price.value || 0), q = Math.round(+form.qty.value || 0), low = r.listings[0]?.price;
@@ -438,6 +442,71 @@ export class OnlineUI {
   }
 
   // Sales scatter + daily median line.
+  // 3D inspect for any skin on the market: drag to turn it, scroll to zoom,
+  // a slider for the float (across the finish's wear range) and the pattern.
+  // While the slider moves the finish is repainted at half resolution so it
+  // keeps up, then at full resolution when it is let go.
+  inspectSkin(defId, base = null) {
+    const d = SKINS[defId]; if (!d) return;
+    const [lo, hi] = d.floatRange;
+    const it = { kind: 'skin', defId, float: base?.float ?? +(lo + (hi - lo) * 0.25).toFixed(4), seed: base?.seed ?? 1, stickers: base?.stickers || [], tally: base?.tally ?? null };
+    const t = defTitle(defId), r = RARITY[d.rarity];
+    const layer = this.m.$('.modal-layer');
+    const pct = (f) => ((f - lo) / Math.max(1e-6, hi - lo) * 100).toFixed(2);
+    layer.innerHTML = `
+      <div class="modal inspect mk-inspect" style="--rc:${r.color}">
+        <div class="view"><div class="vp"></div>
+          <div class="presets">${['left', 'right', 'top', 'muzzle'].map(v => `<button data-view="${v}">${v}</button>`).join('')}</div>
+          <p class="hint">Drag to rotate · scroll to zoom</p>
+        </div>
+        <div class="info">
+          <button class="x" data-act="close">Close</button>
+          <div class="rar"><i></i>${r.name}${d.knife ? ' · Knife' : ''}</div>
+          <h2><small>${h(t.weapon)}</small>${h(t.name)}</h2>
+          <label class="floatin"><span>Float <b class="mono fv"></b></span>
+            <input type="range" min="${lo}" max="${hi}" step="0.0001" value="${it.float}"></label>
+          <div class="wearbar">${CONDITIONS.map((cc, i) => { const a = i ? CONDITIONS[i - 1].max : 0; return `<span data-c="${cc.id}" style="flex:${cc.max - a}">${cc.id}</span>`; }).join('')}<b></b></div>
+          <dl>
+            <dt>Condition</dt><dd class="cn"></dd>
+            <dt>Pattern</dt><dd><input class="seedin mono" type="number" min="0" max="999" step="1" value="${it.seed}"></dd>
+            <dt>Value today</dt><dd class="vt"></dd>
+            ${it.stickers.length ? `<dt>Stickers</dt><dd>${it.stickers.length}</dd>` : ''}
+          </dl>
+          <p class="note">${base ? 'This is the listed copy; move the slider to compare other floats.' : 'Move the slider to see the finish at any float this skin can have.'} This skin's floats run from ${lo.toFixed(2)} to ${hi.toFixed(2)}.</p>
+        </div>
+      </div>`;
+    const v = new Viewer(layer.querySelector('.vp'), { autoRotate: false });
+    v.setItem(it);
+    const gun = () => v.pivot.children[0];
+    const slider = layer.querySelector('input[type=range]'), seedIn = layer.querySelector('.seedin');
+    const info = () => {
+      const c = condition(it.float);
+      layer.querySelector('.fv').textContent = it.float.toFixed(4);
+      layer.querySelector('.cn').textContent = c.name;
+      layer.querySelector('.vt').innerHTML = CR(P.marketPrice(it));
+      for (const sp of layer.querySelectorAll('.wearbar span')) sp.classList.toggle('on', sp.dataset.c === c.id);
+      layer.querySelector('.wearbar b').style.left = `${(it.float * 100).toFixed(2)}%`;
+      slider.style.setProperty('--p', pct(it.float) + '%');
+    };
+    let queued = 0, fine = 0;
+    const repaint = (size) => { applySkin(gun(), it, { size }); };
+    const onInput = () => {
+      it.float = +(+slider.value).toFixed(4); info();
+      if (!queued) queued = requestAnimationFrame(() => { queued = 0; repaint(512); });
+      clearTimeout(fine); fine = setTimeout(() => repaint(1024), 250);
+    };
+    slider.addEventListener('input', onInput);
+    seedIn.addEventListener('change', () => { it.seed = Math.max(0, Math.min(999, Math.round(+seedIn.value || 0))); seedIn.value = it.seed; repaint(1024); info(); });
+    info();
+    const close = () => { cancelAnimationFrame(queued); clearTimeout(fine); v.dispose(); layer.innerHTML = ''; layer.onclick = null; };
+    layer.onclick = (e) => {
+      const b = e.target.closest('button');
+      if (!b) { if (e.target === layer.firstElementChild) close(); return; }
+      if (b.dataset.view) return v.view(b.dataset.view);
+      if (b.dataset.act === 'close') close();
+    };
+  }
+
   // Price chart: sales as dots, their daily median as a line, and the item's
   // value on each day as a dashed step line. days: 7, 30, or 0 for everything.
   drawChart(cv, allSales, ref, values = [], days = 30) {
