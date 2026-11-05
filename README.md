@@ -255,6 +255,8 @@ dropped them.
   Nebula Swirl comes in Phases 1-4 or, rarely, Sapphire, Ruby or Black Pearl. Rare patterns look
   different, sell for more (a Tier 1 Blue Gem about 8x) and are named in the inspect screens and on market
   listings. Patterns live in `src/items/patterns.js`.
+- **Player matches pay more**: online matches against real players pay up to 2.5x the credits of the
+  same result against bots (scaled by how much of the other team were people).
 
 ## Blender models
 

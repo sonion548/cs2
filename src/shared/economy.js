@@ -211,13 +211,16 @@ export function scrapeSticker(state, skinUid, slot) {
 // bots, harder bots pay more: botSkill 0.05 (Recruit) is about 0.7x, 0.3
 // (Regular) 1x, 0.55 (Veteran) 1.4x, 0.78 (Expert) 1.7x, 0.95 (Elite) 1.9x.
 export const difficultyPay = (skill) => skill == null ? 1 : 0.6 + 1.4 * Math.max(0, Math.min(1, +skill || 0));
+// Matches against real players pay more: pvp is the share of the other team
+// that were people (0 to 1), and a full team of players pays 2.5x.
+export const pvpPay = (share) => 1 + 1.5 * Math.max(0, Math.min(1, +share || 0));
 export function awardMatch(state, result, r = Math.random) {
   const s = result.stats;
   const done = !result.abandoned;
   const roundsWon = result.score?.[result.team] ?? 0;
   let credits = (done ? (result.won ? 450 : 180) : 0) + s.kills * 35 + s.assists * 15 + roundsWon * 20;
   credits *= result.teamSize >= 5 ? 1 : 0.6 + result.teamSize * 0.08;
-  credits = Math.max(done ? 60 : 15, Math.round(credits * difficultyPay(result.botSkill)));
+  credits = Math.max(done ? 60 : 15, Math.round(credits * difficultyPay(result.botSkill) * pvpPay(result.pvp)));
   state.credits += credits;
   state.xp += 100 + s.kills * 20 + (result.won ? 150 : 0);
   state.stats.matches++; if (result.won) state.stats.wins++;

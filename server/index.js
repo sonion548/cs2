@@ -220,7 +220,9 @@ function settleRoom(room, report) {
       ranked = applyMatch(L, { ...result, oppRating: L.mmr }, (mmr) => ladderPosition(lid, mmr, u.id));
     }
     // everyone is paid; someone who left keeps only what they earned (no win/loss bonus, no drops)
-    const reward = E.awardMatch(u, { ...result, botSkill: room.members.length < room.size * 2 ? room.botSkill ?? null : null });
+    // matches against people pay more: the share of the other team that were players
+    const pvp = room.members.filter(o => o.team !== m.team).length / Math.max(1, room.size);
+    const reward = E.awardMatch(u, { ...result, pvp, botSkill: room.members.length < room.size * 2 ? room.botSkill ?? null : null });
     push(m.id, 'match.result', { ...result, ranked, reward, players: report.players || [], profile: profileOf(u) });
   }
   db.dirty();
