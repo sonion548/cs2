@@ -214,13 +214,16 @@ export const difficultyPay = (skill) => skill == null ? 1 : 0.6 + 1.4 * Math.max
 // Matches against real players pay more: pvp is the share of the other team
 // that were people (0 to 1), and a full team of players pays 2.5x.
 export const pvpPay = (share) => 1 + 1.5 * Math.max(0, Math.min(1, +share || 0));
+// Overall pay level: a 2v2 win against Regular bots with 12 kills pays about
+// 1,500 credits; every mode, difficulty and player match scales with it.
+const PAY = 1.9;
 export function awardMatch(state, result, r = Math.random) {
   const s = result.stats;
   const done = !result.abandoned;
   const roundsWon = result.score?.[result.team] ?? 0;
   let credits = (done ? (result.won ? 450 : 180) : 0) + s.kills * 35 + s.assists * 15 + roundsWon * 20;
   credits *= result.teamSize >= 5 ? 1 : 0.6 + result.teamSize * 0.08;
-  credits = Math.max(done ? 60 : 15, Math.round(credits * difficultyPay(result.botSkill) * pvpPay(result.pvp)));
+  credits = Math.max(done ? 60 : 15, Math.round(credits * PAY * difficultyPay(result.botSkill) * pvpPay(result.pvp)));
   state.credits += credits;
   state.xp += 100 + s.kills * 20 + (result.won ? 150 : 0);
   state.stats.matches++; if (result.won) state.stats.wins++;
