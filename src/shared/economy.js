@@ -2,6 +2,7 @@
 // Every action takes a profile state object and mutates it in place,
 // returning { error } or a result.
 import { SKINS, STICKERS, CASES, RARITIES, RARITY, KEY_PRICE, STICKER_CAPSULE, condition, itemDef } from '../items/catalog.js';
+import { patternInfo } from '../items/patterns.js';
 
 export function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 10); }
 
@@ -89,8 +90,7 @@ export function marketPrice(item, day = dayOf()) {
   if (item.kind === 'sticker') return Math.max(1, Math.round(d.basePrice * priceIndex(item.defId, day)));
   let p = d.basePrice * priceIndex(item.defId, day) * COND_MULT[condition(item.float).id];
   if (item.float < 0.01) p *= 1.4;
-  if (d.finish?.type === 'tempered') p *= 1 + Math.max(0, (((item.seed * 13 + (d.seedOffset || 0)) * 7919) % 1000) / 1000 - 0.6) * 6;
-  if (d.finish?.type === 'gradient' && item.seed % 1000 > 900) p *= 1.6;
+  p *= patternInfo(d, item.seed).mult;   // blue gems, full fades, gem phases (patterns.js)
   if (item.tally != null) p *= 1.35;
   for (const s of item.stickers || []) p += (STICKERS[s.defId]?.basePrice || 0) * priceIndex(s.defId, day) * 0.12 * (1 - (s.wear || 0));
   return Math.max(1, Math.round(p));

@@ -249,6 +249,12 @@ dropped them.
 - **Every match pays credits**: harder bots pay more (about 0.7x on Recruit, 1x Regular, 1.4x Veteran,
   1.7x Expert, 1.9x Elite), and leaving a match early keeps the credits for your kills, assists and rounds
   won (no win/loss bonus or case drops). Online matches pay everyone, including players who left.
+- **Rare knife patterns**: a skin's pattern number (rolled when it drops) now picks a named pattern from
+  its finish's template. Tempered Bloom can be a Blue Gem (Tier 1, about 1 in 100, nearly all blue),
+  a Tier 2 Blue Gem (3 in 100) or a Gold Gem (1 in 40); fades run 80-99% with a 1 in 20 Full Fade; the
+  Nebula Swirl comes in Phases 1-4 or, rarely, Sapphire, Ruby or Black Pearl. Rare patterns look
+  different, sell for more (a Tier 1 Blue Gem about 8x) and are named in the inspect screens and on market
+  listings. Patterns live in `src/items/patterns.js`.
 
 ## Blender models
 

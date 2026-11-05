@@ -274,7 +274,7 @@ const KNIFE_FINISHES = [
   ['Folded Steel', { type: 'folded', base: '#b0b6be', dark: '#2e3238' }],
   ['Glacier Fade', { type: 'gradient', colors: ['#e9f6ff', '#6cc4f0', '#2a4cc0', '#160f40'] }],
   ['Sunset Fade', { type: 'gradient', colors: ['#ffe07a', '#ff7a3a', '#c41e6a', '#3a0f5a'] }],
-  ['Nebula Swirl', { type: 'swirl', colors: ['#1a0f3a', '#6a2ab8', '#ff5ac8', '#ffd0f0', '#3ad0ff'] }],
+  ['Nebula Swirl', { type: 'swirl', colors: ['#1a0f3a', '#6a2ab8', '#ff5ac8', '#ffd0f0', '#3ad0ff'], phases: true }],
   ['Emerald Swirl', { type: 'swirl', colors: ['#021a10', '#0a6a3a', '#3ae08a', '#c8ffd8'], metal: 0.9 }],
   ['Ruby Swirl', { type: 'swirl', colors: ['#1a0206', '#6a0a1a', '#e0203a', '#ffb0b8'], metal: 0.9 }],
   ['Night Stalker', { type: 'paint', base: '#141518' }],

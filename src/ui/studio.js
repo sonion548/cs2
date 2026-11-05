@@ -105,7 +105,7 @@ export class Viewer {
 // and in IndexedDB (so they survive reloads), visible requests jump the queue,
 // and pages can warm previews in idle time before they're needed.
 let thumbR = null, thumbScene, thumbCam;
-const THUMB_VERSION = 'v3|';            // bump when models or finishes change so old previews are dropped
+const THUMB_VERSION = 'v4|';            // bump when models or finishes change so old previews are dropped
 const thumbCache = new Map();
 const pending = new Map();              // key -> callbacks waiting for it
 const queue = [], idleQueue = [];

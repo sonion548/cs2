@@ -1,4 +1,5 @@
 // Main menu / client shell: Play, Inventory, Cases, Career, Settings.
+import { patternInfo } from '../items/patterns.js';
 import { Viewer, thumbnail, previewItem, warmThumbnails } from './studio.js';
 import { QUALITY, QUALITY_ORDER, detectQuality } from '../gfx.js';
 import * as P from '../items/profile.js';
@@ -295,7 +296,7 @@ export class Menu {
             <dl>
               <dt>Condition</dt><dd>${c.name}</dd>
               <dt>Float</dt><dd class="mono">${it.float.toFixed(9)}</dd>
-              <dt>Pattern</dt><dd class="mono">${it.seed}</dd>
+              <dt>Pattern</dt><dd class="mono">${it.seed}${(() => { const pt = patternInfo(d, it.seed); return pt.name ? ` · <span class="${pt.special ? 'pat-special' : ''}">${h(pt.name)}</span>` : ''; })()}</dd>
               ${it.tally != null ? `<dt>Tally</dt><dd class="mono">${it.tally} confirmed kills</dd>` : ''}
               <dt>Market</dt><dd>${CR(P.marketPrice(it))}</dd>
             </dl>

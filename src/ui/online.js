@@ -6,6 +6,7 @@ import { SKINS, STICKERS, RARITY, CONDITIONS, condition, itemDef, itemTitle, WEA
 import { KNIFE_TYPES } from '../shared/knives.js';
 import { thumbnail, Viewer } from './studio.js';
 import { applySkin } from '../items/render.js';
+import { patternInfo } from '../items/patterns.js';
 import { stickerCanvas } from '../items/stickers.js';
 import { audio } from '../audio.js';
 
@@ -374,7 +375,7 @@ export class OnlineUI {
           ${r.myOrders.length ? `<h4>Your orders</h4><table class="mk-table small">${r.myOrders.map(o => `<tr><td>${CR(o.price)}</td><td>${o.qty} waiting</td><td><button data-cancel-order="${o.id}">Cancel</button></td></tr>`).join('')}</table>` : ''}
           ${own.length ? `<h4>Sell yours <small>to the highest buy order</small></h4><table class="mk-table small">${own.map(it => `<tr><td>${it.kind === 'skin' ? `${condition(it.float).name}<small class="mono"> ${it.float.toFixed(6)}</small>` : 'Sticker'}</td><td>${r.orders[0] ? `<button class="pri" data-sell="${it.uid}">Sell now · ${fmt(Math.floor(r.orders[0].price * 0.9))}</button>` : '<small>no buy orders</small>'}</td></tr>`).join('')}</table>` : ''}
           <h4>Listings <small>${r.listings.length}</small></h4>
-          <table class="mk-table">${r.listings.map(l => `<tr><td><img data-l="${l.id}" ${l.item.kind === 'skin' ? `data-insp-l="${l.id}" title="Inspect this one" class="insp"` : ''} alt=""></td><td>${l.item.kind === 'skin' ? `${condition(l.item.float).name}<small class="mono"> ${l.item.float.toFixed(6)} · #${l.item.seed}</small>${l.item.stickers?.length ? `<small> · ${l.item.stickers.length} stickers</small>` : ''}` : ''}<small> · ${h(l.seller)}</small></td><td>${CR(l.price)}</td><td>${l.sellerId === me ? `<button data-cancel="${l.id}">Cancel</button>` : `<button class="pri" data-buy="${l.id}" data-price="${l.price}">Buy</button>`}</td></tr>`).join('') || '<tr><td>No one is selling this right now.</td></tr>'}</table>
+          <table class="mk-table">${r.listings.map(l => `<tr><td><img data-l="${l.id}" ${l.item.kind === 'skin' ? `data-insp-l="${l.id}" title="Inspect this one" class="insp"` : ''} alt=""></td><td>${l.item.kind === 'skin' ? `${condition(l.item.float).name}<small class="mono"> ${l.item.float.toFixed(6)} · #${l.item.seed}</small>${(() => { const pt = patternInfo(SKINS[l.item.defId], l.item.seed); return pt.special ? ` <b class="pat-special">${h(pt.name)}</b>` : ''; })()}${l.item.stickers?.length ? `<small> · ${l.item.stickers.length} stickers</small>` : ''}` : ''}<small> · ${h(l.seller)}</small></td><td>${CR(l.price)}</td><td>${l.sellerId === me ? `<button data-cancel="${l.id}">Cancel</button>` : `<button class="pri" data-buy="${l.id}" data-price="${l.price}">Buy</button>`}</td></tr>`).join('') || '<tr><td>No one is selling this right now.</td></tr>'}</table>
         </section>
       </div>`;
     for (const img of page.querySelectorAll('img[data-l]')) { const l = r.listings.find(x => x.id === img.dataset.l); itemImg(l.item, img, true); }
@@ -468,7 +469,7 @@ export class OnlineUI {
           <div class="wearbar">${CONDITIONS.map((cc, i) => { const a = i ? CONDITIONS[i - 1].max : 0; return `<span data-c="${cc.id}" style="flex:${cc.max - a}">${cc.id}</span>`; }).join('')}<b></b></div>
           <dl>
             <dt>Condition</dt><dd class="cn"></dd>
-            <dt>Pattern</dt><dd><input class="seedin mono" type="number" min="0" max="999" step="1" value="${it.seed}"></dd>
+            <dt>Pattern</dt><dd><input class="seedin mono" type="number" min="0" max="999" step="1" value="${it.seed}"> <span class="pn"></span></dd>
             <dt>Value today</dt><dd class="vt"></dd>
             ${it.stickers.length ? `<dt>Stickers</dt><dd>${it.stickers.length}</dd>` : ''}
           </dl>
@@ -484,6 +485,8 @@ export class OnlineUI {
       layer.querySelector('.fv').textContent = it.float.toFixed(4);
       layer.querySelector('.cn').textContent = c.name;
       layer.querySelector('.vt').innerHTML = CR(P.marketPrice(it));
+      const pt = patternInfo(d, it.seed), pn = layer.querySelector('.pn');
+      pn.textContent = pt.name; pn.className = 'pn' + (pt.special ? ' pat-special' : '');
       for (const sp of layer.querySelectorAll('.wearbar span')) sp.classList.toggle('on', sp.dataset.c === c.id);
       layer.querySelector('.wearbar b').style.left = `${(it.float * 100).toFixed(2)}%`;
       slider.style.setProperty('--p', pct(it.float) + '%');

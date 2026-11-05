@@ -1,6 +1,7 @@
 // Procedural weapon finishes. Each finish type paints a 2:1 canvas from a set
 // of parameters plus the item's pattern seed (0–999), which shifts, rotates
 // or recolours the pattern so no two seeds look exactly alike.
+import { patternInfo } from './patterns.js';
 import { fbm, voronoi, valueNoise, rng, hexToRgb, mixRgb, mix, smooth, clamp01 } from '../noise.js';
 import { ART_FINISHES } from './finishes_art.js';
 import { HandCtx, paper } from './handdrawn.js';
@@ -83,7 +84,8 @@ export const FINISH_TYPES = {
 
   gradient: { metal: 0.65, rough: 0.22, draw(ctx, W, H, p, seed) {
     const cols = p.colors.map(C);
-    const shift = (seed % 1000) / 1000 * 0.6 - 0.3; // seed slides the gradient
+    // how far the fade runs (pattern template): 80% shows less of the far colours, a full fade all of them
+    const shift = p.fade != null ? (p.fade - 0.9) * 3 : (seed % 1000) / 1000 * 0.6 - 0.3;
     pixels(ctx, W, H, (x, y, o) => {
       let t = clamp01((x / 2) * 1.2 - 0.1 + shift + (y - 0.5) * 0.35);
       const n = fbm(x * 3, y * 3, seed, 3) * 0.08;
@@ -94,11 +96,13 @@ export const FINISH_TYPES = {
   } },
 
   swirl: { metal: 0.6, rough: 0.2, draw(ctx, W, H, p, seed) {
-    const cols = p.colors.map(C);
+    // gem phases swap in one jewel tone; Phase 1-4 change which colour leads
+    const cols = (p.gem || p.colors).map(C);
+    const bias = p.phase ? [0.6, 1, 1.7, 2.6][p.phase - 1] : 1;
     pixels(ctx, W, H, (x, y, o) => {
       const w1 = fbm(x * 2 + seed * 0.01, y * 2, seed, 5);
       const w2 = fbm(x * 2 + w1 * 3, y * 2 + w1 * 2, seed + 3, 5);
-      const t = (Math.sin((w2 * 6 + x) * Math.PI) * 0.5 + 0.5);
+      const t = Math.pow(Math.sin((w2 * 6 + x) * Math.PI) * 0.5 + 0.5, bias);
       const seg = t * (cols.length - 1), i = Math.min(cols.length - 2, Math.floor(seg));
       set(o, mixRgb(cols[i], cols[i + 1], seg - i));
     });
@@ -115,7 +119,7 @@ export const FINISH_TYPES = {
 
   tempered: { metal: 0.95, rough: 0.25, draw(ctx, W, H, p, seed) {
     // heat-treated steel: patches of blue, gold and violet. Seed sets how much blue.
-    const blueAmt = 0.25 + ((seed * 7919) % 1000) / 1000 * 0.55;
+    const blueAmt = p.blue ?? 0.25 + ((seed * 7919) % 1000) / 1000 * 0.55;   // from the pattern template (patterns.js)
     const blue = C('#2f58b8'), gold = C('#b88a3a'), vio = C('#6a3f8a'), steel = C('#8a8e94');
     pixels(ctx, W, H, (x, y, o) => {
       const n = fbm(x * 2.5, y * 2.5, seed, 5);
@@ -492,16 +496,18 @@ export function paintFinish(def, seed, W = 1024, H = 512) {
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   const ctx = c.getContext('2d');
   const type = def.finish.type;
+  const pat = patternInfo(def, seed);
+  const params = pat.params ? { ...def.finish, ...pat.params } : def.finish;
   const ft = FINISH_TYPES[type];
   const s = seed * 13 + (def.seedOffset || 0);
   if (HAND_DRAWN[type]) {
     // keep stroke widths consistent across texture sizes
     const k = W / 1024;
     const h = new HandCtx(ctx, { seed: s, style: HAND_DRAWN[type], wobble: 0.6 + k * 0.6 });
-    ft.draw(h, W, H, def.finish, s);
+    ft.draw(h, W, H, params, s);
     paper(c, s, 0.9);
   } else {
-    ft.draw(ctx, W, H, def.finish, s);
+    ft.draw(ctx, W, H, params, s);
     if (PAPER_ONLY[type]) paper(c, s, 0.7);
   }
   return { canvas: c, metal: def.finish.metal ?? ft.metal, rough: def.finish.rough ?? ft.rough };
