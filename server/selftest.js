@@ -1,6 +1,8 @@
 // End-to-end check of the server with two simulated players.
 //   node server/selftest.js ws://localhost:8080/ws
 import WebSocket from 'ws';
+import { CONDITIONS, condition } from '../src/items/catalog.js';
+import { conditionsFor } from '../src/shared/economy.js';
 
 const URL = process.argv[2] || 'ws://localhost:8080/ws';
 
@@ -76,7 +78,11 @@ if (!bots) {
   ok(hist.sales.length >= 1, 'sale recorded in price history');
   // buy orders: B wants two at 150, A sells into the order, B cancels the rest
   const bc0 = (await b.rpc('profile.get')).profile.credits;
-  const ord = await b.rpc('market.order', { defId: skin.defId, price: 150, qty: 2 });
+  // orders name a condition: the skin's own, so it can fill this one
+  const cond = condition(skin.float).id;
+  const wrong = await b.rpc('market.order', { defId: skin.defId, price: 150, qty: 1 });
+  ok(wrong.error, 'a skin buy order needs a condition');
+  const ord = await b.rpc('market.order', { defId: skin.defId, cond, price: 150, qty: 2 });
   ok(ord.ok && ord.waiting === 2 && ord.profile.credits === bc0 - 300, 'buy order placed, credits held');
   const ac0 = (await a.rpc('profile.get')).profile.credits;
   const sold = await a.rpc('market.sellToOrder', { uid: skin.uid });
@@ -88,7 +94,14 @@ if (!bots) {
   const canc = await b.rpc('market.cancelOrder', { id: mineB.orders[0].id });
   ok(canc.ok && canc.profile.credits === bp.credits + 150, 'cancelled order returned the held credits');
   // a listing at or below a waiting order sells to it at once
-  const ord2 = await a.rpc('market.order', { defId: skin.defId, price: 120, qty: 1 });
+  const other = CONDITIONS.map(c => c.id).find(c => c !== cond && conditionsFor(skin.defId).includes(c));
+  if (other) {
+    const ordX = await a.rpc('market.order', { defId: skin.defId, cond: other, price: 200, qty: 1 });
+    const noFill = await b.rpc('market.sellToOrder', { uid: skin.uid });
+    ok(ordX.ok && noFill.error, 'an order for another condition does not take this copy');
+    await a.rpc('market.cancelOrder', { id: (await a.rpc('market.mine')).orders[0].id });
+  }
+  const ord2 = await a.rpc('market.order', { defId: skin.defId, cond, price: 120, qty: 1 });
   const instant = await b.rpc('market.list', { uid: skin.uid, price: 100 });
   ok(ord2.ok && instant.ok && instant.sold && instant.price === 120, 'new listing filled a waiting buy order at its price');
 } else {
@@ -106,7 +119,7 @@ if (!bots) {
   ok(back.ok && back.price < lst.price, 'sold to a bot buy order for less than it cost (no credit loop)');
   // an order far below value just waits; cancelling returns the credits
   const c1 = back.profile.credits;
-  const low = await a.rpc('market.order', { defId: cheap.defId, price: 1, qty: 3 });
+  const low = await a.rpc('market.order', { defId: cheap.defId, cond: conditionsFor(cheap.defId)[0] || null, price: 1, qty: 3 });
   ok(low.ok && low.waiting === 3 && low.profile.credits === c1 - 3, 'low buy order waits with credits held');
   const mineA = await a.rpc('market.mine');
   const cl = await a.rpc('market.cancelOrder', { id: mineA.orders[0].id });

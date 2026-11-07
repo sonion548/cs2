@@ -1,7 +1,7 @@
 // Inventory/economy rules shared by the offline profile and the server.
 // Every action takes a profile state object and mutates it in place,
 // returning { error } or a result.
-import { SKINS, STICKERS, CASES, RARITIES, RARITY, KEY_PRICE, STICKER_CAPSULE, GLOVE_TYPES, condition, itemDef } from '../items/catalog.js';
+import { SKINS, STICKERS, CASES, RARITIES, RARITY, KEY_PRICE, STICKER_CAPSULE, GLOVE_TYPES, CONDITIONS, condition, itemDef } from '../items/catalog.js';
 import { KNIFE_TYPES } from './knives.js';
 import { patternInfo } from '../items/patterns.js';
 
@@ -100,6 +100,58 @@ export function marketPrice(item, day = dayOf()) {
   return Math.max(1, Math.round(p));
 }
 export const QUICK_SELL = 0.87;
+
+// ---------------------------------------------------------------- buy orders
+// A buy order names the wear condition it wants (FN, MW, FT, WW or BS) and,
+// for finishes whose patterns have names (Doppler phases and gems, Blue Gems,
+// Full Fades), optionally one pattern, so a bid for a Factory New knife can't
+// be filled with a Battle-Scarred one. Orders placed before conditions
+// existed only take copies worth at least 85% of what they pay.
+export function orderAccepts(o, it) {
+  if (!it || it.defId !== o.defId) return false;
+  const d = SKINS[o.defId];
+  if (!d) return true;                                   // stickers have no wear
+  if (o.cond && condition(it.float).id !== o.cond) return false;
+  if (o.pattern && patternInfo(d, it.seed).name !== o.pattern) return false;
+  if (!o.cond && !o.pattern) return marketPrice(it) >= o.price * 0.85;
+  return true;
+}
+// The conditions a finish can come in (its float range decides).
+export function conditionsFor(defId) {
+  const d = SKINS[defId];
+  if (!d) return [];
+  const [lo, hi] = d.floatRange, out = [];
+  let prev = 0;
+  for (const c of CONDITIONS) { if (lo <= c.max && hi > prev) out.push(c.id); prev = c.max; }
+  return out;
+}
+// The float range of a condition within a finish's range.
+export function condRange(defId, cond) {
+  const d = SKINS[defId], i = CONDITIONS.findIndex(c => c.id === cond);
+  const lo = i > 0 ? CONDITIONS[i - 1].max : 0, hi = i >= 0 ? CONDITIONS[i].max : 1;
+  return [Math.max(d.floatRange[0], lo), Math.min(d.floatRange[1], hi)];
+}
+// Named patterns worth asking for (phases, gems, Full Fade); plain
+// percentages ("47% blue") aren't.
+const patternCache = new Map();
+export function patternsFor(defId) {
+  if (patternCache.has(defId)) return patternCache.get(defId);
+  const d = SKINS[defId], out = [];
+  if (d?.finish) for (let i = 0; i < 1000; i++) { const n = patternInfo(d, i).name; if (n && !n.includes('%') && !out.includes(n)) out.push(n); }
+  patternCache.set(defId, out);
+  return out;
+}
+// A typical copy in a condition (and pattern): what a fair bid is measured against.
+export function typicalCopy(defId, cond, pattern = null) {
+  const d = SKINS[defId];
+  const [lo, hi] = condRange(defId, cond);
+  let seed = 1;
+  for (let i = 1; i < 1000; i++) {
+    const p = patternInfo(d, i);
+    if (pattern ? p.name === pattern : p.mult === 1 || !p.special) { seed = i; break; }
+  }
+  return { kind: 'skin', defId, float: (lo + hi) / 2, seed, tally: null, stickers: [] };
+}
 
 // ---------------------------------------------------------------- creation
 export function makeSkin(defId, r = Math.random) {

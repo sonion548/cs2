@@ -2,10 +2,14 @@
 //
 //  - Listings (asks): an item for sale at a fixed price. A player's item stays
 //    in their inventory (marked listed) until it sells.
-//  - Buy orders (bids): "I'll pay up to P for any <item>", with the credits
-//    held when the order is placed. Selling to an order is instant. A new
-//    listing at or below the best order fills it straight away, and a new
-//    order at or above the cheapest listing buys it straight away.
+//  - Buy orders (bids): "I'll pay up to P for <item> in <condition>" (and,
+//    for phases, gems and fades, optionally one pattern), with the credits
+//    held when the order is placed. Only a matching copy can fill an order.
+//    Selling to an order is instant. A new listing at or below the best
+//    matching order fills it straight away, and a new order at or above the
+//    cheapest matching listing buys it straight away, at the listing's price.
+//    Bots fill orders at their own asking price for the copy they hand over
+//    (never more than it's worth) and the rest of the bid goes back.
 //  - Bot traders keep every item stocked with listings a little above its
 //    reference price, hold buy orders a little below it, buy reasonably priced
 //    player listings after a while, sell into reasonable player orders, and
@@ -18,6 +22,7 @@
 //    and the seeded price history follows the same day-by-day values.
 import { SKINS, STICKERS, RARITY, WEAPON_NAMES, GLOVE_TYPES, itemDef } from '../src/items/catalog.js';
 import { KNIFE_TYPES } from '../src/shared/knives.js';
+import { patternInfo } from '../src/items/patterns.js';
 
 const BOT_NAMES = ['Kestrel Trading', 'Dune Exchange', 'Souk Supply', 'Mirage Goods', 'Oasis Market', 'Atlas Traders', 'Sable & Co', 'Harbor Arms'];
 const TICK_MS = 30000;
@@ -66,6 +71,35 @@ export class Market {
     return this.E.marketPrice({ kind: 'skin', defId, float: Math.min(0.99, s.floatRange[1]), seed: 1, tally: null, stickers: [] });
   }
   makeItem(defId) { return SKINS[defId] ? this.E.makeSkin(defId) : this.E.makeSticker(defId); }
+  // What a bot asks for a copy: its value and a little on top.
+  ask(it, k = 1.04) { return Math.max(1, Math.round(this.E.marketPrice(it) * k)); }
+  // A bot's copy that an order accepts (null if it can't find one).
+  copyFor(o) {
+    if (!SKINS[o.defId]) return this.E.makeSticker(o.defId);
+    for (let k = 0; k < 40; k++) {
+      const c = this.E.makeSkin(o.defId);
+      if (o.cond) { const [lo, hi] = this.E.condRange(o.defId, o.cond); c.float = +(lo + Math.random() * (hi - lo)).toFixed(9); }
+      if (o.pattern) {
+        const seeds = this.patternSeeds(o.defId, o.pattern);
+        if (!seeds.length) return null;
+        c.seed = pick(seeds);
+      }
+      if (this.E.orderAccepts(o, c)) return c;
+    }
+    return null;
+  }
+  patternSeeds(defId, name) {
+    this._seeds ||= new Map();
+    const key = defId + '|' + name;
+    if (!this._seeds.has(key)) {
+      const out = [];
+      for (let i = 0; i < 1000; i++) if (patternInfo(SKINS[defId], i).name === name) out.push(i);
+      this._seeds.set(key, out);
+    }
+    return this._seeds.get(key);
+  }
+  // the best order (highest, then oldest) that would take this copy
+  bestBidFor(it, exclude = null) { return this.bids(it.defId, exclude).find(o => this.E.orderAccepts(o, it)) || null; }
   id(p) { return p + (++this.seq).toString(36) + this.now().toString(36).slice(-4); }
 
   // ------------------------------------------------------------ views
@@ -118,12 +152,13 @@ export class Market {
 
   item(defId, viewerId) {
     const listings = this.asks(defId).slice(0, 60).map(l => ({ id: l.id, price: l.price, item: l.item, seller: this.sellerName(l), sellerId: l.seller || null, bot: !!l.bot, created: l.created }));
-    // buy orders grouped by price, best first
+    // buy orders grouped by price and what they ask for, best first
     const levels = new Map();
     for (const o of this.bids(defId)) {
-      const lv = levels.get(o.price) || { price: o.price, qty: 0, mine: 0 };
+      const k = `${o.price}|${o.cond || ''}|${o.pattern || ''}`;
+      const lv = levels.get(k) || { price: o.price, cond: o.cond || null, pattern: o.pattern || null, legacy: !o.cond && !o.pattern && !o.bot && !!SKINS[defId], qty: 0, mine: 0 };
       lv.qty += o.qty; if (o.buyer && o.buyer === viewerId) lv.mine += o.qty;
-      levels.set(o.price, lv);
+      levels.set(k, lv);
     }
     const sales = this.D.sales.filter(s => s.defId === defId).slice(-400).map(({ price, float, t }) => ({ price, float, t }));
     const myOrders = this.D.orders.filter(o => o.defId === defId && o.buyer === viewerId);
@@ -131,7 +166,10 @@ export class Market {
     const today = this.E.dayOf(this.now()), ref = this.reference(defId);
     const values = [];
     for (let d = today - HISTORY_DAYS; d <= today; d++) values.push([d, Math.max(1, Math.round(ref * this.E.priceIndex(defId, d) / this.E.priceIndex(defId, today)))]);
-    return { defId, listings, orders: [...levels.values()].slice(0, 12), myOrders, sales, reference: ref, change: this.change(defId, today), values };
+    // what the order form offers: each condition (and named pattern) with a typical copy's value
+    const conds = this.E.conditionsFor(defId).map(c => ({ id: c, value: this.E.marketPrice(this.E.typicalCopy(defId, c)) }));
+    const patterns = this.E.patternsFor(defId);
+    return { defId, listings, orders: [...levels.values()].slice(0, 16), myOrders, sales, reference: ref, change: this.change(defId, today), values, conds, patterns };
   }
 
   mine(userId) {
@@ -176,11 +214,15 @@ export class Market {
   }
 
   // An item sold into a buy order (player order: the item goes to its owner;
-  // bot order: the bot keeps it and lists it again later).
-  fillOrder(order, it, seller) {
+  // bot order: the bot keeps it and lists it again later). `price` is what
+  // the sale goes through at: the order's price when a player sells into it,
+  // a bot's asking price when a bot does. A player buyer had the full order
+  // price held, so anything under it goes back to them.
+  fillOrder(order, it, seller, price = order.price) {
+    price = Math.min(price, order.price);
     if (seller) {
       this.E.removeItem(seller, it.uid);
-      const proceeds = Math.floor(order.price * (1 - this.fee));
+      const proceeds = Math.floor(price * (1 - this.fee));
       seller.credits += proceeds;
       seller.history.unshift({ t: this.now(), type: 'market-sale', item: it.defId, value: proceeds });
     }
@@ -191,8 +233,10 @@ export class Market {
       const buyer = this.D.users[order.buyer];
       if (buyer) {
         buyer.items.push(it);
-        buyer.history.unshift({ t: this.now(), type: 'buy', item: it.defId, value: order.price });
-        this.notify(buyer, `Buy order filled: ${itemDef(it)?.name} for ${order.price} credits`);
+        const back = order.price - price;
+        if (back > 0) buyer.credits += back;
+        buyer.history.unshift({ t: this.now(), type: 'buy', item: it.defId, value: price });
+        this.notify(buyer, `Buy order filled: ${itemDef(it)?.name} for ${price} credits${back > 0 ? ` (${back} of your bid returned)` : ''}`);
       }
     }
     order.qty--;
@@ -200,7 +244,7 @@ export class Market {
       if (order.bot) this.botOrders = this.botOrders.filter(o => o !== order);
       else this.D.orders = this.D.orders.filter(o => o !== order);
     }
-    this.recordSale(it.defId, order.price, it.float);
+    this.recordSale(it.defId, price, it.float);
     this.db.dirty();
   }
 
@@ -220,8 +264,8 @@ export class Market {
     if (it.listed) return { error: 'Already listed' };
     if (!(price >= 1 && price <= 1e7)) return { error: 'Price must be between 1 and 10,000,000' };
     if (this.D.listings.filter(l => l.seller === user.id).length >= 50) return { error: 'You can have at most 50 listings' };
-    // someone already wants it at this price or more: sell to them at their price
-    const bid = this.bids(it.defId, user.id)[0];
+    // someone already wants this copy at this price or more: sell to them at their price
+    const bid = this.bestBidFor(it, user.id);
     if (bid && bid.price >= price) {
       this.fillOrder(bid, it, user);
       return { ok: true, sold: true, price: bid.price };
@@ -253,22 +297,27 @@ export class Market {
     return { ok: true, item: it };
   }
 
-  order(user, defId, price, qty) {
+  order(user, defId, price, qty, cond = null, pattern = null) {
     if (!SKINS[defId] && !STICKERS[defId]) return { error: 'Unknown item' };
     price = Math.round(+price); qty = Math.round(+qty || 1);
     if (!(price >= 1 && price <= 1e7)) return { error: 'Price must be between 1 and 10,000,000' };
     if (!(qty >= 1 && qty <= 100)) return { error: 'Quantity must be between 1 and 100' };
+    if (SKINS[defId]) {
+      if (!this.E.conditionsFor(defId).includes(cond)) return { error: 'Choose the condition you want' };
+      if (pattern && !this.E.patternsFor(defId).includes(pattern)) return { error: 'Unknown pattern' };
+    } else { cond = null; pattern = null; }
     if (this.D.orders.filter(o => o.buyer === user.id).length >= 30) return { error: 'You can have at most 30 buy orders' };
     if (user.credits < price * qty) return { error: `You need ${price * qty} credits for this order` };
-    // hold the credits, then buy anything already listed at or below the price
+    const o = { id: this.id('o'), buyer: user.id, defId, cond: cond || null, pattern: pattern || null, price, qty, created: this.now() };
+    // hold the credits, then buy matching copies already listed at or below the price
     user.credits -= price * qty;
     let bought = 0;
     for (const l of this.asks(defId)) {
       if (bought >= qty || l.price > price) break;
-      if (l.seller === user.id) continue;
+      if (l.seller === user.id || !this.E.orderAccepts(o, l.item)) continue;
       if (this.transfer(l, user, l.price)) { bought++; user.credits += price - l.price; }
     }
-    if (bought < qty) this.D.orders.push({ id: this.id('o'), buyer: user.id, defId, price, qty: qty - bought, created: this.now() });
+    if (bought < qty) { o.qty = qty - bought; this.D.orders.push(o); }
     this.db.dirty();
     return { ok: true, bought, waiting: qty - bought };
   }
@@ -286,8 +335,8 @@ export class Market {
     const it = this.E.findItem(user, uid);
     if (!it) return { error: 'Item not found' };
     if (it.listed) return { error: 'Cancel the listing first' };
-    const order = orderId ? this.bids(it.defId, user.id).find(o => o.id === orderId) : this.bids(it.defId, user.id)[0];
-    if (!order) return { error: 'No one is buying this right now' };
+    const order = orderId ? this.bids(it.defId, user.id).find(o => o.id === orderId && this.E.orderAccepts(o, it)) : this.bestBidFor(it, user.id);
+    if (!order) return { error: 'No buy order takes this copy right now (orders ask for a condition)' };
     const price = order.price;
     this.fillOrder(order, it, user);
     return { ok: true, price, received: Math.floor(price * (1 - this.fee)) };
@@ -308,9 +357,9 @@ export class Market {
         const item = this.makeItem(defId);
         const price = Math.max(1, Math.round(this.E.marketPrice(item) * rand(1.03, 1.22)));
         const l = { id: this.id('b'), bot: pick(BOT_NAMES), item, price, day: this.day, created: t - (initial ? rand(0, 20) * 3600000 : 0), expires: t + rand(4, 24) * 3600000 };
-        // a player already bidding this much or more gets it at once
-        const bid = this.D.orders.filter(o => o.defId === defId).sort((a, b) => b.price - a.price)[0];
-        if (bid && bid.price >= price) { this.fillOrder(bid, item, null); continue; }
+        // a player already bidding this much or more for this copy gets it at once, at the bot's price
+        const bid = this.D.orders.filter(o => this.E.orderAccepts(o, item)).sort((a, b) => b.price - a.price || a.created - b.created)[0];
+        if (bid && bid.price >= price) { this.fillOrder(bid, item, null, price); continue; }
         this.botListings.push(l);
       }
       const wantBids = this.tierOf(defId) === 'legendary' ? 1 : 2;
@@ -340,16 +389,18 @@ export class Market {
       const chance = ratio <= 0.9 ? 0.5 : ratio <= 1.05 ? 0.012 : ratio <= 1.2 ? 0.003 : 0;
       if (Math.random() < chance) this.transfer(l, null, l.price);
     }
-    // 2. sell into player buy orders that offer close to value
+    // 2. sell into player buy orders that offer close to value: a copy the
+    // order accepts, at the bot's asking price for that copy (the rest of the
+    // bid goes back to the buyer), never more than the order pays
     for (const o of [...this.D.orders]) {
       if (t - o.created < 20000) continue;
-      const ratio = o.price / Math.max(1, this.reference(o.defId));
-      const chance = ratio >= 1.0 ? 0.35 : ratio >= 0.92 ? 0.012 : ratio >= 0.85 ? 0.003 : 0;
-      if (Math.random() >= chance) continue;
-      // hand over a copy worth no more than the order pays (any wear, like any seller)
-      let item = null;
-      for (let k = 0; k < 10 && !item; k++) { const c = this.makeItem(o.defId); if (this.E.marketPrice(c) <= o.price * 1.08) item = c; }
-      if (item) this.fillOrder(o, item, null);
+      const item = this.copyFor(o);
+      if (!item) continue;
+      const price = this.ask(item, rand(1.0, 1.06));
+      if (price > o.price) continue;
+      const ratio = o.price / price;
+      const chance = ratio >= 1.0 ? 0.35 : 0;
+      if (Math.random() < chance) this.fillOrder(o, item, null, price);
     }
     // 3. bots trading with each other: about 1500 sales a day across the market
     const n = Math.random() < 0.55 ? 1 : 0;

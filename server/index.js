@@ -28,6 +28,26 @@ const db = await openDb({ file: DB_FILE, url: process.env.DATABASE_URL });
 const D = db.data;
 for (const u of Object.values(D.users)) if (E.migrateProfile(u)) db.dirty();
 for (const l of D.listings) if (E.migrateItem(l.item)) db.dirty();
+
+// One-off credits for accounts that lost out to a bug, applied once each (the
+// id is kept on the account) the first time the server starts with the
+// account present.
+const GRANTS = [
+  // Nov 2026: a 37,000 buy order for a bayonet was filled by a market bot with
+  // a 19,000 copy at the full bid (orders then took any wear). Fixed in market.js.
+  { id: 'buy-order-refund-2026-11', name: 'E4X3Z2', credits: 17000, note: 'Refund: a buy order was filled with a cheaper copy' },
+];
+for (const g of GRANTS) {
+  const u = Object.values(D.users).find(x => String(x.name || '').toLowerCase() === g.name.toLowerCase());
+  if (!u) { console.log(`grant ${g.id}: no account named ${g.name} yet`); continue; }
+  u.grants ||= [];
+  if (u.grants.includes(g.id)) continue;
+  u.credits += g.credits;
+  u.grants.push(g.id);
+  (u.history ||= []).unshift({ t: Date.now(), type: 'refund', value: g.credits, note: g.note });
+  console.log(`grant ${g.id}: ${g.credits} credits to ${u.name}`);
+  db.dirty();
+}
 const MARKET_FEE = 0.1;
 
 // ================================================================ helpers
@@ -341,7 +361,7 @@ const handlers = {
     if (r.item) invalidateTradesWith(r.item.uid);
     return withSave(ws, r);
   },
-  'market.order'(ws, { defId, price, qty }) { return withSave(ws, market.order(ws.user, String(defId || ''), price, qty)); },
+  'market.order'(ws, { defId, price, qty, cond, pattern }) { return withSave(ws, market.order(ws.user, String(defId || ''), price, qty, cond ? String(cond) : null, pattern ? String(pattern) : null)); },
   'market.cancelOrder'(ws, { id }) { return withSave(ws, market.cancelOrder(ws.user, id)); },
   'market.sellToOrder'(ws, { uid, orderId }) {
     const r = market.sellToOrder(ws.user, uid, orderId);

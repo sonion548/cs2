@@ -3,6 +3,7 @@
 import { net } from '../net/client.js';
 import * as P from '../items/profile.js';
 import { SKINS, STICKERS, RARITY, CONDITIONS, condition, itemDef, itemTitle, weaponLabel } from '../items/catalog.js';
+import { orderAccepts, typicalCopy, marketPrice } from '../shared/economy.js';
 import { KNIFE_TYPES } from '../shared/knives.js';
 import { thumbnail, Viewer } from './studio.js';
 import { applySkin } from '../items/render.js';
@@ -19,6 +20,14 @@ const CR = (n) => `<span class="cr">${fmt(n)}</span>`;
 // today's move against yesterday, e.g. ▲ 3.1%
 const chg = (c) => c == null ? '' : `<small class="chg ${c >= 0 ? 'up' : 'down'}">${c >= 0 ? '▲' : '▼'} ${Math.abs(c * 100).toFixed(1)}%</small>`;
 const MODE_NAMES = { casual: 'Casual', 'ranked-bots': 'Ranked vs bots', 'ranked-pvp': 'Ranked PvP' };
+
+const condName = (id) => CONDITIONS.find(c => c.id === id)?.name || id;
+// what a buy order asks for: "Factory New · Ruby", or the old any-wear orders
+function orderWhat(o) {
+  if (o.cond) return condName(o.cond) + (o.pattern ? ` · ${h(o.pattern)}` : '');
+  if (o.pattern) return h(o.pattern);
+  return o.legacy ? '<small>any wear (worth 85%+ of the bid)</small>' : '<small>any copy</small>';
+}
 
 function defTitle(defId) {
   const d = SKINS[defId] || STICKERS[defId];
@@ -303,10 +312,11 @@ export class OnlineUI {
     net.rpc('market.item', { defId: it.defId }).then(r => {
       const now = box.querySelector('.mk-now');
       if (!now) return;
-      const best = r.orders?.[0];
+      // only orders that take this copy (they ask for a condition, maybe a pattern)
+      const best = (r.orders || []).find(o => orderAccepts({ ...o, defId: it.defId }, it));
       now.innerHTML = best
-        ? `<p class="note">Highest buy order: ${CR(best.price)} (${best.qty} wanted).</p><button class="pri" data-now="1">Sell now · you receive ${CR(Math.floor(best.price * 0.9))}</button>`
-        : '<p class="note">No buy orders for this item right now.</p>';
+        ? `<p class="note">Highest buy order for this copy: ${CR(best.price)} (${best.qty} wanted${best.cond ? `, ${condName(best.cond)}` : ''}).</p><button class="pri" data-now="1">Sell now · you receive ${CR(Math.floor(best.price * 0.9))}</button>`
+        : '<p class="note">No buy order takes this copy right now.</p>';
     });
     const close = () => { const layer = this.m.$('.modal-layer'); layer.innerHTML = ''; layer.onclick = null; after?.(); };
     box.onclick = async (e) => {
@@ -371,12 +381,15 @@ export class OnlineUI {
           <p class="note">Dots are sales (any wear), the orange line is the daily median and the dashed line is the item's value each day (a typical Field-Tested copy).</p>
           <h4>Recent sales</h4><table class="mk-table small">${r.sales.slice(-12).reverse().map(s => `<tr><td>${new Date(s.t).toLocaleString()}</td><td>${CR(s.price)}</td><td>${s.float != null ? s.float.toFixed(4) : ''}</td></tr>`).join('') || '<tr><td>No sales yet</td></tr>'}</table></section>
         <section><h4>Buy orders <small>${r.orders.length ? `highest ${fmt(r.orders[0].price)}` : 'none yet'}</small></h4>
-          <table class="mk-table small">${r.orders.map(o => `<tr><td>${CR(o.price)}</td><td>${o.qty} wanted${o.mine ? ` <small>(${o.mine} yours)</small>` : ''}</td></tr>`).join('') || '<tr><td>No one is buying this right now.</td></tr>'}</table>
-          <form class="mk-order"><label class="pricein">Price <input name="price" type="number" min="1" step="1" value="${Math.max(1, Math.round((r.orders[0]?.price || r.reference * 0.85) + 1))}"></label>
+          <table class="mk-table small">${r.orders.map(o => `<tr><td>${CR(o.price)}</td><td>${orderWhat(o)}</td><td>${o.qty} wanted${o.mine ? ` <small>(${o.mine} yours)</small>` : ''}</td></tr>`).join('') || '<tr><td>No one is buying this right now.</td></tr>'}</table>
+          <form class="mk-order">
+            ${r.conds?.length ? `<label class="pricein">Condition <select name="cond">${r.conds.map(c => `<option value="${c.id}">${condName(c.id)}</option>`).join('')}</select></label>` : ''}
+            ${r.patterns?.length ? `<label class="pricein">Pattern <select name="pattern"><option value="">Any pattern</option>${r.patterns.map(n => `<option>${h(n)}</option>`).join('')}</select></label>` : ''}
+            <label class="pricein">Price <input name="price" type="number" min="1" step="1" value="1"></label>
             <label class="pricein">Quantity <input name="qty" type="number" min="1" max="100" step="1" value="1"></label>
             <button class="pri" type="submit">Place buy order</button><p class="note mk-total"></p></form>
-          ${r.myOrders.length ? `<h4>Your orders</h4><table class="mk-table small">${r.myOrders.map(o => `<tr><td>${CR(o.price)}</td><td>${o.qty} waiting</td><td><button data-cancel-order="${o.id}">Cancel</button></td></tr>`).join('')}</table>` : ''}
-          ${own.length ? `<h4>Sell yours <small>to the highest buy order</small></h4><table class="mk-table small">${own.map(it => `<tr><td>${it.kind === 'skin' ? `${condition(it.float).name}<small class="mono"> ${it.float.toFixed(6)}</small>` : 'Sticker'}</td><td>${r.orders[0] ? `<button class="pri" data-sell="${it.uid}">Sell now · ${fmt(Math.floor(r.orders[0].price * 0.9))}</button>` : '<small>no buy orders</small>'}</td></tr>`).join('')}</table>` : ''}
+          ${r.myOrders.length ? `<h4>Your orders</h4><table class="mk-table small">${r.myOrders.map(o => `<tr><td>${CR(o.price)}</td><td>${orderWhat(o)}</td><td>${o.qty} waiting</td><td><button data-cancel-order="${o.id}">Cancel</button></td></tr>`).join('')}</table>` : ''}
+          ${own.length ? `<h4>Sell yours <small>to the highest buy order that takes it</small></h4><table class="mk-table small">${own.map(it => { const best = r.orders.find(o => orderAccepts({ ...o, defId }, it)); return `<tr><td>${it.kind === 'skin' ? `${condition(it.float).name}<small class="mono"> ${it.float.toFixed(6)}</small>` : 'Sticker'}</td><td>${best ? `<button class="pri" data-sell="${it.uid}">Sell now · ${fmt(Math.floor(best.price * 0.9))}</button>` : '<small>no order takes this copy</small>'}</td></tr>`; }).join('')}</table>` : ''}
           <h4>Listings <small>${r.listings.length}</small></h4>
           <table class="mk-table">${r.listings.map(l => `<tr><td><img data-l="${l.id}" ${l.item.kind === 'skin' ? `data-insp-l="${l.id}" title="Inspect this one" class="insp"` : ''} alt=""></td><td>${l.item.kind === 'skin' ? `${condition(l.item.float).name}<small class="mono"> ${l.item.float.toFixed(6)} · #${l.item.seed}</small>${(() => { const pt = patternInfo(SKINS[l.item.defId], l.item.seed); return pt.special ? ` <b class="pat-special">${h(pt.name)}</b>` : ''; })()}${l.item.stickers?.length ? `<small> · ${l.item.stickers.length} stickers</small>` : ''}` : ''}<small> · ${h(l.seller)}</small></td><td>${CR(l.price)}</td><td>${l.sellerId === me ? `<button data-cancel="${l.id}">Cancel</button>` : `<button class="pri" data-buy="${l.id}" data-price="${l.price}">Buy</button>`}</td></tr>`).join('') || '<tr><td>No one is selling this right now.</td></tr>'}</table>
         </section>
@@ -397,14 +410,26 @@ export class OnlineUI {
     page.querySelector('.mk-anim')?.addEventListener('click', () => this.inspectAnimation(defId));
     for (const img of page.querySelectorAll('img[data-insp-l]')) img.addEventListener('click', () => this.inspectSkin(defId, r.listings.find(x => x.id === img.dataset.inspL)?.item));
     const form = page.querySelector('.mk-order'), total = form.querySelector('.mk-total');
-    const updTotal = () => {
-      const p = Math.round(+form.price.value || 0), q = Math.round(+form.qty.value || 0), low = r.listings[0]?.price;
-      total.innerHTML = `${CR(p * q)} held until the order fills or you cancel it.${low != null && p >= low ? ' At or above the cheapest listing, so it buys straight away.' : ''}`;
+    // what a typical copy in the chosen condition (and pattern) is worth, to bid against
+    const typical = () => (SKINS[defId] ? marketPrice(typicalCopy(defId, form.cond?.value, form.pattern?.value || null)) : r.reference);
+    const spec = () => ({ defId, cond: form.cond?.value || null, pattern: form.pattern?.value || null });
+    let armed = false;
+    const updTotal = (e) => {
+      if (!e || e.target === form.cond || e.target === form.pattern) form.price.value = Math.max(1, Math.round(typical() * 0.97));
+      armed = false;
+      const p = Math.round(+form.price.value || 0), q = Math.round(+form.qty.value || 0), v = typical();
+      const low = r.listings.find(l => orderAccepts({ ...spec(), price: p }, l.item))?.price;
+      total.innerHTML = `${CR(p * q)} held until the order fills or you cancel it. A typical copy like this is worth about ${CR(v)}.`
+        + (low != null && p >= low ? ' A matching listing is at or below your price, so it buys straight away at the listing’s price.' : '')
+        + (p > v * 1.25 ? ` <b class="warn">That’s ${Math.round((p / v - 1) * 100)}% over its value.</b>` : '');
     };
     form.oninput = updTotal; updTotal();
     form.onsubmit = async (e) => {
       e.preventDefault();
-      const res = await net.rpc('market.order', { defId, price: +form.price.value, qty: +form.qty.value });
+      const p = Math.round(+form.price.value || 0);
+      // a bid far over value needs a second click
+      if (p > typical() * 1.25 && !armed) { armed = true; this.m.toast('That bid is well over what this copy is worth. Click Place buy order again to confirm.'); return; }
+      const res = await net.rpc('market.order', { ...spec(), price: p, qty: +form.qty.value });
       if (res.error) return this.m.toast(res.error);
       if (res.profile) P.setRemote(res.profile);
       this.m.toast(res.bought ? `Bought ${res.bought} straight away${res.waiting ? `, ${res.waiting} still on order` : ''}` : 'Buy order placed');
@@ -432,7 +457,7 @@ export class OnlineUI {
       <h4 class="mk-sub">Listings</h4>
       <table class="mk-table">${r.listings.map(l => { const t = defTitle(l.item.defId); return `<tr><td><img data-l="${l.id}" alt=""></td><td><span class="w">${h(t.weapon)}</span><b>${h(t.name)}</b></td><td>${CR(l.price)}</td><td>${new Date(l.created).toLocaleDateString()}</td><td><button data-cancel="${l.id}">Cancel</button></td></tr>`; }).join('') || '<tr><td>You have no active listings.</td></tr>'}</table>
       <h4 class="mk-sub">Buy orders</h4>
-      <table class="mk-table">${orders.map(o => { const t = defTitle(o.defId), d = SKINS[o.defId] || STICKERS[o.defId]; return `<tr data-def="${o.defId}"><td style="--rc:${d ? RARITY[d.rarity].color : '#777'}"><span class="w">${h(t.weapon)}</span><b>${h(t.name)}</b></td><td>${CR(o.price)} each</td><td>${o.qty} waiting</td><td>${CR(o.price * o.qty)} held</td><td><button data-cancel-order="${o.id}">Cancel</button></td></tr>`; }).join('') || '<tr><td>You have no buy orders. Place one from any item’s page.</td></tr>'}</table>`;
+      <table class="mk-table">${orders.map(o => { const t = defTitle(o.defId), d = SKINS[o.defId] || STICKERS[o.defId]; return `<tr data-def="${o.defId}"><td style="--rc:${d ? RARITY[d.rarity].color : '#777'}"><span class="w">${h(t.weapon)}</span><b>${h(t.name)}</b></td><td>${orderWhat({ ...o, legacy: !o.cond && !o.pattern && !!SKINS[o.defId] })}</td><td>${CR(o.price)} each</td><td>${o.qty} waiting</td><td>${CR(o.price * o.qty)} held</td><td><button data-cancel-order="${o.id}">Cancel</button></td></tr>`; }).join('') || '<tr><td>You have no buy orders. Place one from any item’s page.</td></tr>'}</table>`;
     for (const img of page.querySelectorAll('img[data-l]')) { const l = r.listings.find(x => x.id === img.dataset.l); itemImg(l.item, img); }
     page.querySelector('.mk-back').onclick = () => this.renderMarket(page);
     page.onclick = async (e) => {

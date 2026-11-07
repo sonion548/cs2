@@ -476,6 +476,8 @@ img:not([src]) { visibility: hidden; }
 .hud .place { position: absolute; top: 240px; left: 14px; width: 222px; text-align: center; font: 600 13px/1.2 'Barlow Condensed', sans-serif; letter-spacing: .06em; text-transform: uppercase; color: rgba(255,255,255,.82); text-shadow: 0 1px 2px #000; pointer-events: none; }
 .mk-order { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; margin: 10px 0 18px; }
 .mk-order .pricein input { width: 110px; }
+.mk-order .pricein select { padding: 6px; background: #1a1b1d; color: var(--fg, #e8e3d6); border: 1px solid #3a3b3e; font: 500 13px var(--body); }
+.mk-order .warn { color: #ff9a94; font-weight: 600; }
 .mk-order button { border: 1px solid var(--accent); padding: 7px 14px; font: 600 14px var(--cond); text-transform: uppercase; letter-spacing: 1px; }
 .mk-order .mk-total { flex-basis: 100%; margin: 0; }
 .mk-now { margin: 6px 0 14px; } .mk-now button { border: 1px solid var(--accent); padding: 8px 14px; font: 600 14px var(--cond); text-transform: uppercase; letter-spacing: 1px; }
