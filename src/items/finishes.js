@@ -5,6 +5,7 @@ import { makeCanvas } from './canvas.js';
 import { patternInfo } from './patterns.js';
 import { fbm, voronoi, valueNoise, rng, hexToRgb, mixRgb, mix, smooth, clamp01 } from '../noise.js';
 import { ART_FINISHES } from './finishes_art.js';
+import { REWORKED } from './finishes_rework.js';
 import { HandCtx, paper } from './handdrawn.js';
 
 // Per-pixel helper: fn(x, y, out) with x ∈ [0, 2), y ∈ [0, 1).
@@ -23,16 +24,6 @@ const C = (h) => hexToRgb(h);
 const set = (o, c) => { o[0] = c[0]; o[1] = c[1]; o[2] = c[2]; };
 
 export const FINISH_TYPES = {
-  // Solid paint with soft tonal variation and an optional accent band.
-  paint: { metal: 0.25, rough: 0.5, draw(ctx, W, H, p, seed) {
-    const a = C(p.base), b = C(p.accent || p.base);
-    pixels(ctx, W, H, (x, y, o) => {
-      const n = fbm(x * 6, y * 6, seed, 3);
-      let c = mixRgb(a, mixRgb(a, [0, 0, 0], 0.25), n * 0.5);
-      if (p.accent) { const band = smooth(0.012, 0.0, Math.abs(y - 0.5 - Math.sin(x * 2) * 0.05) - 0.06); c = mixRgb(c, b, band); }
-      set(o, c);
-    });
-  } },
 
   camo: { metal: 0.05, rough: 0.8, draw(ctx, W, H, p, seed) {
     const cols = p.colors.map(C), sc = p.scale || 5;
@@ -136,53 +127,9 @@ export const FINISH_TYPES = {
     });
   } },
 
-  tempered: { metal: 0.95, rough: 0.25, draw(ctx, W, H, p, seed) {
-    // heat-treated steel: patches of blue, gold and violet. Seed sets how much blue.
-    const blueAmt = p.blue ?? 0.25 + ((seed * 7919) % 1000) / 1000 * 0.55;   // from the pattern template (patterns.js)
-    const blue = C('#2f58b8'), gold = C('#b88a3a'), vio = C('#6a3f8a'), steel = C('#8a8e94');
-    pixels(ctx, W, H, (x, y, o) => {
-      const n = fbm(x * 2.5, y * 2.5, seed, 5);
-      const m = fbm(x * 6, y * 6, seed + 9, 4);
-      let c = steel;
-      if (n < blueAmt) c = mixRgb(blue, vio, smooth(0.3, 0.7, m));
-      else c = mixRgb(gold, steel, smooth(0.4, 0.75, m));
-      const edge = smooth(0.03, 0, Math.abs(n - blueAmt));
-      set(o, mixRgb(c, vio, edge * 0.6));
-    });
-  } },
 
-  carbon: { metal: 0.35, rough: 0.3, draw(ctx, W, H, p, seed) {
-    const a = C(p.base || '#1b1c1f'), b = C(p.sheen || '#3c3f45');
-    pixels(ctx, W, H, (x, y, o) => {
-      const s = 60, ix = Math.floor(x * s), iy = Math.floor(y * s);
-      const fx = x * s - ix, fy = y * s - iy;
-      const horiz = (ix + iy) % 2 === 0;
-      const t = horiz ? Math.sin(fy * Math.PI) : Math.sin(fx * Math.PI);
-      set(o, mixRgb(a, b, t * 0.8));
-    });
-  } },
 
-  topo: { metal: 0.2, rough: 0.6, draw(ctx, W, H, p, seed) {
-    const a = C(p.base), l = C(p.line);
-    pixels(ctx, W, H, (x, y, o) => {
-      const h = fbm(x * 2.5, y * 2.5, seed, 5) * 14;
-      const line = smooth(0.08, 0.0, Math.abs(h - Math.round(h)));
-      const major = Math.round(h) % 4 === 0 ? 1 : 0.55;
-      set(o, mixRgb(a, l, line * major));
-    });
-  } },
 
-  scales: { metal: 0.5, rough: 0.35, draw(ctx, W, H, p, seed) {
-    const a = C(p.base), b = C(p.edge), s = p.size || 16;
-    pixels(ctx, W, H, (x, y, o) => {
-      const row = Math.floor(y * s), off = (row % 2) * 0.5;
-      const cx = (Math.floor(x * s / 1 + off) - off + 0.5) / s, cy = (row + 0.9) / s;
-      const d = Math.hypot((x - cx) * s, (y - cy) * s * 1.3);
-      const t = smooth(0.35, 0.62, d);
-      const tint = valueNoise(Math.floor(x * s + off), row, seed) * 0.4;
-      set(o, mixRgb(mixRgb(a, b, tint), b, t));
-    });
-  } },
 
   lava: { metal: 0.2, rough: 0.6, draw(ctx, W, H, p, seed) {
     const rock = C(p.base || '#1e1a18'), hot = C(p.hot || '#ff6a1a'), core = C(p.core || '#ffd36a');
@@ -318,36 +265,7 @@ export const FINISH_TYPES = {
     ctx.shadowBlur = 0;
   } },
 
-  flames: { metal: 0.3, rough: 0.4, draw(ctx, W, H, p, seed) {
-    const base = C(p.base), cols = (p.colors || ['#ff3b12', '#ff9a1a', '#ffe36a']).map(C);
-    pixels(ctx, W, H, (x, y, o) => {
-      // flames lick backwards from the muzzle end (high x)
-      const n = fbm(x * 3 - seed * 0.01, y * 5, seed, 5);
-      const reach = x / 2 + (n - 0.5) * 0.7 - Math.abs(y - 0.5) * 0.6;
-      const t = smooth(0.25, 0.75, reach);
-      let c = base;
-      if (t > 0) c = mixRgb(base, mixRgb(cols[0], mixRgb(cols[1], cols[2], smooth(0.6, 1, t)), smooth(0.2, 0.7, t)), smooth(0, 0.15, t));
-      set(o, c);
-    });
-  } },
 
-  lightning: { metal: 0.3, rough: 0.35, draw(ctx, W, H, p, seed) {
-    const r = rng(seed + 13);
-    const g = ctx.createLinearGradient(0, 0, W, H);
-    g.addColorStop(0, p.base); g.addColorStop(1, p.base2 || p.base);
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-    const bolt = (x, y, ang, len, w, depth) => {
-      ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(x, y);
-      for (let s = 0; s < 10; s++) {
-        ang += (r() - 0.5) * 0.9; x += Math.cos(ang) * len / 10; y += Math.sin(ang) * len / 10; ctx.lineTo(x, y);
-        if (depth < 2 && r() < 0.2) { ctx.stroke(); bolt(x, y, ang + (r() - 0.5) * 1.5, len * 0.5, w * 0.6, depth + 1); ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(x, y); }
-      }
-      ctx.stroke();
-    };
-    ctx.strokeStyle = p.bolt; ctx.shadowColor = p.bolt; ctx.shadowBlur = 20; ctx.lineJoin = 'round';
-    for (let k = 0; k < 7; k++) bolt(r() * W, r() < 0.5 ? 0 : H, r() < 0.5 ? 1 : -1, 260 + r() * 260, 5, 0);
-    ctx.shadowBlur = 0;
-  } },
 
   graffiti: { metal: 0.05, rough: 0.7, draw(ctx, W, H, p, seed) {
     const r = rng(seed + 17);
@@ -404,17 +322,6 @@ export const FINISH_TYPES = {
     for (let k = 0; k < 12; k++) ctx.fillText(`${(r() * 90).toFixed(1)}mm`, r() * W, r() * H);
   } },
 
-  ink: { metal: 0.05, rough: 0.6, draw(ctx, W, H, p, seed) {
-    const paper = C(p.base || '#e8e0cf'), ink = C(p.ink || '#141414'), acc = C(p.accent || '#b8232a');
-    pixels(ctx, W, H, (x, y, o) => {
-      const n = fbm(x * 2.2, y * 2.2, seed, 6);
-      const wash = smooth(0.48, 0.62, n);
-      const sun = smooth(0.12, 0.1, Math.hypot(x - 1.45 - (seed % 10) * 0.02, y - 0.35));
-      let c = mixRgb(paper, ink, wash * (0.6 + fbm(x * 20, y * 20, seed + 1, 2) * 0.4));
-      c = mixRgb(c, acc, sun);
-      set(o, c);
-    });
-  } },
 
   waves: { metal: 0.15, rough: 0.5, draw(ctx, W, H, p, seed) {
     const deep = C(p.deep || '#0d2a4a'), mid = C(p.mid || '#1f6aa0'), foam = C(p.foam || '#e8f4f8');
@@ -429,30 +336,7 @@ export const FINISH_TYPES = {
     });
   } },
 
-  // Pattern-welded steel: flowing layered bands that ripple around seed-placed knots.
-  damascus: { metal: 0.85, rough: 0.28, draw(ctx, W, H, p, seed) {
-    const a = C(p.light || '#c9ccd1'), b = C(p.dark || '#3a3d42'), layers = p.layers || 34;
-    pixels(ctx, W, H, (x, y, o) => {
-      const warp = fbm(x * 2.2, y * 2.2, seed, 4) * 2.6 + fbm(x * 7, y * 7, seed + 9, 3) * 0.35;
-      const t = smooth(-0.3, 0.3, Math.sin(y * layers + warp * 6));
-      const c = mixRgb(b, a, t);
-      const g = (valueNoise(x * 400, y * 90, seed + 3) - 0.5) * 18;
-      set(o, [c[0] + g, c[1] + g, c[2] + g]);
-    });
-  } },
 
-  // Polished stone: soft clouding with thin dark veins.
-  marble: { metal: 0.1, rough: 0.18, draw(ctx, W, H, p, seed) {
-    const base = C(p.base), vein = C(p.vein), v2 = C(p.vein2 || p.vein);
-    pixels(ctx, W, H, (x, y, o) => {
-      const n = fbm(x * 3, y * 3, seed, 5);
-      const v = Math.abs(Math.sin((x * 3 + y * 1.5 + n * 5) * Math.PI));
-      const vb = Math.abs(Math.sin((x * 7 - y * 4 + fbm(x * 6, y * 6, seed + 8, 4) * 6) * Math.PI));
-      let c = mixRgb(base, mixRgb(base, v2, 0.35), fbm(x * 1.5, y * 1.5, seed + 4, 4));
-      c = mixRgb(c, vein, Math.min(1, smooth(0.06, 0.0, v) * 0.9 + smooth(0.03, 0.0, vb) * 0.35));
-      set(o, c);
-    });
-  } },
 
   // Lacquered wood: growth rings that bend around knots, open pores along the grain.
   woodgrain: { metal: 0.0, rough: 0.42, draw(ctx, W, H, p, seed) {
@@ -467,16 +351,6 @@ export const FINISH_TYPES = {
     });
   } },
 
-  // Anodised aluminium: deep metallic colour, machining swirls, darker toward the edges.
-  anodized: { metal: 0.9, rough: 0.3, draw(ctx, W, H, p, seed) {
-    const a = C(p.base), b = C(p.edge || p.base);
-    pixels(ctx, W, H, (x, y, o) => {
-      const sw = Math.sin(Math.hypot((x % 0.25) - 0.125, (y % 0.25) - 0.125) * 260 + seed) * 0.5 + 0.5;
-      const c = mixRgb(a, b, smooth(0.2, 0.5, Math.abs(y - 0.5)));
-      const k = 0.9 + sw * 0.1 + (valueNoise(x * 500, y * 3, seed) - 0.5) * 0.08;
-      set(o, [c[0] * k, c[1] * k, c[2] * k]);
-    });
-  } },
 
   // Cracked glaze with metal-filled seams.
   kintsugi: { metal: 0.35, rough: 0.3, draw(ctx, W, H, p, seed) {
@@ -676,7 +550,7 @@ function grain(ctx, W, H, seed, amt) {
   ctx.putImageData(img, 0, 0);
 }
 
-Object.assign(FINISH_TYPES, ART_FINISHES);
+Object.assign(FINISH_TYPES, ART_FINISHES, REWORKED);
 
 // Illustrated finishes are painted through the hand-drawn renderer (ink lines,
 // layered washes) and finished with paper grain. Value: brush style.
