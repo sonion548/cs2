@@ -3,7 +3,7 @@
 // press Use to swap.
 import * as THREE from 'three';
 import { buildGun } from '../gunmodels.js';
-import { applySkin } from '../items/render.js';
+import { applySkinAsync } from '../items/render.js';
 
 export class Drops {
   constructor(game) { this.g = game; this.list = []; }
@@ -12,7 +12,7 @@ export class Drops {
   add(ws, pos, vel = new THREE.Vector3(), skin = null) {
     if (!ws || ws.def.type === 'melee') return null;
     const mesh = buildGun(ws.id, { lod: true });
-    if (skin) applySkin(mesh, skin, { size: 512 });
+    if (skin) applySkinAsync(mesh, skin, { size: 256 });
     mesh.traverse(o => { if (o.isMesh) o.castShadow = true; });
     mesh.rotation.set(0, Math.random() * Math.PI * 2, Math.PI / 2);
     this.g.scene.add(mesh);

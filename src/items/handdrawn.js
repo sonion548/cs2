@@ -7,6 +7,7 @@
 //              pigment, granulation and darker pooled edges
 //   stroke() → ink brush: wobbling line with pressure taper and dry-brush gaps
 // Finally paper() adds paper grain, fibres and slight pigment bleed.
+import { makeCanvas } from './canvas.js';
 import { rng, valueNoise, fbm } from '../noise.js';
 
 const PROPS = ['fillStyle', 'strokeStyle', 'lineWidth', 'globalAlpha', 'lineCap', 'lineJoin', 'font', 'textAlign', 'textBaseline',
@@ -261,7 +262,7 @@ export function paper(canvas, seed = 1, strength = 1) {
   const x = canvas.getContext('2d');
   const W = canvas.width, H = canvas.height;
   // slight bleed: blend a blurred copy back in
-  const tmp = document.createElement('canvas'); tmp.width = W; tmp.height = H;
+  const tmp = makeCanvas(W, H);
   const t = tmp.getContext('2d');
   t.filter = 'blur(1.4px)'; t.drawImage(canvas, 0, 0);
   x.save();

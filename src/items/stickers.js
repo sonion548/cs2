@@ -1,4 +1,5 @@
 // Procedural sticker artwork (die-cut with a white border) and finish overlays.
+import { makeCanvas } from './canvas.js';
 import { rng } from '../noise.js';
 import { HandCtx, paper } from './handdrawn.js';
 
@@ -29,7 +30,7 @@ const ICONS = {
 // Returns a 256×256 canvas for a sticker definition.
 export function stickerCanvas(def) {
   if (cache.has(def.id)) return cache.get(def.id);
-  const S = 256, c = document.createElement('canvas'); c.width = c.height = S;
+  const S = 256, c = makeCanvas(S, S);
   const raw = c.getContext('2d');
   // sticker art is drawn by hand: marker outlines and gouache fills
   const x = new HandCtx(raw, { seed: [...def.id].reduce((a, ch) => a + ch.charCodeAt(0), 0), style: 'gouache', wobble: 0.8 });
@@ -87,7 +88,7 @@ export function stickerCanvas(def) {
 export function wornSticker(def, wear, seed = 1) {
   const base = stickerCanvas(def);
   if (!wear) return base;
-  const c = document.createElement('canvas'); c.width = c.height = base.width;
+  const c = makeCanvas(base.width, base.width);
   const x = c.getContext('2d');
   x.drawImage(base, 0, 0);
   const r = rng(seed * 31 + 7);

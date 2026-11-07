@@ -1,6 +1,7 @@
 // Procedural weapon finishes. Each finish type paints a 2:1 canvas from a set
 // of parameters plus the item's pattern seed (0–999), which shifts, rotates
 // or recolours the pattern so no two seeds look exactly alike.
+import { makeCanvas } from './canvas.js';
 import { patternInfo } from './patterns.js';
 import { fbm, voronoi, valueNoise, rng, hexToRgb, mixRgb, mix, smooth, clamp01 } from '../noise.js';
 import { ART_FINISHES } from './finishes_art.js';
@@ -511,7 +512,7 @@ const PAPER_ONLY = { ink: true };
 
 // Paints the finish for `def` at the given size. Returns { canvas, metal, rough }.
 export function paintFinish(def, seed, W = 1024, H = 512) {
-  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const c = makeCanvas(W, H);
   const ctx = c.getContext('2d');
   const type = def.finish.type;
   const pat = patternInfo(def, seed);

@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { Character } from './character.js';
 import { findPath } from './level.js';
 import { buildCharacter, buildGun, poseCharacter, startRagdoll, stepRagdoll } from './models.js';
-import { applySkin, randomItemFor } from './items/render.js';
+import { applySkinAsync, randomItemFor } from './items/render.js';
 import { WEAPONS } from './weapons.js';
 
 const tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3();
@@ -82,7 +82,8 @@ export class Bot extends Character {
     // bots keep one random finish per weapon for the whole match
     this.skins ||= {};
     if (!(id in this.skins)) this.skins[id] = Math.random() < 0.55 && w.def.pattern ? randomItemFor(id) : null;
-    if (this.skins[id]) applySkin(this.gunModel, this.skins[id], { size: 512 });
+    // painted in the background at a size that suits a gun seen from metres away
+    if (this.skins[id]) applySkinAsync(this.gunModel, this.skins[id], { size: 256 });
     // the point that sits in the shoulder: back end of the stock, at bore height
     const bb = new THREE.Box3().setFromObject(this.gunModel);
     this.gunModel.userData.rear = new THREE.Vector3(0, this.gunModel.userData.muzzle?.y ?? 0.03, bb.max.z - 0.02);

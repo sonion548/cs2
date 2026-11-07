@@ -4,7 +4,7 @@
 // the camera to the weapon's grip points, so they never come apart from the gun.
 import * as THREE from 'three';
 import { buildGun, armMaterials } from './models.js';
-import { applySkin } from './items/render.js';
+import { applySkinAsync } from './items/render.js';
 import { SKINS } from './items/catalog.js';
 import { WEAPONS } from './weapons.js';
 import { radialTexture } from './textures.js';
@@ -400,7 +400,7 @@ export class ViewModel {
       this.basePos = null;
     }
     this.gun = buildGun(modelId);
-    if (item?.defId) applySkin(this.gun, item);
+    if (item?.defId) applySkinAsync(this.gun, item, { size: 1024 });
     this.gun.traverse(o => { if (o.isMesh) o.castShadow = false; });
     this.holder.add(this.gun);
     this.gun.add(this.flash);

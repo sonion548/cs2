@@ -4,51 +4,9 @@ import * as THREE from 'three';
 import { SKINS, STICKERS } from './catalog.js';
 import { paintFinish } from './finishes.js';
 import { wornSticker } from './stickers.js';
-import { fbm, valueNoise, rng, smooth } from '../noise.js';
+import { applyWear } from './wear.js';
 
 const texCache = new Map();
-
-// Wear: paint chips away to bare metal as the float rises, plus scratches and grime.
-function applyWear(canvas, float, seed) {
-  if (float <= 0.0) return;
-  const W = canvas.width, H = canvas.height;
-  const x = canvas.getContext('2d');
-  const img = x.getImageData(0, 0, W, H);
-  const d = img.data;
-  const f = float;
-  // threshold grows non-linearly; FN keeps almost everything
-  const chip = Math.pow(f, 1.35) * 0.62;
-  const grime = f * 0.28;
-  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
-    const u = i / H, v = j / H;
-    const n = fbm(u * 7 + seed * 0.13, v * 7, seed, 4);
-    // edges of the texture (top/bottom ≈ edges of the gun silhouette) wear first
-    const edgeBias = Math.pow(Math.abs(v - 0.5) * 2, 3) * 0.25;
-    const fine = valueNoise(u * 180, v * 180, seed + 5);
-    const m = n - edgeBias + (fine - 0.5) * 0.08;
-    const worn = smooth(chip + 0.02, chip - 0.03, m);
-    const k = (j * W + i) * 4;
-    if (worn > 0) {
-      const steel = 128 + (valueNoise(u * 2, v * 260, seed + 9) - 0.5) * 40;
-      d[k] = d[k] + (steel - d[k]) * worn;
-      d[k + 1] = d[k + 1] + (steel + 2 - d[k + 1]) * worn;
-      d[k + 2] = d[k + 2] + (steel + 6 - d[k + 2]) * worn;
-    }
-    const g = 1 - grime * (0.5 + fbm(u * 3, v * 3, seed + 2, 3));
-    d[k] *= g; d[k + 1] *= g; d[k + 2] *= g * 0.97;
-  }
-  x.putImageData(img, 0, 0);
-  // scratches
-  const r = rng(seed + 77);
-  const n = Math.floor(f * f * 900 + f * 60);
-  x.lineCap = 'round';
-  for (let s = 0; s < n; s++) {
-    x.strokeStyle = `rgba(${r() < 0.7 ? '190,192,196' : '30,28,26'},${0.15 + r() * 0.4})`;
-    x.lineWidth = 0.6 + r() * 1.4;
-    const sx = r() * W, sy = r() * H, len = 6 + r() * 40, a = (r() - 0.5) * 0.8 + (r() < 0.5 ? 0 : Math.PI / 2);
-    x.beginPath(); x.moveTo(sx, sy); x.lineTo(sx + Math.cos(a) * len, sy + Math.sin(a) * len); x.stroke();
-  }
-}
 
 // Returns { map, metal, rough } for a skin + float + seed, cached.
 export function skinTexture(defId, float, seed, size = 1024) {
@@ -65,6 +23,78 @@ export function skinTexture(defId, float, seed, size = 1024) {
   texCache.set(key, out);
   if (texCache.size > 80) { const first = texCache.keys().next().value; texCache.get(first).map.dispose(); texCache.delete(first); }
   return out;
+}
+
+// ---------------------------------------------------------------- off the main thread
+// In a match, skins are painted by a worker and put on the gun when ready
+// (the stock finish shows until then), so equipping a skinned gun never
+// stalls a frame. Menus keep the immediate skinTexture/applySkin above.
+const keyOf = (defId, float, seed) => `${defId}|${float.toFixed(4)}|${seed}`;
+const pending = new Map();      // key|size -> promise
+let worker = null, jobId = 0;
+const jobs = new Map();
+function paintWorker() {
+  if (worker === null) {
+    try {
+      worker = new Worker(new URL('./paint.worker.js', import.meta.url), { type: 'module' });
+      worker.onmessage = (e) => { const j = jobs.get(e.data.id); if (!j) return; jobs.delete(e.data.id); e.data.error ? j.reject(new Error(e.data.error)) : j.resolve(e.data); };
+      worker.onerror = () => { worker = false; for (const j of jobs.values()) j.reject(new Error('paint worker failed')); jobs.clear(); };
+    } catch { worker = false; }
+  }
+  return worker;
+}
+const idle = (fn) => (typeof requestIdleCallback === 'function' ? requestIdleCallback(fn, { timeout: 500 }) : setTimeout(fn, 30));
+
+// Promise of { map, metal, rough } for a skin at a size, painted in the background.
+export function skinTextureAsync(defId, float, seed, size = 1024) {
+  const key = `${keyOf(defId, float, seed)}|${size}`;
+  if (texCache.has(key)) return Promise.resolve(texCache.get(key));
+  if (pending.has(key)) return pending.get(key);
+  const w = paintWorker();
+  const pr = (w ? new Promise((resolve, reject) => { const id = ++jobId; jobs.set(id, { resolve, reject }); w.postMessage({ id, defId, float, seed, size }); })
+    .then(({ bitmap, metal, rough }) => {
+      const map = new THREE.Texture(bitmap);
+      map.flipY = false; map.colorSpace = THREE.SRGBColorSpace;
+      map.wrapS = map.wrapT = THREE.RepeatWrapping; map.anisotropy = 8; map.needsUpdate = true;
+      const out = { map, metal: Math.max(0, metal - float * 0.25), rough: Math.min(1, rough + float * 0.35), size };
+      texCache.set(key, out);
+      if (texCache.size > 80) { const first = texCache.keys().next().value; texCache.get(first).map.dispose(); texCache.delete(first); }
+      return out;
+    })
+    // no worker (old browser): paint on the page in idle time, at most 256 px
+    : new Promise((resolve) => idle(() => resolve(skinTexture(defId, float, seed, Math.min(size, 256))))))
+    .finally(() => pending.delete(key));
+  pending.set(key, pr);
+  return pr;
+}
+
+function setSkinMaterial(gun, t) {
+  const mat = new THREE.MeshStandardMaterial({ map: t.map, metalness: t.metal, roughness: t.rough });
+  gun.userData.inner.traverse(o => { if (o.isMesh && o.userData.part === 'skin') o.material = mat; });
+}
+
+// applySkin for in-match use: puts on whatever size of this finish is already
+// painted, asks the worker for the wanted size, and swaps it in when ready.
+export function applySkinAsync(gun, item, { size = 1024 } = {}) {
+  for (const s of [...(gun.userData.stickerMeshes || [])]) s.parent.remove(s);
+  gun.userData.stickerMeshes = [];
+  gun.userData.skinWant = null;
+  if (!item || !SKINS[item.defId]) return gun;
+  const def = SKINS[item.defId];
+  if (def.finish) {
+    const base = keyOf(item.defId, item.float, item.seed);
+    gun.userData.skinWant = base;
+    let have = null;
+    for (const sz of [size, 1024, 512, 256, 128]) { const t = texCache.get(`${base}|${sz}`); if (t) { have = { ...t, size: sz }; break; } }
+    if (have) setSkinMaterial(gun, have);
+    if (!have || have.size !== size) {
+      skinTextureAsync(item.defId, item.float, item.seed, size)
+        .then(t => { if (gun.userData.skinWant === base) setSkinMaterial(gun, t); })
+        .catch(() => {});
+    }
+  }
+  if (item.stickers?.length && !def.knife) addStickers(gun, def.weapon, item.stickers);
+  return gun;
 }
 
 // Sticker slot anchors per weapon, in authoring space (x along barrel, y up).

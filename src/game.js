@@ -21,6 +21,7 @@ import { Decals } from './decals.js';
 import { Strategy } from './match/strategy.js';
 import { qualityOf, DynamicResolution } from './gfx.js';
 import { Outlines } from './outline.js';
+import { skinTextureAsync } from './items/render.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 const DEG = Math.PI / 180;
@@ -147,12 +148,21 @@ export class Game {
     // Compile every shader up front (behind the loading screen) so the first
     // frames don't stall; the round clock starts once that's done.
     this.loaded = false;
+    // upload the effect textures now, not on the first shot or hit
+    for (const k of Object.values(this.decals.kinds)) for (const m of k.mats) if (m.map) this.renderer.initTexture(m.map);
+    for (const m of [this.flashMat, this.puffMat, this.bloodMat]) if (m.map) this.renderer.initTexture(m.map);
     this.outlines.prewarm();
     this.makeSmokeFill();
+    // your equipped skins are painted (in the background) before the round starts
+    const skinsReady = Promise.race([
+      Promise.all(Object.values(this.opts.skins || {}).filter(it => it?.defId).map(it => skinTextureAsync(it.defId, it.float, it.seed, 1024).catch(() => {}))),
+      new Promise(r => setTimeout(r, 15000)),
+    ]);
     this.ready = Promise.all([
       this.renderer.compileAsync(this.scene, this.camera),
       this.renderer.compileAsync(this.vm.scene, this.vm.camera),
       this.renderer.compileAsync(this.smokeFill.scene, this.smokeFill.cam),
+      skinsReady,
     ]).catch((e) => console.warn('Shader warm-up skipped:', e)).then(() => { this.bakeShadows(); this.loaded = true; this.last = performance.now(); });
     this.last = performance.now();
     this.running = true;
