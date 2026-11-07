@@ -19,7 +19,7 @@ export function skinTexture(defId, float, seed, size = 1024) {
   map.colorSpace = THREE.SRGBColorSpace;
   map.wrapS = map.wrapT = THREE.RepeatWrapping;
   map.anisotropy = 8;
-  const out = { map, metal: Math.max(0, metal - float * 0.25), rough: Math.min(1, rough + float * 0.35), canvas };
+  const out = { map, metal: Math.max(0, metal - float * 0.18), rough: Math.min(1, rough + float * 0.25), canvas };
   texCache.set(key, out);
   if (texCache.size > 80) { const first = texCache.keys().next().value; texCache.get(first).map.dispose(); texCache.delete(first); }
   return out;
@@ -56,7 +56,7 @@ export function skinTextureAsync(defId, float, seed, size = 1024) {
       const map = new THREE.Texture(bitmap);
       map.flipY = false; map.colorSpace = THREE.SRGBColorSpace;
       map.wrapS = map.wrapT = THREE.RepeatWrapping; map.anisotropy = 8; map.needsUpdate = true;
-      const out = { map, metal: Math.max(0, metal - float * 0.25), rough: Math.min(1, rough + float * 0.35), size };
+      const out = { map, metal: Math.max(0, metal - float * 0.18), rough: Math.min(1, rough + float * 0.25), size };
       texCache.set(key, out);
       if (texCache.size > 80) { const first = texCache.keys().next().value; texCache.get(first).map.dispose(); texCache.delete(first); }
       return out;

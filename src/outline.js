@@ -51,7 +51,7 @@ function styleMaterials({ bit, color, depthFunc, line, glow, key }) {
 
 const STYLES = {
   ally: styleMaterials({ key: 'ally', bit: 1, color: 0xffffff, depthFunc: THREE.GreaterDepth, line: [2.0, 0.95], glow: [6.0, 0.4] }),
-  enemy: styleMaterials({ key: 'enemy', bit: 2, color: 0xff2a22, depthFunc: THREE.LessEqualDepth, line: [2.0, 0.95], glow: [6.5, 0.42] }),
+  enemy: styleMaterials({ key: 'enemy', bit: 2, color: 0xff2a22, depthFunc: THREE.LessEqualDepth, line: [1.1, 0.95], glow: [3.0, 0.3] }),
 };
 
 function sourceMesh(model) {
