@@ -98,6 +98,7 @@ function start(opts) {
 
 // ---------------------------------------------------------------- online
 net.on('auth', (res) => {
+  if (res) setTimeout(() => P.flushPendingAwards?.(), 1500);
   if (res) { P.setRemote(res.profile); R.setRemoteLadders(res.profile.ladders); }
   else { P.setRemote(null); R.setRemoteLadders(null); }
   menu.refresh();

@@ -288,9 +288,15 @@ const handlers = {
   'inv.scrape'(ws, { uid, slot }) { return withSave(ws, E.scrapeSticker(ws.user, uid, slot)); },
   // Solo matches vs bots are simulated on the player's machine; rewards are
   // rate-limited so they can't be farmed by spamming the endpoint.
-  'match.award'(ws, { result }) {
+  'match.award'(ws, { result, id }) {
     const u = ws.user;
-    if (now() - (u.lastAward || 0) < 20000) return { error: 'Too soon since the last reward' };
+    // each reward carries an id from the client, paid at most once (a reward
+    // saved while offline is sent again on reconnect); without one, a short
+    // cooldown stops the endpoint being spammed
+    u.awardIds ||= [];
+    if (id && u.awardIds.includes(String(id))) return { ok: true, duplicate: true, credits: 0, drops: [], profile: profileOf(u) };
+    if (!id && now() - (u.lastAward || 0) < 20000) return { error: 'Too soon since the last reward' };
+    if (id) { u.awardIds.push(String(id).slice(0, 40)); if (u.awardIds.length > 50) u.awardIds.splice(0, u.awardIds.length - 50); }
     u.lastAward = now();
     const skill = result.botSkill == null ? null : Math.max(0, Math.min(1, +result.botSkill || 0));
     const safe = { won: !result.abandoned && !!result.won, abandoned: !!result.abandoned, botSkill: skill, team: result.team, score: result.score, teamSize: Math.min(5, Math.max(1, result.teamSize | 0)), weaponKills: {},

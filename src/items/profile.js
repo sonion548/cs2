@@ -55,5 +55,36 @@ export const equip = (itemUid) => act('inv.equip', { uid: itemUid }, () => E.equ
 export const applySticker = (skinUid, stickerUid, slot) => act('inv.applySticker', { skinUid, stickerUid, slot }, () => E.applySticker(local, skinUid, stickerUid, slot));
 export const scrapeSticker = (skinUid, slot) => act('inv.scrape', { uid: skinUid, slot }, () => E.scrapeSticker(local, skinUid, slot));
 export const setName = (n) => act('profile.rename', { name: n }, () => { local.name = n.slice(0, 16) || 'You'; return { ok: true }; });
-export const awardMatch = (result) => act('match.award', { result }, () => E.awardMatch(local, result));
+// Match rewards. Signed in, the reward is the server's to give; if the
+// connection dropped during the match (a network blip, a sleeping free-tier
+// server waking up), the reward used to be lost. Now it waits up to 20 s for
+// the connection, and failing that is kept (with an id, so it can never be
+// paid twice) and sent as soon as the account is back online.
+const PENDING_KEY = 'vantage.pendingAwards';
+const pendingAwards = () => { try { return JSON.parse(localStorage.getItem(PENDING_KEY) || '[]'); } catch { return []; } };
+const savePending = (list) => { try { localStorage.setItem(PENDING_KEY, JSON.stringify(list.slice(-20))); } catch { /* private mode */ } };
+const offline = (res) => res?.error && /connect|disconnect|unreachable|too soon/i.test(res.error);
+export async function awardMatch(result) {
+  if (!remote) { const res = E.awardMatch(local, result); save(); return res; }
+  const id = E.uid();
+  for (let i = 0; i < 10 && net.status !== 'online'; i++) await new Promise(r => setTimeout(r, 2000));
+  const res = await net.rpc('match.award', { result, id });
+  if (res.profile) { remote = res.profile; emit(); }
+  if (!offline(res)) return res;
+  savePending([...pendingAwards(), { id, result, user: net.user?.id || null, t: Date.now() }]);
+  // what it will pay, for the result screen (the server decides the drops)
+  const preview = E.awardMatch({ credits: 0, xp: 0, items: [], equipped: {}, stats: { matches: 0, wins: 0, kills: 0, deaths: 0 } }, result, () => 1);
+  return { credits: preview.credits, drops: [], note: 'Saved: it will be added to your account as soon as you are back online.' };
+}
+export async function flushPendingAwards() {
+  if (!remote || net.status !== 'online') return;
+  const left = [];
+  for (const p of pendingAwards()) {
+    if (p.user && net.user?.id && p.user !== net.user.id) { left.push(p); continue; }
+    const res = await net.rpc('match.award', { result: p.result, id: p.id });
+    if (res.profile) { remote = res.profile; emit(); }
+    if (offline(res)) left.push(p);
+  }
+  savePending(left);
+}
 export function resetProfile() { if (!remote) { local = E.freshProfile(); save(); } }

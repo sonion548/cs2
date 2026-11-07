@@ -234,7 +234,8 @@ export function awardMatch(state, result, r = Math.random) {
   }
   const drops = [];
   if (!done) return { credits, drops };
-  if (r() < (result.won ? 0.65 : 0.4)) { const ids = Object.keys(CASES); const it = makeCase(pick(ids, r)); state.items.push(it); drops.push(it); }
+  // a win always drops a case; a loss sometimes does
+  if (result.won || r() < 0.4) { const ids = Object.keys(CASES); const it = makeCase(pick(ids, r)); state.items.push(it); drops.push(it); }
   if (r() < 0.25) { const it = makeCase('capsule'); state.items.push(it); drops.push(it); }
   return { credits, drops };
 }
