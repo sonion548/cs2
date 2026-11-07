@@ -560,7 +560,34 @@ function bomb() {
   return out;
 }
 
-const BUILDERS = { ak47, m4a1, awp, glock, usp, deagle, c4: bomb, he: () => nade('he'), flash: () => nade('flash'), smoke: () => nade('smoke'),
+// The pair of gloves for the inventory, cases and market: both hands from the
+// Blender display model (each in its hand's frame: x to the fingertips, y out
+// of the back of the hand), backs to the viewer and fingers up, overlapping a
+// little like a product shot. A plain pair of mitts stands in without it.
+function gloves() {
+  const M = mats(), g = new THREE.Group();
+  for (const side of ['L', 'R']) {
+    const s = side === 'R' ? 1 : -1;
+    const src = assets.gloves?.getObjectByName(`glove_${side}`);
+    const hand = new THREE.Group();
+    if (src?.isMesh) {
+      const m = new THREE.Mesh(src.geometry.clone(), M.leather);
+      m.userData.part = 'skin'; m.castShadow = true;
+      hand.add(m);
+    } else {
+      hand.add(mesh(new THREE.BoxGeometry(0.19, 0.03, 0.09), M.leather, 'skin'));
+    }
+    // fingers (+X) up, back of the hand (+Y) toward the viewer (-Z here, the
+    // side the previews look at), then fanned out and set side by side
+    hand.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, -1), new THREE.Vector3(-1, 0, 0)));
+    hand.rotateOnWorldAxis(new THREE.Vector3(0, 0, 1), -s * 0.32);
+    hand.position.set(s * 0.06, 0, s * 0.012);
+    g.add(hand);
+  }
+  return finish(g, { muzzle: [0.1, 0], grip: [0, -0.08], gloves: true });
+}
+
+const BUILDERS = { gloves, ak47, m4a1, awp, glock, usp, deagle, c4: bomb, he: () => nade('he'), flash: () => nade('flash'), smoke: () => nade('smoke'),
   molotov: () => nade('molotov'), incendiary: () => nade('incendiary'), decoy: () => nade('decoy') };
 
 // Blender-built model → the same structure the procedural builders produce.

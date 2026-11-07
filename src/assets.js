@@ -12,7 +12,7 @@ const KNIVES = Object.keys(KNIFE_TYPES);
 const MAPS = ['dunehold', 'dunehold_market', 'dunehold_yard'];
 const CHARACTERS = ['t', 'ct'];
 
-export const assets = { weapons: {}, weaponLods: {}, maps: {}, colliders: {}, characters: {}, arms: {} };
+export const assets = { weapons: {}, weaponLods: {}, maps: {}, colliders: {}, characters: {}, arms: {}, gloves: null };
 
 export async function loadAssets(onProgress = () => {}) {
   const loader = new GLTFLoader();
@@ -26,6 +26,8 @@ export async function loadAssets(onProgress = () => {}) {
     ...CHARACTERS.map(c => [`char:${c}`, `characters/${c}.glb`, (g) => { assets.characters[c] = g.scene; }]),
     ...CHARACTERS.map(c => [`arms:${c}`, `characters/arms_${c}.glb`, (g) => { assets.arms[c] = g.scene; }]),
     ...CHARACTERS.map(c => [`arms:${c}_gun`, `characters/arms_${c}_gun.glb`, (g) => { assets.arms[c + '_gun'] = g.scene; }]),
+    // the pair of gloves shown in the inventory and the market
+    ['gloves', 'weapons/gloves.glb', (g) => { assets.gloves = g.scene; }],
   ];
   let done = 0;
   const total = jobs.length + MAPS.length + MATCH_SURFACES.length;

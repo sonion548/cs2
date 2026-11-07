@@ -4,7 +4,7 @@
 // the camera to the weapon's grip points, so they never come apart from the gun.
 import * as THREE from 'three';
 import { buildGun, armMaterials } from './models.js';
-import { applySkinAsync } from './items/render.js';
+import { applySkinAsync, skinTextureAsync, gloveMaterial } from './items/render.js';
 import { SKINS } from './items/catalog.js';
 import { WEAPONS } from './weapons.js';
 import { radialTexture } from './textures.js';
@@ -346,7 +346,12 @@ export class ViewModel {
       // shaped for guns (index finger along the frame, fingers round the grip)
       const make = (s) => {
         const arms = cloneSkinned(s);
-        arms.traverse(o => { if (o.isMesh) { o.castShadow = false; o.frustumCulled = false; } });
+        arms.traverse(o => {
+          if (!o.isMesh) return;
+          o.castShadow = false; o.frustumCulled = false;
+          // the gloves are their own part, so a glove skin can replace them
+          if (/_glove$/.test(o.material?.name || '')) o.gloveBase = o.material;
+        });
         this.armSpace.add(arms);
         return { root: arms, R: new SkinnedArm(arms, 1), L: new SkinnedArm(arms, -1) };
       };
@@ -374,6 +379,22 @@ export class ViewModel {
     this.deployT = 1;
     this.reloadT = -1; this.reloadDur = 1;
     this.cycleT = -1; this.throwT = -1; this.windT = -1;
+  }
+
+  // Puts a glove skin on both pairs of arms (null: the team's own gloves).
+  // The finish is painted off the main thread and swapped in when ready.
+  setGloves(item) {
+    const def = item && SKINS[item.defId];
+    const want = def?.gloves ? `${item.defId}|${item.float}|${item.seed}` : null;
+    if (want === this.gloveWant) return;
+    this.gloveWant = want;
+    const apply = (t) => {
+      for (const set of [this.fistArms, this.gunArms]) if (set) set.root.traverse(o => {
+        if (o.gloveBase) o.material = t ? gloveMaterial(t, o.geometry, { base: o.gloveBase }) : o.gloveBase;
+      });
+    };
+    if (!want) return apply(null);
+    skinTextureAsync(item.defId, item.float, item.seed, 1024).then(t => { if (this.gloveWant === want) apply(t); }).catch(() => {});
   }
 
   useArms(set) {

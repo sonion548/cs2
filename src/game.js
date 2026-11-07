@@ -89,6 +89,7 @@ export class Game {
     }
 
     this.vm = new ViewModel(this.playerTeam, this.renderer);
+    this.vm.setGloves(this.skinFor('gloves'));
     this.outlines = new Outlines(this);
     this.hud = new Hud(this);
 

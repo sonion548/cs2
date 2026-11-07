@@ -3,7 +3,7 @@ import { patternInfo } from '../items/patterns.js';
 import { Viewer, thumbnail, previewItem, warmThumbnails } from './studio.js';
 import { QUALITY, QUALITY_ORDER, detectQuality } from '../gfx.js';
 import * as P from '../items/profile.js';
-import { SKINS, STICKERS, CASES, RARITY, RARITIES, CONDITIONS, condition, itemDef, itemTitle, KEY_PRICE, STICKER_CAPSULE, GOLD_CASE, WEAPON_NAMES } from '../items/catalog.js';
+import { SKINS, STICKERS, CASES, RARITY, RARITIES, CONDITIONS, condition, itemDef, itemTitle, KEY_PRICE, STICKER_CAPSULE, GOLD_CASE, WEAPON_NAMES, GLOVE_TYPES, weaponLabel } from '../items/catalog.js';
 import { KNIFE_TYPES, buildGun } from '../gunmodels.js';
 import { stickerCanvas } from '../items/stickers.js';
 import { STICKER_SLOTS } from '../items/render.js';
@@ -128,7 +128,7 @@ export class Menu {
   render_play(page) {
     const s = this.state, map = MAPS[s.map];
     const eq = (slot) => P.equippedFor(slot);
-    const slots = [['ak47', 'Rifle · Attack'], ['m4a1', 'Rifle · Defend'], ['awp', 'Sniper'], ['knife', 'Knife']];
+    const slots = [['ak47', 'Rifle · Attack'], ['m4a1', 'Rifle · Defend'], ['awp', 'Sniper'], ['knife', 'Knife'], ['gloves', 'Gloves']];
     page.innerHTML = `
       <section class="showcase">
         <div class="stage"></div>
@@ -172,7 +172,7 @@ export class Menu {
     const showSlot = (slot) => {
       const it = eq(slot);
       if (it) v.setItem(it); else v.setObject(stockModel(slot));
-      const t = it ? itemTitle(it) : { weapon: slot === 'knife' ? 'Field Knife' : WEAPON_NAMES[slot], name: 'Stock' };
+      const t = it ? itemTitle(it) : { weapon: slot === 'knife' ? 'Field Knife' : slot === 'gloves' ? 'Team Gloves' : WEAPON_NAMES[slot], name: 'Stock' };
       page.querySelector('.stage-cap .v').textContent = `${t.weapon} | ${t.name}`;
       for (const b of page.querySelectorAll('.slot')) b.classList.toggle('on', b.dataset.slot === slot);
     };
@@ -216,11 +216,12 @@ export class Menu {
   // ------------------------------------------------------------- inventory
   render_inventory(page) {
     const p = P.getProfile();
-    const cats = [['all', 'All'], ['rifle', 'Rifles'], ['smg', 'SMGs'], ['pistol', 'Pistols'], ['sniper', 'Snipers'], ['heavy', 'Heavy'], ['knife', 'Knives'], ['sticker', 'Stickers'], ['case', 'Containers']];
+    const cats = [['all', 'All'], ['rifle', 'Rifles'], ['smg', 'SMGs'], ['pistol', 'Pistols'], ['sniper', 'Snipers'], ['heavy', 'Heavy'], ['knife', 'Knives'], ['gloves', 'Gloves'], ['sticker', 'Stickers'], ['case', 'Containers']];
     const catOf = (it) => {
       if (it.kind !== 'skin') return it.kind;
       const d = SKINS[it.defId];
       if (d.knife) return 'knife';
+      if (d.gloves) return 'gloves';
       const c = WEAPONS[d.weapon]?.cls || 'pistol';
       return c === 'shotgun' || c === 'lmg' ? 'heavy' : c;
     };
@@ -283,7 +284,7 @@ export class Menu {
       const p = P.getProfile();
       const equipped = Object.values(p.equipped).includes(it.uid);
       const stickersOwned = p.items.filter(x => x.kind === 'sticker');
-      const slots = d.knife ? [] : STICKER_SLOTS[d.weapon] || [0, 1, 2, 3];
+      const slots = d.knife || d.gloves ? [] : STICKER_SLOTS[d.weapon] || [0, 1, 2, 3];
       layer.innerHTML = `
         <div class="modal inspect" style="--rc:${r.color}">
           <div class="view"><div class="vp"></div>
@@ -292,7 +293,7 @@ export class Menu {
           </div>
           <div class="info">
             <button class="x" data-act="close">Close</button>
-            <div class="rar"><i></i>${r.name}${d.knife ? ' · Knife' : ''}</div>
+            <div class="rar"><i></i>${r.name}${d.knife ? ' · Knife' : d.gloves ? ' · Gloves' : ''}</div>
             <h2><small>${h(t.weapon)}</small>${h(t.name)}</h2>
             <dl>
               <dt>Condition</dt><dd>${c.name}</dd>
@@ -411,6 +412,8 @@ export class Menu {
     const ownedItem = P.getProfile().items.find(i => i.kind === 'case' && i.defId === caseId);
     const contents = P.caseContents(caseId);
     const knives = caseId === 'capsule' ? [] : gold ? Object.keys(KNIFE_TYPES).filter(k => k !== 'standard') : CASES[caseId].knives;
+    const gloveTypes = caseId !== 'capsule' && (gold || CASES[caseId]?.gloves) ? Object.values(GLOVE_TYPES) : [];
+    const special = [...knives.map(k => KNIFE_TYPES[k]), ...gloveTypes];
     const oddsRows = caseId === 'capsule'
       ? [['Paper', '80%'], ['Holo', '15%'], ['Foil', '4%'], ['Gold', '1%']]
       : gold ? [['Knife or gloves', '100%', RARITY.legendary.color]]
@@ -420,8 +423,8 @@ export class Menu {
         <div class="ch"><div><small>Container</small><h2>${h(def.name)}</h2></div><button class="x" data-act="close">Close</button></div>
         <div class="reel-wrap hidden"><div class="needle"></div><div class="reel"></div></div>
         <div class="contents">
-          ${contents.map(d => `<div class="ci" style="--rc:${RARITY[d.rarity].color}"><img data-def="${d.id}" alt=""><span class="w">${WEAPON_NAMES[d.weapon]}</span><span class="n">${h(d.name)}</span></div>`).join('')}
-          ${knives.length ? `<div class="ci rare" style="--rc:${RARITY.legendary.color}"><div class="star">★</div><span class="w">Rare special item</span><span class="n">${knives.map(k => KNIFE_TYPES[k]).join(', ')}</span></div>` : ''}
+          ${contents.map(d => `<div class="ci" style="--rc:${RARITY[d.rarity].color}"><img data-def="${d.id}" alt=""><span class="w">${weaponLabel(d)}</span><span class="n">${h(d.name)}</span></div>`).join('')}
+          ${special.length ? `<div class="ci rare" style="--rc:${RARITY.legendary.color}"><div class="star">★</div><span class="w">Rare special item</span><span class="n">${special.join(', ')}</span></div>` : ''}
           ${caseId === 'capsule' ? Object.values(STICKERS).filter(s => s.finishType === 'paper').slice(0, 12).map(s => `<div class="ci" style="--rc:${RARITY.standard.color}"><img src="${stickerThumb(s.id)}" alt=""><span class="n">${h(s.name)}</span></div>`).join('') : ''}
         </div>
         <div class="cfoot">
@@ -460,7 +463,7 @@ export class Menu {
     reel.innerHTML = filler.map((it, i) => {
       const r = rarityOf(it), t = itemTitle(it);
       const img = it.kind === 'sticker' ? stickerThumb(it.defId) : '';
-      const knife = it.kind === 'skin' && SKINS[it.defId].knife && i !== WIN;
+      const knife = it.kind === 'skin' && (SKINS[it.defId].knife || SKINS[it.defId].gloves) && i !== WIN;
       return `<div class="rt" style="--rc:${r.color}">${knife ? '<div class="star">★</div>' : `<img src="${img}" ${it.kind === 'skin' ? `data-i="${i}"` : ''} alt="">`}<span class="w">${knife ? 'Rare special item' : h(t.weapon)}</span><span class="n">${knife ? '★' : h(t.name)}</span></div>`;
     }).join('');
     // one preview per skin, shared with the contents grid, so the reel is usually ready instantly
@@ -506,7 +509,7 @@ export class Menu {
         <h3>Recent activity</h3>
         <table class="hist">${p.history.slice(0, 30).map(e => {
           const d = SKINS[e.item] || STICKERS[e.item];
-          const name = d ? (d.knife ? '★ ' + KNIFE_TYPES[d.knife] : d.weapon ? WEAPON_NAMES[d.weapon] : 'Sticker') + ' | ' + d.name : e.item;
+          const name = d ? (d.weapon ? weaponLabel(d) : 'Sticker') + ' | ' + d.name : e.item;
           return `<tr><td>${new Date(e.t).toLocaleString()}</td><td>${e.type === 'unbox' ? 'Unboxed' : e.type === 'sell' ? 'Sold' : e.type}</td><td style="color:${d ? RARITY[d.rarity].color : ''}">${h(name)}</td><td>${e.value ? CR(e.value) : ''}</td></tr>`;
         }).join('') || '<tr><td>No activity yet.</td></tr>'}</table>
       </section>`;

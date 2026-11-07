@@ -33,9 +33,13 @@ ok(ra.token && rb.token, 'register two accounts');
 ok((await a.rpc('auth.register', { name: 'alpha_' + tag, password: 'x12345' })).error, 'duplicate names rejected');
 
 // inventory
-const caseItem = ra.profile.items.find(i => i.kind === 'case' && i.defId !== 'capsule');
+const caseItem = ra.profile.items.find(i => i.kind === 'case' && i.defId !== 'capsule' && i.defId !== 'gold');
 const opened = await a.rpc('inv.openCase', { uid: caseItem.uid });
 ok(opened.item && opened.profile.credits === 2500 - 250, 'case opened on the server, key charged');
+// the Gold Case every player gets: no key, always a knife or gloves
+const goldItem = ra.profile.items.find(i => i.kind === 'case' && i.defId === 'gold');
+const gold = await a.rpc('inv.openCase', { uid: goldItem.uid });
+ok(gold.item && /^(knife|gloves):/.test(gold.item.defId) && gold.profile.credits === 2500 - 250, 'Gold Case opened free into a knife or gloves');
 const skin = opened.item;
 
 // friends

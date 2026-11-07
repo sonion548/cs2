@@ -16,7 +16,7 @@
 //  - Values move every day (see priceIndex in the shared economy): at the
 //    change of day the bots re-price everything they have listed or bid on,
 //    and the seeded price history follows the same day-by-day values.
-import { SKINS, STICKERS, RARITY, WEAPON_NAMES, itemDef } from '../src/items/catalog.js';
+import { SKINS, STICKERS, RARITY, WEAPON_NAMES, GLOVE_TYPES, itemDef } from '../src/items/catalog.js';
 import { KNIFE_TYPES } from '../src/shared/knives.js';
 
 const BOT_NAMES = ['Kestrel Trading', 'Dune Exchange', 'Souk Supply', 'Mirage Goods', 'Oasis Market', 'Atlas Traders', 'Sable & Co', 'Harbor Arms'];
@@ -88,7 +88,7 @@ export class Market {
     let t = this.searchCache.get(defId);
     if (t == null) {
       const d = SKINS[defId] || STICKERS[defId];
-      const what = !SKINS[defId] ? 'sticker' : d.knife ? `knife ${KNIFE_TYPES[d.knife] || ''} ${d.knife}` : `${WEAPON_NAMES[d.weapon] || ''} ${d.weapon}`;
+      const what = !SKINS[defId] ? 'sticker' : d.knife ? `knife ${KNIFE_TYPES[d.knife] || ''} ${d.knife}` : d.gloves ? `gloves ${GLOVE_TYPES[d.gloveType] || ''}` : `${WEAPON_NAMES[d.weapon] || ''} ${d.weapon}`;
       t = norm(`${what} ${d.name} ${defId} ${RARITY[d.rarity]?.name || ''}`);
       this.searchCache.set(defId, t);
     }

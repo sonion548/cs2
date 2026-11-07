@@ -68,9 +68,92 @@ export function skinTextureAsync(defId, float, seed, size = 1024) {
   return pr;
 }
 
-function setSkinMaterial(gun, t) {
+function setSkinMaterial(gun, t, def) {
+  if (def?.gloves) return setGloveMaterial(gun, t);
   const mat = new THREE.MeshStandardMaterial({ map: t.map, metalness: t.metal, roughness: t.rough });
   gun.userData.inner.traverse(o => { if (o.isMesh && o.userData.part === 'skin') o.material = mat; });
+}
+
+// ---------------------------------------------------------------- gloves
+// Glove finishes are projected onto each hand from three sides, in that
+// hand's own frame (triplanar), from the resting-pose position and normal
+// before skinning. So no UV layout is needed, the print stays put on the
+// glove as the hand moves, and the first-person hands and the inventory model
+// look alike. One hand fits inside one tile of the texture.
+const frameCache = new WeakMap();
+// Per hand (x < 0, x >= 0, or the whole mesh when `single`): the centre and a
+// frame from the spread of the vertices (long axis first).
+function handFrames(geo, single) {
+  const key = single ? 's' : 'p';
+  const cached = frameCache.get(geo)?.[key];
+  if (cached) return cached;
+  const pos = geo.attributes.position, v = new THREE.Vector3();
+  const frame = (keep) => {
+    const c = new THREE.Vector3(); let n = 0;
+    for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i); if (keep(v)) { c.add(v); n++; } }
+    if (!n) return { c, f: new THREE.Matrix3() };
+    c.divideScalar(n);
+    const M = [0, 0, 0, 0, 0, 0];   // xx xy xz yy yz zz
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i); if (!keep(v)) continue;
+      const x = v.x - c.x, y = v.y - c.y, z = v.z - c.z;
+      M[0] += x * x; M[1] += x * y; M[2] += x * z; M[3] += y * y; M[4] += y * z; M[5] += z * z;
+    }
+    const mul = (a) => new THREE.Vector3(M[0] * a.x + M[1] * a.y + M[2] * a.z, M[1] * a.x + M[3] * a.y + M[4] * a.z, M[2] * a.x + M[4] * a.y + M[5] * a.z);
+    let a = new THREE.Vector3(0.3, 1, 0.2).normalize();
+    for (let k = 0; k < 40; k++) a = mul(a).normalize();
+    let b = new THREE.Vector3(1, 0.1, 0.3);
+    for (let k = 0; k < 40; k++) { b.addScaledVector(a, -a.dot(b)).normalize(); b = mul(b); }
+    b.addScaledVector(a, -a.dot(b)).normalize();
+    const w = new THREE.Vector3().crossVectors(a, b);
+    return { c, f: new THREE.Matrix3().set(a.x, a.y, a.z, b.x, b.y, b.z, w.x, w.y, w.z) };
+  };
+  const out = single ? [frame(() => true)] : [frame(p => p.x < 0), frame(p => p.x >= 0)];
+  if (single) out.push(out[0]);
+  frameCache.set(geo, { ...frameCache.get(geo), [key]: out });
+  return out;
+}
+
+// A material for glove faces: the finish texture projected as above. With
+// `base` (the team's glove material on the first-person arms) its normal map
+// and the fine shading of its colour map (stitching, creases) carry over.
+export function gloveMaterial(t, geo, { base = null, single = false } = {}) {
+  const fr = handFrames(geo, single);
+  const m = base ? base.clone() : new THREE.MeshStandardMaterial();
+  const baseMap = base?.map || null;
+  m.map = t.map; m.color.set(0xffffff);
+  m.roughnessMap = null; m.metalnessMap = null;
+  m.roughness = t.rough; m.metalness = t.metal;
+  m.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, {
+      uGC0: { value: fr[0].c }, uGF0: { value: fr[0].f }, uGC1: { value: fr[1].c }, uGF1: { value: fr[1].f },
+      uGK: { value: 2.0 }, uGBase: { value: baseMap },
+    });
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', `#include <common>
+uniform vec3 uGC0; uniform vec3 uGC1; uniform mat3 uGF0; uniform mat3 uGF1;
+varying vec3 vGP; varying vec3 vGN;`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+{ bool gl = position.x < 0.0; mat3 gf = gl ? uGF0 : uGF1; vGP = gf * (position - (gl ? uGC0 : uGC1)); vGN = gf * normal; }`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+uniform float uGK; uniform sampler2D uGBase; varying vec3 vGP; varying vec3 vGN;`)
+      .replace('#include <map_fragment>', `{
+  vec3 gw = pow(abs(normalize(vGN)), vec3(6.0)); gw /= gw.x + gw.y + gw.z + 1e-5;
+  vec2 gs = vec2(uGK, uGK * 2.0);
+  vec4 gc = texture2D(map, vGP.xy * gs + 0.5) * gw.z + texture2D(map, vGP.xz * gs + 0.5) * gw.y + texture2D(map, vGP.yz * gs + 0.5) * gw.x;
+  ${baseMap ? `vec3 gb0 = texture2D(uGBase, vMapUv).rgb, gb1 = textureLod(uGBase, vMapUv, 5.0).rgb;
+  gc.rgb *= clamp(dot(gb0, vec3(0.3, 0.59, 0.11)) / max(dot(gb1, vec3(0.3, 0.59, 0.11)), 0.03), 0.55, 1.3);` : ''}
+  diffuseColor *= gc;
+}`);
+  };
+  m.customProgramCacheKey = () => (baseMap ? 'glove-b' : 'glove');
+  m.needsUpdate = true;
+  return m;
+}
+
+function setGloveMaterial(gun, t) {
+  gun.userData.inner.traverse(o => { if (o.isMesh && o.userData.part === 'skin') o.material = gloveMaterial(t, o.geometry, { single: true }); });
 }
 
 // applySkin for in-match use: puts on whatever size of this finish is already
@@ -86,14 +169,14 @@ export function applySkinAsync(gun, item, { size = 1024 } = {}) {
     gun.userData.skinWant = base;
     let have = null;
     for (const sz of [size, 1024, 512, 256, 128]) { const t = texCache.get(`${base}|${sz}`); if (t) { have = { ...t, size: sz }; break; } }
-    if (have) setSkinMaterial(gun, have);
+    if (have) setSkinMaterial(gun, have, def);
     if (!have || have.size !== size) {
       skinTextureAsync(item.defId, item.float, item.seed, size)
-        .then(t => { if (gun.userData.skinWant === base) setSkinMaterial(gun, t); })
+        .then(t => { if (gun.userData.skinWant === base) setSkinMaterial(gun, t, def); })
         .catch(() => {});
     }
   }
-  if (item.stickers?.length && !def.knife) addStickers(gun, def.weapon, item.stickers);
+  if (item.stickers?.length && !def.knife && !def.gloves) addStickers(gun, def.weapon, item.stickers);
   return gun;
 }
 
@@ -117,11 +200,9 @@ export function applySkin(gun, item, { size = 1024 } = {}) {
   if (!item || !SKINS[item.defId]) return gun;
   const def = SKINS[item.defId];
   if (def.finish) {
-    const t = skinTexture(item.defId, item.float, item.seed, size);
-    const mat = new THREE.MeshStandardMaterial({ map: t.map, metalness: t.metal, roughness: t.rough });
-    inner.traverse(o => { if (o.isMesh && o.userData.part === 'skin') o.material = mat; });
+    setSkinMaterial(gun, skinTexture(item.defId, item.float, item.seed, size), def);
   }
-  if (item.stickers?.length && !def.knife) addStickers(gun, def.weapon, item.stickers);
+  if (item.stickers?.length && !def.knife && !def.gloves) addStickers(gun, def.weapon, item.stickers);
   return gun;
 }
 

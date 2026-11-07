@@ -1,7 +1,8 @@
 // Inventory/economy rules shared by the offline profile and the server.
 // Every action takes a profile state object and mutates it in place,
 // returning { error } or a result.
-import { SKINS, STICKERS, CASES, RARITIES, RARITY, KEY_PRICE, STICKER_CAPSULE, condition, itemDef } from '../items/catalog.js';
+import { SKINS, STICKERS, CASES, RARITIES, RARITY, KEY_PRICE, STICKER_CAPSULE, GLOVE_TYPES, condition, itemDef } from '../items/catalog.js';
+import { KNIFE_TYPES } from './knives.js';
 import { patternInfo } from '../items/patterns.js';
 
 export function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 10); }
@@ -106,13 +107,16 @@ export function makeSkin(defId, r = Math.random) {
   const [lo, hi] = d.floatRange;
   return {
     uid: uid(), kind: 'skin', defId, float: +(lo + r() * (hi - lo)).toFixed(9), seed: Math.floor(r() * 1000),
-    tally: r() < 0.1 ? 0 : null, stickers: [], acquired: Date.now(),
+    tally: r() < 0.1 && !d.gloves ? 0 : null, stickers: [], acquired: Date.now(),
   };
 }
 export function makeSticker(defId) { return { uid: uid(), kind: 'sticker', defId, acquired: Date.now() }; }
 export function makeCase(defId) { return { uid: uid(), kind: 'case', defId, acquired: Date.now() }; }
 
 const pick = (arr, r) => arr[Math.floor(r() * arr.length)];
+// a knife type first (so every type is equally likely), then its finish
+const rollKnife = (types, r) => { const type = pick(types, r); return makeSkin(pick(Object.values(SKINS).filter(s => s.knife === type), r).id, r); };
+const rollGloves = (r) => { const type = pick(Object.keys(GLOVE_TYPES), r); return makeSkin(pick(Object.values(SKINS).filter(s => s.gloveType === type), r).id, r); };
 
 export function rollCase(caseId, r = Math.random) {
   if (caseId === 'capsule') {
@@ -120,15 +124,16 @@ export function rollCase(caseId, r = Math.random) {
     const fin = roll < 0.8 ? 'paper' : roll < 0.95 ? 'holo' : roll < 0.99 ? 'foil' : 'gold';
     return makeSticker(pick(Object.values(STICKERS).filter(s => s.finishType === fin), r).id);
   }
-  // the Gold Case: always a knife (or gloves)
-  if (caseId === 'gold') return makeSkin(pick(Object.values(SKINS).filter(s => s.knife || s.gloves), r).id, r);
+  // the Gold Case: always a knife (about two in three) or a pair of gloves
+  if (caseId === 'gold') return r() < 0.65 ? rollKnife(Object.keys(KNIFE_TYPES).filter(k => k !== 'standard'), r) : rollGloves(r);
   const c = CASES[caseId];
   const roll = r();
   let tier = RARITIES[0].id, acc = 0;
   for (const rr of [...RARITIES].reverse()) { acc += rr.odds; if (roll < acc) { tier = rr.id; break; } }
   if (tier === 'legendary') {
-    const type = pick(c.knives, r);
-    return makeSkin(pick(Object.values(SKINS).filter(s => s.knife === type), r).id, r);
+    // gloves cases give gloves; the Universal Case either, half and half
+    if (c.gloves && (!c.knives.length || r() < 0.5)) return rollGloves(r);
+    return rollKnife(c.knives, r);
   }
   let pool = c.skins.filter(id => SKINS[id].rarity === tier);
   for (let t = RARITY[tier].tier; !pool.length && t >= 0; t--) pool = c.skins.filter(id => RARITY[SKINS[id].rarity].tier === t);
@@ -195,7 +200,7 @@ export function applySticker(state, skinUid, stickerUid, slot) {
   const sk = findItem(state, skinUid), st = findItem(state, stickerUid);
   if (!sk || !st || sk.kind !== 'skin' || st.kind !== 'sticker') return { error: 'Invalid' };
   if (sk.listed || st.listed) return { error: 'Item is listed on the market' };
-  if (SKINS[sk.defId].knife) return { error: 'Knives cannot hold stickers' };
+  if (SKINS[sk.defId].knife || SKINS[sk.defId].gloves) return { error: 'Only guns can hold stickers' };
   if (!(slot >= 0 && slot < 4) || sk.stickers.some(s => s.slot === slot)) return { error: 'Slot taken' };
   sk.stickers.push({ defId: st.defId, wear: 0, slot });
   removeItem(state, stickerUid);

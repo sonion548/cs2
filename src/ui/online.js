@@ -2,7 +2,7 @@
 // offers, matchmaking status and the player market.
 import { net } from '../net/client.js';
 import * as P from '../items/profile.js';
-import { SKINS, STICKERS, RARITY, CONDITIONS, condition, itemDef, itemTitle, WEAPON_NAMES } from '../items/catalog.js';
+import { SKINS, STICKERS, RARITY, CONDITIONS, condition, itemDef, itemTitle, weaponLabel } from '../items/catalog.js';
 import { KNIFE_TYPES } from '../shared/knives.js';
 import { thumbnail, Viewer } from './studio.js';
 import { applySkin } from '../items/render.js';
@@ -24,7 +24,7 @@ function defTitle(defId) {
   const d = SKINS[defId] || STICKERS[defId];
   if (!d) return { weapon: '?', name: defId };
   if (d.kind === 'sticker') return { weapon: 'Sticker', name: d.name };
-  return { weapon: d.knife ? '★ ' + KNIFE_TYPES[d.knife] : WEAPON_NAMES[d.weapon], name: d.name };
+  return { weapon: weaponLabel(d), name: d.name };
 }
 function itemImg(it, el, priority = false) {
   if (it.kind === 'sticker') el.src = stickerCanvas(STICKERS[it.defId]).toDataURL();
@@ -466,7 +466,7 @@ export class OnlineUI {
         </div>
         <div class="info">
           <button class="x" data-act="close">Close</button>
-          <div class="rar"><i></i>${r.name}${d.knife ? ' · Knife' : ''}</div>
+          <div class="rar"><i></i>${r.name}${d.knife ? ' · Knife' : d.gloves ? ' · Gloves' : ''}</div>
           <h2><small>${h(t.weapon)}</small>${h(t.name)}</h2>
           <label class="floatin"><span>Float <b class="mono fv"></b></span>
             <input type="range" min="${lo}" max="${hi}" step="0.0001" value="${it.float}"></label>
@@ -520,7 +520,8 @@ export class OnlineUI {
     const d = SKINS[defId]; if (!d) return;
     const [lo, hi] = d.floatRange;
     const item = { defId, float: base?.float ?? +(lo + (hi - lo) * 0.25).toFixed(4), seed: base?.seed ?? 1, stickers: base?.stickers || [] };
-    const weapon = d.knife ? 'knife' : d.weapon, type = d.knife ? 'melee' : WEAPONS[weapon]?.type || 'rifle';
+    // gloves are shown on the hands holding the default knife
+    const weapon = d.knife || d.gloves ? 'knife' : d.weapon, type = d.knife || d.gloves ? 'melee' : WEAPONS[weapon]?.type || 'rifle';
     const t = defTitle(defId), r = RARITY[d.rarity];
     const layer = this.m.$('.modal-layer');
     layer.innerHTML = `
@@ -530,7 +531,7 @@ export class OnlineUI {
         </div>
         <div class="info">
           <button class="x" data-act="close">Close</button>
-          <div class="rar"><i></i>${r.name}${d.knife ? ' · Knife' : ''}</div>
+          <div class="rar"><i></i>${r.name}${d.knife ? ' · Knife' : d.gloves ? ' · Gloves' : ''}</div>
           <h2><small>${h(t.weapon)}</small>${h(t.name)}</h2>
           <p class="note">How it looks in your hands in a match. The inspect plays on its own every few seconds; switch arms to see it with either side's gloves.</p>
         </div>
@@ -543,7 +544,7 @@ export class OnlineUI {
     vp.appendChild(renderer.domElement);
     renderer.domElement.style.width = '100%'; renderer.domElement.style.height = '100%';
     let team = 'CT', vm = null;
-    const build = () => { vm = new ViewModel(team, renderer); vm.setWeapon(weapon, type, 0.4, item); };
+    const build = () => { vm = new ViewModel(team, renderer); vm.setWeapon(weapon, type, 0.4, d.gloves ? null : item); if (d.gloves) vm.setGloves(item); };
     build();
     const cam = new THREE.Matrix4();
     let last = performance.now(), running = true, nextInspect = performance.now() + 900;

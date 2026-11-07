@@ -49,7 +49,7 @@ function launch(opts, onDone) {
   loading.innerHTML = '<b>VANTAGE</b><span>Loading match…</span>';
   document.body.appendChild(loading);
   const skins = {};
-  for (const slot of [...GUN_IDS, 'knife']) skins[slot] = P.equippedFor(slot);
+  for (const slot of [...GUN_IDS, 'knife', 'gloves']) skins[slot] = P.equippedFor(slot);
   settings.name = P.getProfile().name;
   const back = () => { game = null; window.__game = null; loading.remove(); view().style.visibility = 'hidden'; menu.show(); };
   try {

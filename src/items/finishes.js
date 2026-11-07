@@ -498,7 +498,183 @@ export const FINISH_TYPES = {
       set(o, mixRgb(cols[i], cols[i + 1], smooth(0.35, 0.65, t - i)));
     });
   } },
+
+  // ---- Grip Case looks (gloves and the guns that match them)
+
+  // Sport-glove bands: wide slanted stripes of colour over the base, a thin
+  // pinstripe outside each edge and a perforated mesh in the base panels.
+  stripes: { metal: 0.08, rough: 0.5, draw(ctx, W, H, p, seed) {
+    const base = C(p.base), cols = p.colors.map(C), line = C(p.line || '#f2f2f2');
+    const ang = (p.angle ?? 0.5) + ((seed % 97) / 97 - 0.5) * 0.25;
+    const ca = Math.cos(ang), sa = Math.sin(ang);
+    const period = p.period || 0.5, wid = (p.width || 0.5) * period;
+    const off = (seed % 1000) / 1000 * period * cols.length;
+    const px = 1 / H, pinW = Math.max(0.0035, px);
+    pixels(ctx, W, H, (x, y, o) => {
+      const d = x * ca + y * sa + off;
+      const k = Math.floor(d / period), f = d - k * period;      // texture units into this period
+      const inBand = smooth(-px, px, f) * smooth(wid + px, wid - px, f);
+      let c = mixRgb(base, cols[((k % cols.length) + cols.length) % cols.length], inBand);
+      const pin = Math.max(smooth(pinW + px, pinW - px, Math.abs(f - wid - 0.012)), smooth(pinW + px, pinW - px, Math.abs(f - period + 0.012)));
+      c = mixRgb(c, line, pin);
+      if (inBand < 0.5) {
+        const gx = x * 70, row = Math.floor(gx), gy = y * 70 + (row % 2) * 0.5;
+        const hole = smooth(0.24, 0.15, Math.hypot(gx - row - 0.5, gy - Math.floor(gy) - 0.5));
+        c = mixRgb(c, [c[0] * 0.45, c[1] * 0.45, c[2] * 0.45], hole * (1 - pin));
+      }
+      const n = 1 + (fbm(x * 5, y * 5, seed, 3) - 0.5) * 0.18 + (valueNoise(x * 400, y * 400, seed + 3) - 0.5) * 0.06;
+      set(o, [c[0] * n, c[1] * n, c[2] * n]);
+    });
+  } },
+
+  // Tartan: a mirrored sett of coloured bands crossing at right angles,
+  // woven as a 2/2 twill (alternate threads show the warp or the weft).
+  plaid: { metal: 0.0, rough: 0.72, draw(ctx, W, H, p, seed) {
+    const cols = p.colors.map(C);
+    const half = p.sett || [[0, 8], [1, 2], [0, 2], [2, 1], [0, 6], [3, 4], [1, 10]];
+    const sett = [...half, ...half.slice().reverse()];
+    const lut = [];
+    for (const [ci, w] of sett) for (let i = 0; i < w; i++) lut.push(cols[ci]);
+    const total = lut.length, unit = (p.scale || 0.45) / total;
+    const thread = Math.max(1 / 170, 3 / H);
+    const shift = (seed % 997) / 997 * total, rot = ((seed % 13) / 13 - 0.5) * 0.1;
+    const cr = Math.cos(rot), sr = Math.sin(rot);
+    const fr = (v) => v - Math.floor(v);
+    pixels(ctx, W, H, (x, y, o) => {
+      const u = x * cr - y * sr + 2, v = x * sr + y * cr + 2;
+      const warp = lut[Math.floor(u / unit + shift) % total], weft = lut[Math.floor(v / unit + shift) % total];
+      const tx = Math.floor(u / thread), ty = Math.floor(v / thread);
+      const over = ((tx + ty) & 3) < 2;
+      const c = over ? warp : weft;
+      const sh = Math.sin((over ? fr(v / thread) : fr(u / thread)) * Math.PI);
+      const k = 0.8 + sh * 0.2 + (valueNoise(x * 60, y * 60, seed) - 0.5) * 0.08;
+      set(o, [c[0] * k, c[1] * k, c[2] * k]);
+    });
+  } },
+
+  // Woven leather (or tape when `straight`): a basket weave of strips, each
+  // rounded across its width and dipping where it passes under, dark gaps
+  // between. `alt` colours the strips running the other way.
+  weave: { metal: 0.04, rough: 0.48, draw(ctx, W, H, p, seed) {
+    const base = C(p.base), dark = C(p.dark || '#111111'), alt = C(p.alt || p.base);
+    const ang = p.straight ? 0 : Math.PI / 4, ca = Math.cos(ang), sa = Math.sin(ang);
+    const cell = p.cell || 0.05;
+    pixels(ctx, W, H, (x, y, o) => {
+      const u = (x * ca - y * sa) / cell + 100, v = (x * sa + y * ca) / cell + 100;
+      const iu = Math.floor(u), iv = Math.floor(v);
+      const horiz = ((iu + iv) & 1) === 0;
+      const across = horiz ? v - iv : u - iu, along = horiz ? u - iu : v - iv;
+      const s2 = across * 2, strip = Math.floor(s2), s = s2 - strip;
+      const gap = smooth(0.05, 0.13, Math.min(s, 1 - s)) * smooth(0.0, 0.06, Math.min(along, 1 - along));
+      const tone = 0.94 + ((iu * 7 + iv * 13 + strip * 5) % 5) * 0.03;
+      const lum = (0.6 + 0.4 * Math.sin(s * Math.PI)) * (0.82 + 0.18 * Math.sin(along * Math.PI)) * tone
+        + (valueNoise(x * 220, y * 220, seed) - 0.5) * 0.1 + (fbm(x * 8, y * 8, seed + 1, 3) - 0.5) * 0.12;
+      const c = horiz ? base : alt;
+      set(o, mixRgb(dark, [c[0] * lum, c[1] * lum, c[2] * lum], gap));
+    });
+  } },
+
+  // A hedge maze: a perfect maze carved on a grid by a random depth-first
+  // walk, its walls drawn as raised strips with a shadow and a lit top.
+  maze: { metal: 0.04, rough: 0.6, draw(ctx, W, H, p, seed) {
+    const r = rng(seed + 11);
+    const ny = p.rows || 9, nx = ny * 2, cs = H / ny;
+    const right = new Uint8Array(nx * ny).fill(1), down = new Uint8Array(nx * ny).fill(1), seen = new Uint8Array(nx * ny);
+    const stack = [Math.floor(r() * nx * ny)];
+    seen[stack[0]] = 1;
+    while (stack.length) {
+      const c = stack[stack.length - 1], cx = c % nx, cy = (c / nx) | 0;
+      const opts = [];
+      if (cx > 0 && !seen[c - 1]) opts.push(-1);
+      if (cx < nx - 1 && !seen[c + 1]) opts.push(1);
+      if (cy > 0 && !seen[c - nx]) opts.push(-nx);
+      if (cy < ny - 1 && !seen[c + nx]) opts.push(nx);
+      if (!opts.length) { stack.pop(); continue; }
+      const d = opts[Math.floor(r() * opts.length)], n = c + d;
+      if (d === 1) right[c] = 0; else if (d === -1) right[n] = 0; else if (d === nx) down[c] = 0; else down[n] = 0;
+      seen[n] = 1; stack.push(n);
+    }
+    const seg = [];
+    for (let cy = 0; cy < ny; cy++) for (let cx = 0; cx < nx; cx++) {
+      const c = cy * nx + cx, x0 = cx * cs, y0 = cy * cs;
+      if (right[c] && cx < nx - 1) seg.push([x0 + cs, y0, x0 + cs, y0 + cs]);
+      if (down[c] && cy < ny - 1) seg.push([x0, y0 + cs, x0 + cs, y0 + cs]);
+    }
+    ctx.fillStyle = p.base; ctx.fillRect(0, 0, W, H);
+    const lw = cs * (p.wall || 0.4);
+    const pass = (color, width, dx, dy) => {
+      ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineCap = 'square';
+      ctx.beginPath();
+      for (const [a, b, c, d] of seg) { ctx.moveTo(a + dx, b + dy); ctx.lineTo(c + dx, d + dy); }
+      ctx.stroke();
+    };
+    ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = cs * 0.25;
+    pass('rgba(0,0,0,0.3)', lw, cs * 0.07, cs * 0.09);
+    ctx.shadowBlur = 0;
+    pass(p.line, lw, 0, 0);
+    pass(p.line2 || p.line, lw * 0.4, -lw * 0.14, -lw * 0.14);
+    grain(ctx, W, H, seed, 16);
+  } },
+
+  // Kimono print: tone-on-tone wave scales behind scattered five-petal
+  // blossoms with pale petals, a deep-coloured heart and fine gold outlines.
+  floral: { metal: 0.08, rough: 0.42, draw(ctx, W, H, p, seed) {
+    const r = rng(seed + 17);
+    ctx.fillStyle = p.base; ctx.fillRect(0, 0, W, H);
+    const R = H / 8, lw = Math.max(1, H / 340);
+    ctx.lineWidth = lw;
+    for (let row = -1; row * R * 0.5 < H + R; row++) {
+      const y = row * R * 0.5, off = (row & 1) * R;
+      for (let x = -R * 2 + off; x < W + R * 2; x += R * 2) {
+        ctx.fillStyle = p.base; ctx.beginPath(); ctx.arc(x, y, R, Math.PI, 2 * Math.PI); ctx.fill();
+        ctx.strokeStyle = p.wave || 'rgba(0,0,0,0.2)';
+        for (let k = 1; k <= 4; k++) { ctx.beginPath(); ctx.arc(x, y, R * k / 4 - lw, Math.PI, 2 * Math.PI); ctx.stroke(); }
+      }
+    }
+    const petal = (s) => {
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.bezierCurveTo(-0.55 * s, -0.25 * s, -0.5 * s, -0.85 * s, -0.2 * s, -s);
+      ctx.lineTo(0, -0.84 * s);
+      ctx.lineTo(0.2 * s, -s);
+      ctx.bezierCurveTo(0.5 * s, -0.85 * s, 0.55 * s, -0.25 * s, 0, 0);
+      ctx.closePath();
+    };
+    const bloom = (x, y, s, rot) => {
+      ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, s);
+      g.addColorStop(0, p.heart || '#c8304a'); g.addColorStop(0.35, p.petal); g.addColorStop(1, p.petal);
+      for (let i = 0; i < 5; i++) {
+        ctx.rotate(Math.PI * 2 / 5);
+        petal(s);
+        ctx.fillStyle = g; ctx.fill();
+        ctx.strokeStyle = p.line || '#e0b04a'; ctx.lineWidth = lw * 1.6; ctx.stroke();
+      }
+      ctx.fillStyle = p.line || '#e0b04a';
+      for (let i = 0; i < 7; i++) { const a = i / 7 * Math.PI * 2; ctx.beginPath(); ctx.arc(Math.cos(a) * s * 0.22, Math.sin(a) * s * 0.22, lw * 1.8, 0, 7); ctx.fill(); }
+      ctx.restore();
+    };
+    const n = p.count || 26;
+    for (let i = 0; i < n; i++) {
+      const s = H * (0.045 + r() * r() * 0.1), x = r() * W, y = r() * H, rot = r() * 6.28;
+      // drawn again across the edges so the print wraps
+      for (const dx of [0, -W, W]) for (const dy of [0, -H, H]) if (x + dx > -s && x + dx < W + s && y + dy > -s && y + dy < H + s) bloom(x + dx, y + dy, s, rot);
+    }
+    for (let i = 0; i < n; i++) {
+      ctx.save(); ctx.translate(r() * W, r() * H); ctx.rotate(r() * 6.28);
+      petal(H * 0.025); ctx.fillStyle = p.petal; ctx.fill(); ctx.strokeStyle = p.line || '#e0b04a'; ctx.lineWidth = lw; ctx.stroke();
+      ctx.restore();
+    }
+    grain(ctx, W, H, seed, 8);
+  } },
 };
+
+// Fine noise over a canvas-drawn finish, so flat fills read as a material.
+function grain(ctx, W, H, seed, amt) {
+  const img = ctx.getImageData(0, 0, W, H), d = img.data, r = rng(seed + 99);
+  for (let i = 0; i < d.length; i += 4) { const g = (r() - 0.5) * amt; d[i] += g; d[i + 1] += g; d[i + 2] += g; }
+  ctx.putImageData(img, 0, 0);
+}
 
 Object.assign(FINISH_TYPES, ART_FINISHES);
 

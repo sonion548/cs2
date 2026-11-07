@@ -281,6 +281,27 @@ const MORE_SKINS = [
 ];
 GUN_SKINS.push(...MORE_SKINS);
 
+// ---- Grip Case: gun finishes that match the gloves in the same case (sport
+// stripes, tartan, woven leather, a hedge maze, snakeskin, kimono blossoms).
+// Kept out of MORE_SKINS so they aren't shared out to the older cases.
+const GRIP_SKINS = [
+  ['ak47', 'Tartan Riot', 'mythic', { type: 'plaid', colors: ['#7a1018', '#141418', '#d8b04a', '#1a3a2a'] }],
+  ['m4a1s', 'Violet Rush', 'mythic', { type: 'stripes', base: '#141018', colors: ['#7a2ad8', '#c8a8ff'], line: '#f4f0ff', angle: 0.6 }],
+  ['awp', 'Viper King', 'exotic', { type: 'snake', base: '#2a5a2a', mark: '#d8c83a', dark: '#0e1a0e' }],
+  ['glock', 'Neon Riptide', 'exotic', { type: 'stripes', base: '#0e0e12', colors: ['#ff3a9a', '#2af0e0'], line: '#ffffff', angle: -0.5 }],
+  ['usp', 'Crimson Silk', 'exotic', { type: 'floral', base: '#8a0e18', petal: '#f6ead8', heart: '#d8405a', line: '#e0b04a', wave: 'rgba(0,0,0,0.22)' }],
+  ['m4a1', 'Green Labyrinth', 'superior', { type: 'maze', base: '#e6e8d4', line: '#1e6a32', line2: '#3a9a50' }],
+  ['deagle', 'Red Weave', 'superior', { type: 'weave', base: '#a81a22', dark: '#2a0608' }],
+  ['mp7', 'Arctic Circuit', 'superior', { type: 'circuit', base: '#c8d2dc', line: '#3a5a7a', glow: '#4ad8ff' }],
+  ['fiveseven', 'Mint Condition', 'superior', { type: 'stripes', base: '#f0f4f2', colors: ['#3ad8a8', '#121614'], line: '#121614', angle: 0 }],
+  ['mac10', 'Lunar Weave', 'superior', { type: 'weave', base: '#4a5a7a', alt: '#9aa8c8', dark: '#141a26' }],
+  ['famas', 'Silver Tape', 'standard', { type: 'weave', base: '#9aa0a8', dark: '#3a3e44', straight: true, cell: 0.07 }],
+  ['p90', 'Badlands', 'standard', { type: 'camo', colors: ['#a87a4a', '#6a4a2a', '#d0a878', '#3a2a1a'] }],
+  ['galil', 'Oxblood', 'standard', { type: 'weave', base: '#5a1418', dark: '#1a0606' }],
+  ['negev', 'Royal Tartan', 'standard', { type: 'plaid', colors: ['#1a2a6a', '#0e1a3a', '#c8a83a', '#a81a1a'] }],
+];
+GUN_SKINS.push(...GRIP_SKINS);
+
 const KNIFE_FINISHES = [
   ['Vanilla', null],
   ['Tempered Bloom', { type: 'tempered' }],
@@ -379,6 +400,68 @@ for (const [type, label] of Object.entries(KNIFE_TYPES)) {
   }
 }
 
+// ---------------------------------------------------------------- gloves
+// Gold-tier items like knives: found in the Grip Case, the Universal Case and
+// the Gold Case. They show on the first-person hands and in the inventory.
+export const GLOVE_TYPES = {
+  racer: 'Racer Gloves', field: 'Field Gloves', wraps: 'Fight Wraps',
+  rider: 'Rider Gloves', tactical: 'Tactical Gloves', touring: 'Touring Gloves',
+};
+// How each kind takes the light: cloth wraps are dull, racing synthetics and
+// fine driving leather have a sheen.
+const GLOVE_ROUGH = { racer: 0.5, field: 0.62, wraps: 0.86, rider: 0.46, tactical: 0.52, touring: 0.4 };
+const GLOVE_FINISHES = {
+  racer: [
+    ['Violet Rush', { type: 'stripes', base: '#141018', colors: ['#7a2ad8', '#c8a8ff'], line: '#f4f0ff', angle: 0.6 }],
+    ['Neon Riptide', { type: 'stripes', base: '#0e0e12', colors: ['#ff3a9a', '#2af0e0'], line: '#ffffff', angle: -0.5 }],
+    ['Green Labyrinth', { type: 'maze', base: '#e6e8d4', line: '#1e6a32', line2: '#3a9a50' }],
+    ['Arctic Circuit', { type: 'circuit', base: '#c8d2dc', line: '#3a5a7a', glow: '#4ad8ff' }],
+  ],
+  field: [
+    ['Woodland Ops', { type: 'camo', colors: ['#4a5a34', '#2e3a22', '#6a6a44', '#1a1e14'] }],
+    ['Desert Recon', { type: 'digital', colors: ['#c8b48a', '#a08a62', '#7a6a4a', '#e0d4b0'] }],
+    ['Oxblood', { type: 'weave', base: '#5a1418', dark: '#1a0606' }],
+    ['Tiger Prowl', { type: 'tiger', base: '#e8962a', stripe: '#1a0e04', freq: 10 }],
+  ],
+  wraps: [
+    ['Crimson Knuckle', { type: 'splatter', base: '#ece6da', colors: ['#a8121e', '#6a0a12', '#c81e2a'] }],
+    ['Midnight Tape', { type: 'stripes', base: '#141a2e', colors: ['#24305a', '#1c2444'], line: '#3a4a7a', angle: 0.9, period: 0.2 }],
+    ['Badlands', { type: 'camo', colors: ['#a87a4a', '#6a4a2a', '#d0a878', '#3a2a1a'] }],
+    ['Silver Tape', { type: 'weave', base: '#9aa0a8', dark: '#3a3e44', straight: true, cell: 0.07 }],
+  ],
+  rider: [
+    ['Mint Condition', { type: 'stripes', base: '#f0f4f2', colors: ['#3ad8a8', '#121614'], line: '#121614', angle: 0 }],
+    ['Prism Shards', { type: 'shards', colors: ['#141428', '#2a3a8a', '#3ac8e8', '#e8f0ff'] }],
+    ['Kapow', { type: 'comic', bg: '#ffd23a', dots: '#e8322a', words: ['KAPOW!', 'WHAM!'] }],
+    ['Shellback', { type: 'scales', base: '#3a7a3a', edge: '#0e2a12', size: 14 }],
+  ],
+  tactical: [
+    ['Crimson Silk', { type: 'floral', base: '#8a0e18', petal: '#f6ead8', heart: '#d8405a', line: '#e0b04a', wave: 'rgba(0,0,0,0.22)' }],
+    ['Emerald Lattice', { type: 'hex', base: '#06180e', line: '#1ee07a', glow: '#8affc0', size: 22 }],
+    ['Spectrum Fade', { type: 'gradient', colors: ['#ffe23a', '#ff5aa8', '#7a3aff', '#1a0a4a'], metal: 0.3 }],
+    ['Marble Haze', { type: 'swirl', colors: ['#1a0a3a', '#e83a8a', '#ffd23a', '#3a8aff'], metal: 0.3 }],
+  ],
+  touring: [
+    ['Viper King', { type: 'snake', base: '#2a5a2a', mark: '#d8c83a', dark: '#0e1a0e' }],
+    ['Red Weave', { type: 'weave', base: '#a81a22', dark: '#2a0608' }],
+    ['Royal Tartan', { type: 'plaid', colors: ['#1a2a6a', '#0e1a3a', '#c8a83a', '#a81a1a'] }],
+    ['Lunar Weave', { type: 'weave', base: '#4a5a7a', alt: '#9aa8c8', dark: '#141a26' }],
+  ],
+};
+for (const [type, list] of Object.entries(GLOVE_FINISHES)) {
+  const typeMult = { racer: 1.5, tactical: 1.35, touring: 1.2, rider: 1.1, field: 1, wraps: 0.9 }[type];
+  for (const [fname, finish] of list) {
+    const id = `gloves:${type}:${fname.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+    const h = hashStr(id);
+    const [lo, hi] = PRICE_BAND.legendary;
+    SKINS[id] = {
+      id, kind: 'skin', weapon: 'gloves', gloves: true, gloveType: type, name: fname, rarity: 'legendary',
+      finish: { metal: 0.03, rough: GLOVE_ROUGH[type], ...finish }, floatRange: [0.06, 0.8],
+      basePrice: Math.round((lo + (h % 1000) / 1000 * (hi - lo) * 0.4) * typeMult), seedOffset: h % 997,
+    };
+  }
+}
+
 export const STICKERS = {};
 for (const [key, name, style, design] of STICKER_DEFS) {
   for (const f of STICKER_FINISHES) {
@@ -450,6 +533,12 @@ export const CASES = {
       sk('ak47', 'Gold Seam'), sk('m4a1', 'Petrol'), sk('awp', 'Obsidian Vein'), sk('glock', 'Ripcurl'), sk('usp', 'Purple Haze'), sk('deagle', 'Chrome Swirl')],
     knives: ['bowie', 'stiletto', 'tanto', 'navaja', 'cord'],
   },
+  // gloves instead of knives, with gun finishes in the same styles
+  grip: {
+    id: 'grip', name: 'Grip Case', price: 180, color: '#3ad89a',
+    skins: GRIP_SKINS.map(([w, n]) => sk(w, n)),
+    knives: [], gloves: true,
+  },
 };
 // The expanded arsenal's finishes go into the existing cases, matched by look
 // (desert camo to Dunehold, fire to Ember, street art to Street...), with a cap
@@ -467,7 +556,7 @@ const CASE_THEME = {
   damascus: 'workshop', woodgrain: 'workshop', kintsugi: 'workshop', folded: 'workshop',
 };
 {
-  const ids = Object.keys(CASES), added = Object.fromEntries(ids.map(id => [id, 0]));
+  const ids = Object.keys(CASES).filter(id => id !== 'grip'), added = Object.fromEntries(ids.map(id => [id, 0]));
   const newSkins = MORE_SKINS.filter(([w]) => NEW_GUNS.includes(w));
   const cap = Math.ceil(newSkins.length / ids.length) + 2;
   for (const [w, n, , finish] of newSkins) {
@@ -483,15 +572,22 @@ export const STICKER_CAPSULE = { id: 'capsule', name: 'Sticker Capsule', price: 
 // A gift every player gets once: opens without a key into a guaranteed knife
 // (or gloves). It can't be bought or sold.
 export const GOLD_CASE = { id: 'gold', name: 'Gold Case', price: 0, color: '#e7b53c', gold: true };
-// Every gun finish in the game in one case (and every knife type), for a
-// little more than any other case.
+// Every gun finish in the game in one case (and every knife type and pair of
+// gloves), for a little more than any other case.
 CASES.universal = {
   id: 'universal', name: 'Universal Case', color: '#a58aff',
   price: Math.max(...Object.values(CASES).map(c => c.price)) + 40,
-  skins: Object.values(SKINS).filter(s => !s.knife).map(s => s.id),
-  knives: Object.keys(KNIFE_TYPES).filter(k => k !== 'standard'),
+  skins: Object.values(SKINS).filter(s => !s.knife && !s.gloves).map(s => s.id),
+  knives: Object.keys(KNIFE_TYPES).filter(k => k !== 'standard'), gloves: true,
 };
 export const KEY_PRICE = 250;
+
+// "AK-47", "★ Karambit", "★ Racer Gloves" for a skin definition.
+export function weaponLabel(d) {
+  if (d.knife) return '★ ' + KNIFE_TYPES[d.knife];
+  if (d.gloves) return '★ ' + GLOVE_TYPES[d.gloveType];
+  return WEAPON_NAMES[d.weapon] || d.weapon;
+}
 
 export function itemDef(item) {
   if (item.kind === 'skin') return SKINS[item.defId];
@@ -504,8 +600,7 @@ export function itemTitle(item) {
   const d = itemDef(item);
   if (!d) return 'Unknown item';
   if (item.kind === 'skin') {
-    const w = d.knife ? KNIFE_TYPES[d.knife] : WEAPON_NAMES[d.weapon];
-    return { weapon: (d.knife ? '★ ' : '') + w + (item.tally != null ? ' · Tally' : ''), name: d.name };
+    return { weapon: weaponLabel(d) + (item.tally != null ? ' · Tally' : ''), name: d.name };
   }
   if (item.kind === 'sticker') return { weapon: 'Sticker', name: d.name };
   return { weapon: 'Container', name: d.name };

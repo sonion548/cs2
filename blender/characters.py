@@ -746,6 +746,23 @@ def decimate(obj, ratio):
     bpy.data.meshes.remove(old)
 
 
+def split_gloves(me, team):
+    """Glove faces onto a second material (the same baked textures), so the
+    glTF has the gloves as their own primitive."""
+    ga = me.attributes.get('glove')
+    if ga is None:
+        return
+    flags = [0] * len(me.polygons)
+    ga.data.foreach_get('value', flags)
+    me.attributes.remove(me.attributes['glove'])
+    if not any(flags) or not me.materials:
+        return
+    gm = me.materials[0].copy()
+    gm.name = f'char_{team}_glove'
+    me.materials.append(gm)
+    me.polygons.foreach_set('material_index', [1 if f else 0 for f in flags])
+
+
 def finish(team, arm, body, bake=True, size=2048, lift=None, bones=None, reduce=True, lods=(0.32, 0.1)):
     """Weights, sole offset, one joined mesh, atlas UVs, baked textures."""
     vl = bpy.context.view_layer
@@ -758,6 +775,11 @@ def finish(team, arm, body, bake=True, size=2048, lift=None, bones=None, reduce=
         if not obj.data.materials:
             m = bpy.data.materials.get(mat) or bpy.data.materials.new(mat)
             obj.data.materials.append(m)
+        if base == 'gloves':
+            # remembered through the join so the gloves can get their own
+            # material slot (glove skins replace just that part in the game)
+            ga = obj.data.attributes.new('glove', 'INT', 'FACE')
+            ga.data.foreach_set('value', [1] * len(obj.data.polygons))
     # stand on the soles: everything up by the sole thickness
     lift = SOLE[team] if lift is None else lift
     for obj, _, _ in PARTS:
@@ -788,6 +810,7 @@ def finish(team, arm, body, bake=True, size=2048, lift=None, bones=None, reduce=
     bpy.ops.object.mode_set(mode='OBJECT')
     if bake:
         TX.bake(char, team, size=size)
+    split_gloves(me, team)
     # only the atlas goes to the game (colours are in the textures now)
     ph = me.uv_layers.get('phys')
     if ph:
@@ -893,6 +916,42 @@ def export_arms(team, path, size=1024):
     char.name = f'arms_{team}'
     for o in bpy.context.scene.objects:
         o.select_set(False)
+    export(path)
+
+
+def export_glove_display(team, path):
+    """The gloves on their own with relaxed hands, for the inventory, case and
+    market previews: one mesh per hand ('glove_L', 'glove_R'), each in its
+    hand's frame (x from the wrist to the fingertips, z out of the back of the
+    hand, origin mid-hand). Material 'skin_glove' and no textures: the game
+    paints the finish on."""
+    BODY_EXTRA.clear(); BODY_EXTRA.update(grip=0.3)
+    try:
+        arm, body = build(team)
+    finally:
+        BODY_EXTRA.clear()
+    src = next(o for o, _, _ in PARTS if o.name.split('.')[0] == 'gloves')
+    mat = bpy.data.materials.new('skin_glove')
+    for side in ('L', 'R'):
+        o = src.copy(); o.data = src.data.copy(); o.name = f'glove_{side}'
+        link(o)
+        bm = bmesh.new(); bm.from_mesh(o.data)
+        drop = [f for f in bm.faces if (f.calc_center_median().x < 0) != (side == 'L')]
+        bmesh.ops.delete(bm, geom=drop, context='FACES')
+        bm.to_mesh(o.data); bm.free()
+        h, t, ax = body.bone_frame(f'hand_{side}')
+        back = -H._palm(body.mh, side)
+        back = back - ax * float(back @ ax); back = back / np.linalg.norm(back)
+        y = np.cross(back, ax)
+        R = Matrix((tuple(ax), tuple(y), tuple(back))).to_4x4()   # rows: world -> hand frame
+        o.data.transform(R @ Matrix.Translation(-(Vector(tuple(h)) + Vector(tuple(ax)) * 0.06)))
+        o.data.materials.clear(); o.data.materials.append(mat)
+        o.matrix_world = Matrix.Identity(4)
+        o.data.uv_layers.new(name='uv')
+    for o in list(bpy.context.scene.objects):
+        if o.name not in ('glove_L', 'glove_R'):
+            bpy.data.objects.remove(o)
+    PARTS.clear()
     export(path)
 
 
