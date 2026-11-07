@@ -26,6 +26,9 @@ const poseOf = (type) => POSE[type] || POSE.rifle;
 // +y up, -z toward the muzzle): k is the knuckle direction (wrist to knuckles),
 // palm the way the palm faces. The same grips are used for third person (rig.js).
 const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
+const TAU = Math.PI * 2;
+// knife channels that are angles (a whole turn looks the same as none)
+const SPIN_CH = new Set(['twirl', 'flip', 'ring', 'bb', 'bh', 'ltwirl']);
 const GRIP_R = {
   rifle: [V3(0, -0.34, -0.94), V3(-1, 0, 0)],          // pistol grip: knuckles forward-down, palm on its right side
   sniper: [V3(0, -0.34, -0.94), V3(-1, 0, 0)],
@@ -500,7 +503,7 @@ export class ViewModel {
     if (this.bfA && part('latch')) this.bfA.attach(part('latch'));
     this.balance = (this.gun.userData.grip || DEF_GRIP).clone().add(V3(0, 0, -0.04));
     this.setDual(type === 'melee' && knifeType === 'push' ? item || {} : null);
-    this.pose = null;
+    this.pose = null; this._insFrom = null;
     this.deployT = 0; this.deployDur = Math.max(0.2, deployTime);
     this.inspectT = -1; this.reloadT = -1; this.cycleT = -1; this.throwT = -1; this.windT = -1;
     this.gun.visible = true;
@@ -521,7 +524,21 @@ export class ViewModel {
   }
   reload(dur) { this.reloadT = 0; this.reloadDur = dur; this.inspectT = -1; }
   cancelReload() { this.reloadT = -1; }
-  inspect() { if (this.deployT >= 1 && this.reloadT < 0 && this.throwT < 0) this.inspectT = 0; }
+  inspect() {
+    if (this.deployT < 1 || this.reloadT >= 0 || this.throwT >= 0) return;
+    if (this.inspectT >= 0) {
+      // pressed again mid-inspect: a knife starts over from the pose it's in
+      // (blended, so nothing jumps back to the start); a gun finishes its turn
+      if (this.type === 'melee' && this.ins) {
+        // the pose as the keys give it (the sway and the spin drive go on top again)
+        const from = samplePose(this.ins, Math.min(this.inspectT, this.ins.len), {});
+        if (this._insFrom) for (const k in from) from[k] = this.pose?.[k] ?? from[k];
+        this._insFrom = from; this._insBlend = 0;
+      }
+      else if (this.inspectT < INSPECT.default[INSPECT.default.length - 1][0] - 0.3) return;
+    }
+    this.inspectT = 0;
+  }
   look(dx, dy) { this.swayVel.x += dx * 0.00012; this.swayVel.y += dy * 0.00012; }
   windup() { this.windT = 0; this.inspectT = -1; }
   throwNade() { this.throwT = 0; this.windT = -1; }
@@ -651,6 +668,17 @@ export class ViewModel {
         P = this.pose = samplePose(this.ins, Tc, this.pose || {});
         // the second push dagger moves with the view but not with the right hand
         if (this.dual) (this._posL ||= new THREE.Vector3()).copy(pos);
+        // restarted mid-inspect: ease from the old pose into the new one (spins
+        // take the short way round to an equivalent angle)
+        if (this._insFrom) {
+          this._insBlend += dt;
+          const u = Math.min(1, this._insBlend / 0.3), e = u * u * (3 - 2 * u);
+          for (const k of new Set([...Object.keys(this._insFrom), ...Object.keys(P)])) {
+            const a = this._insFrom[k] || 0, b = P[k] || 0;
+            P[k] = SPIN_CH.has(k) ? a + (b - a - TAU * Math.round((b - a) / TAU)) * e : a + (b - a) * e;
+          }
+          if (u >= 1) this._insFrom = null;
+        }
         // the hand is never quite still while it shows the knife
         const env = Math.min(1, Tc / 0.35, Math.max(0, this.ins.len - Tc) / 0.35);
         P.roll = (P.roll || 0) + 0.03 * Math.sin(Tc * 2.3) * env;
@@ -794,6 +822,7 @@ export class ViewModel {
     } else if (this.bfA) { this.bfA.rotation.z = 0; this.bfB.rotation.z = 0; }
     m.decompose(g.position, g.quaternion, g.scale);
     if (P && this.ringInfo && ((P.ringW || 0) > 0.001)) this.ringAttach(P);
+    else this._ringSide = 0;
   }
 
   // Ring spin: the knife's ring put round the index finger's middle segment,
@@ -810,10 +839,20 @@ export class ViewModel {
     const nW = ri.n.clone().transformDirection(g.matrixWorld);
     const fy = V3(0, 1, 0).transformDirection(bone.b.matrixWorld);
     const target = bone.b.getWorldPosition(new THREE.Vector3()).addScaledVector(fy, bone.len * bone.b.getWorldScale(new THREE.Vector3()).x * 0.55);
-    const align = new THREE.Quaternion().setFromUnitVectors(nW.dot(fy) < 0 ? nW.clone().negate() : nW, fy);
-    const att = new THREE.Quaternion().setFromAxisAngle(fy, P.ring || 0).multiply(align).multiply(restQ);
+    // which way the finger goes through the ring is settled once per spin: decided
+    // afresh every frame, it flipped whenever the hand's rocking turned the ring
+    // side-on to the finger (a half-turn jump of the knife every revolution)
+    if (!this._ringSide) this._ringSide = nW.dot(fy) < 0 ? -1 : 1;
+    const align = new THREE.Quaternion().setFromUnitVectors(nW.clone().multiplyScalar(this._ringSide), fy);
     const w = Math.min(1, Math.max(0, P.ringW));
-    const q = restQ.clone().slerp(att, w);
+    // a fixed path from the fist onto the finger, and the spin about the finger
+    // put on top of it (blending to an orientation that already includes the
+    // spin took the short way round, which swapped sides mid-turn); the spin
+    // angle is taken to the nearest whole turn and eased in as the knife
+    // leaves the fist, so it starts and finishes at no turn at all
+    const base = restQ.clone().slerp(align.multiply(restQ.clone()), w);
+    const ring = P.ring || 0, wrapped = ring - TAU * Math.round(ring / TAU);
+    const q = new THREE.Quaternion().setFromAxisAngle(fy, wrapped * Math.min(1, w / 0.15)).multiply(base);
     const c = cW.lerp(target, w);
     const origin = c.sub(ri.c.clone().multiplyScalar(sc).applyQuaternion(q));
     const mw = new THREE.Matrix4().compose(origin, q, new THREE.Vector3(sc, sc, sc));

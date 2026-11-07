@@ -341,6 +341,13 @@ dropped them.
   tapped together), so the T-bars never leave the fists; the left dagger no longer copies the right
   hand's movements. The raised glove seams are bound to their own finger, so a finger moving on its own
   no longer drags a sheet of seam behind it (the "webbing" in the spins).
+- **Smooth inspects**: the knife no longer flips half a turn once per revolution in ring spins (the side
+  of the ring the finger goes through is settled once per spin, and the knife blends onto the finger along
+  a fixed path with the spin on top); every inspect pose is softened over a few hundredths of a second and
+  each move eases in from wherever the last one left the wrist, so nothing jolts; pressing inspect again
+  part way through blends into the new one instead of snapping back to the start. Checked by stepping
+  every knife's inspect at 120 fps: no frame-to-frame jumps or sudden changes of speed in the knife,
+  hand or elbow.
 - **Two Gold Cases for every existing player** (Nov 2026): every account that existed when each gift went
   live gets it once, with a "Gift" row in its history: a first Gold Case, then one more (separate gifts, so
   players who already had the first still get the second). New accounts don't get them (they start with

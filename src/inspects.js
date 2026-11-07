@@ -34,7 +34,7 @@ const OPEN = { ix: 0.85, mi: 0.95, th: 0.7 };   // let go for a toss
 function toss(t0, p, flip0, turns = 1, h = 0.075, d = 0.62) {
   const f1 = flip0 + TAU * turns;
   return [
-    [t0, { ...p, flip: flip0, lift: 0 }],
+    [t0, { ...knifeOnly(p), flip: flip0, lift: 0 }],
     [t0 + d * 0.18, { ...p, ...OPEN, flip: flip0 + 0.3, lift: h * 0.45, y: (p.y || 0) + 0.008 }],
     [t0 + d * 0.5, { ...p, ...OPEN, flip: (flip0 + f1) / 2, lift: h }],
     [t0 + d * 0.86, { ...p, ...OPEN, flip: f1 - 0.25, lift: h * 0.3 }],
@@ -46,7 +46,7 @@ function toss(t0, p, flip0, turns = 1, h = 0.075, d = 0.62) {
 // The knife walked round in the fingers by `by` radians from `from`.
 function twirl(t0, p, from, by, d = 0.5) {
   return [
-    [t0, { ...p, twirl: from }],
+    [t0, { ...knifeOnly(p), twirl: from }],
     [t0 + 0.15, { ...p, ...LOOSE, twirl: from + by * 0.06 }],
     [t0 + 0.15 + d, { ...p, ...LOOSE, wave: 0.42, twirl: from + by }],
     [t0 + 0.3 + d, { ...p, ...GRIP, twirl: from + by }],
@@ -63,7 +63,7 @@ function twirl(t0, p, from, by, d = 0.5) {
 function ringSpin(t0, p, from, turns = 2, d = 0.9) {
   const to = from + TAU * turns, r = p.roll || 0, f = p.flex || 0, y = p.y || 0;
   return [
-    [t0, { ...p, ring: from, ringW: 0 }],
+    [t0, { ...knifeOnly(p), ring: from, ringW: 0 }],
     [t0 + 0.16, { ...p, roll: r - 0.25, flex: f + 0.32, y: y - 0.004, ix: 0.3, mi: 0.1, th: 0.2, ring: from - 0.12, ringW: 0 }],
     [t0 + 0.32, { ...p, roll: r + 0.15, flex: f - 0.18, y: y + 0.008, ix: 0.95, mi: -0.1, th: 0.35, ring: from + 1.1, ringW: 1 }],
     [t0 + 0.32 + d * 0.5, { ...p, roll: r + 0.05, flex: f - 0.05, ix: 0.95, mi: -0.2, th: -0.05, ring: from + (to - from) * 0.56, ringW: 1 }],
@@ -94,6 +94,11 @@ function bali(t0, p, bb, bh, d = 0.42) {
 }
 
 const seq = (...parts) => parts.flat();
+// A move's opening key, minus the hand's own channels: the wrist keeps flowing
+// from wherever the last move left it instead of being yanked to this move's
+// pose within a few hundredths of a second.
+const HAND_KEYS = ['roll', 'flex', 'yaw', 'x', 'y', 'z'];
+const knifeOnly = (o) => Object.fromEntries(Object.entries(o).filter(([k]) => !HAND_KEYS.includes(k)));
 
 export const KNIFE_INSPECTS = {
   standard: { len: 3.9, end: { twirl: TAU }, keys: seq(
@@ -292,10 +297,19 @@ function sampleTrack(tr, t) {
   return (2 * s3 - 3 * s2 + 1) * tr.v[i - 1] + (s3 - 2 * s2 + s) * h * tr.m[i - 1] + (-2 * s3 + 3 * s2) * tr.v[i] + (s3 - s2) * h * tr.m[i];
 }
 
-// The pose at time t (channels the inspect doesn't use stay undefined).
+// The pose at time t (channels the inspect doesn't use stay undefined),
+// softened over a few hundredths of a second either side (a binomial blur):
+// keys set close together, or one move cutting straight into the next, would
+// otherwise jolt the hand from one speed to another within a frame or two.
+const BLUR = [[-0.06, 1], [-0.03, 4], [0, 6], [0.03, 4], [0.06, 1]];
 export function samplePose(ins, t, out = {}) {
   for (const k in out) out[k] = 0;
-  for (const k in ins.tracks) out[k] = sampleTrack(ins.tracks[k], t);
+  for (const k in ins.tracks) {
+    const tr = ins.tracks[k];
+    let v = 0;
+    for (const [dt, w] of BLUR) v += w * sampleTrack(tr, Math.min(ins.len, Math.max(0, t + dt)));
+    out[k] = v / 16;
+  }
   return out;
 }
 
