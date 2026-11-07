@@ -136,6 +136,8 @@ export class NetMatch {
       this.loadouts.set(from, { p: d.p, s: d.s });
     } else if (d.k === 'buy' && b.alive) {
       g.buy(b, d.id);
+    } else if (d.k === 'refund' && b.alive) {
+      g.refund(b, d.id);
     } else if (d.k === 'nade' && b.alive && !g.freeze) {
       b.yaw = d.y; b.pitch = d.pi;
       const i = b.nades.indexOf(d.t);
@@ -243,6 +245,7 @@ export class NetMatch {
   melee(heavy) { const p = this.g.player; this.send({ k: 'melee', h: heavy ? 1 : 0, y: r2(p.yaw), pi: r2(p.pitch) }); }
   loadout(p, s) { this.send({ k: 'loadout', p, s }); }
   buy(id) { this.send({ k: 'buy', id }); }
+  refund(id) { this.send({ k: 'refund', id }); }
 
   // Client: mirror the host's bomb (mesh, timer, and our own plant/defuse progress).
   applyBomb([st, x, y, z, timer, pid, pp, did, dp, kit]) {

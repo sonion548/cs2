@@ -13,7 +13,7 @@ import { rayBox, rayCapsule } from './physics.js';
 import { Hud } from './hud.js';
 import { NetMatch } from './net/netmatch.js';
 import { bindsFrom, actionMap } from './input.js';
-import { ECON, lossBonus, addMoney, applyBuy } from './match/economy.js';
+import { ECON, lossBonus, addMoney, applyBuy, refundBuy } from './match/economy.js';
 import { Bomb, BOMB } from './match/bomb.js';
 import { Grenades } from './match/grenades.js';
 import { Drops } from './match/drops.js';
@@ -429,11 +429,27 @@ export class Game {
     if (this.net && !this.net.isHost && ch === this.player) this.net.buy(id);
     const res = applyBuy(ch, id);
     if (res.error) return res;
-    if (res.dropped) this.drops.add(res.dropped, ch.eyePos().addScaledVector(ch.forward(), 0.4), ch.forward().multiplyScalar(2), this.skinOf(ch, res.dropped.id));
+    if (res.dropped) res.rec.drop = this.drops.add(res.dropped, ch.eyePos().addScaledVector(ch.forward(), 0.4), ch.forward().multiplyScalar(2), this.skinOf(ch, res.dropped.id));
     if (ch === this.player) {
       this.audio.ui();
       if (res.slot === 1 || res.slot === 2) { this.player.slot = 0; this.switchWeapon(res.slot); }
     } else if (ch.isBot && (res.slot === 1 || res.slot === 2)) { ch.slot = 0; ch.switchTo(res.slot); ch.equip(); }
+    return res;
+  }
+
+  // Sell back something bought this round that hasn't been used. A refunded
+  // gun gives back the one it replaced, if that's still lying where it fell.
+  refund(ch, id) {
+    if (!this.canBuy(ch)) return { error: 'Buying is closed' };
+    if (this.net && !this.net.isHost && ch === this.player) this.net.refund(id);
+    const res = refundBuy(ch, id);
+    if (res.error) return res;
+    const drop = res.rec.drop;
+    if (res.rec.weapon && drop && this.drops.list.includes(drop)) { ch.weapons[res.slot] = drop.ws; this.drops.remove(drop); }
+    if (ch === this.player) {
+      this.audio.ui();
+      if (res.rec.weapon) { this.player.slot = 0; this.switchWeapon(this.player.bestSlot()); }
+    }
     return res;
   }
 
@@ -529,6 +545,7 @@ export class Game {
   // ---------------------------------------------------------------- rounds
   startRound() {
     this.round++;
+    for (const c of this.characters) c.buys = [];   // last round's purchases can't be refunded
     this.state = 'freeze';
     this.stateTimer = this.opts.freezeTime ?? 15;
     this.roundTime = 0;

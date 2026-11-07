@@ -448,6 +448,7 @@ export class WeaponState {
   // Registers a shot and returns the recoil offset [pitch, yaw] (degrees) for this bullet.
   fire(now) {
     const d = this.def;
+    this.used = true;            // a gun that has fired can't be refunded
     this.nextFire = now + this.interval;
     this.lastShot = now;
     if (!d.pattern) return [0, 0];

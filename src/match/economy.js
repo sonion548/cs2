@@ -42,12 +42,45 @@ export function applyBuy(ch, id) {
   const block = buyBlock(ch, id);
   if (block) return { error: block };
   const d = WEAPONS[id] || GEAR[id];
-  ch.money -= priceFor(ch, id);
+  const price = priceFor(ch, id);
+  ch.money -= price;
+  // remembered for a refund this round (see refundBuy)
+  const rec = { id, price, armor: ch.armor, helmet: ch.helmet };
   let dropped = null;
   if (id === 'vest') ch.armor = 100;
   else if (id === 'vesthelm') { ch.armor = 100; ch.helmet = true; }
   else if (id === 'kit') ch.hasKit = true;
   else if (d.type === 'grenade') ch.nades.push(id);
-  else { dropped = ch.weapons[d.slot]; ch.weapons[d.slot] = new WeaponState(id); }
-  return { ok: true, dropped, slot: d.slot };
+  else { dropped = ch.weapons[d.slot]; ch.weapons[d.slot] = rec.weapon = new WeaponState(id); }
+  (ch.buys ||= []).push(rec);
+  return { ok: true, dropped, slot: d.slot, rec };
+}
+
+// Can this be sold back? Only something bought this round (purchases are
+// forgotten when a round starts), during buy time, and not yet used: a gun
+// that hasn't fired, armour that hasn't been hit, a grenade still carried.
+export function refundable(ch, id) {
+  const buys = ch.buys || [];
+  for (let i = buys.length - 1; i >= 0; i--) {
+    const r = buys[i];
+    if (r.id !== id) continue;
+    const d = WEAPONS[id] || GEAR[id];
+    if (r.weapon) { if (ch.weapons[d.slot] === r.weapon && !r.weapon.used) return r; continue; }
+    if (id === 'vest' || id === 'vesthelm') { if (ch.armor >= 100 && (id === 'vest' || ch.helmet)) return r; continue; }
+    if (id === 'kit') { if (ch.hasKit) return r; continue; }
+    if (d.type === 'grenade') { if (ch.nades.includes(id)) return r; continue; }
+  }
+  return null;
+}
+export function refundBuy(ch, id) {
+  const r = refundable(ch, id);
+  if (!r) return { error: 'Nothing to refund' };
+  const d = WEAPONS[id] || GEAR[id];
+  ch.money = Math.min(ECON.max, ch.money + r.price);
+  if (r.weapon) ch.weapons[d.slot] = null;
+  else if (id === 'vest' || id === 'vesthelm') { ch.armor = r.armor; ch.helmet = r.helmet; }
+  else if (id === 'kit') ch.hasKit = false;
+  else if (d.type === 'grenade') ch.nades.splice(ch.nades.lastIndexOf(id), 1);
+  ch.buys.splice(ch.buys.indexOf(r), 1);
+  return { ok: true, rec: r, slot: d.slot, refund: r.price };
 }

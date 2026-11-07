@@ -2,6 +2,7 @@
 // radar, scoreboard, buy menu, scope overlay, hit markers, damage indicators,
 // flash whiteout, plant/defuse progress and the spectator panel.
 import { WEAPONS, GEAR, BUY_MENU, usableBy } from './weapons.js';
+import { refundable } from './match/economy.js';
 import { buyBlock, priceFor } from './match/economy.js';
 import { crosshairFrom, drawCrosshair } from './crosshair.js';
 import { keyLabel } from './input.js';
@@ -340,11 +341,14 @@ export class Hud {
       document.exitPointerLock();
       this.renderBuy();
       b.onclick = (e) => {
+        const rf = e.target.closest('[data-refund]');
+        if (rf) { e.stopPropagation(); return this.refund(rf.dataset.refund); }
         const t = e.target.closest('button'); if (!t) return;
         if (t.dataset.close) return this.toggleBuy(false);
-        if (t.dataset.cat != null) { this.buyCat = +t.dataset.cat; return this.renderBuy(); }
         if (t.dataset.item) this.purchase(t.dataset.item);
       };
+      // right-click sells back, like CS
+      b.oncontextmenu = (e) => { e.preventDefault(); const t = e.target.closest('button[data-item]'); if (t) this.refund(t.dataset.item); };
     } else if (!g.paused && g.running) g.canvas.requestPointerLock();
   }
 
@@ -353,25 +357,32 @@ export class Hud {
     if (r.error) this.notice(r.error, 1.5);
     this.refreshBuy();
   }
+  refund(id) {
+    const r = this.g.refund(this.g.player, id);
+    if (r.error) this.notice(r.error === 'Nothing to refund' ? 'Only unused things bought this round can be sold back' : r.error, 1.8);
+    else this.notice(`Sold back for $${r.refund}`, 1.2);
+    this.refreshBuy();
+  }
 
-  // Builds the menu, only when it opens or the category changes: rebuilding
-  // the buttons while it's open swallows clicks (a click needs the press and
-  // the release to land on the same element).
+  // Everything on one page, a column per category. Built only when it opens:
+  // rebuilding the buttons while it's open swallows clicks (a click needs the
+  // press and the release to land on the same element); refreshBuy updates
+  // prices and states in place.
   renderBuy() {
     const g = this.g, p = g.player;
-    const cats = BUY_MENU.map(([name, ids]) => [name, ids.filter(id => usableBy(id, p.team))]);
+    const cats = BUY_MENU.map(([name, ids]) => [name, ids.filter(id => (WEAPONS[id] || GEAR[id]) && usableBy(id, p.team))]);
     const item = (id, i) => {
       const d = WEAPONS[id] || GEAR[id];
-      return `<button data-item="${id}"><kbd>${i + 1}</kbd><span>${d.name}</span><b></b>${d.cls && d.cls !== 'grenade' ? `<small>${d.cls}</small>` : ''}</button>`;
+      return `<button data-item="${id}"><kbd>${i + 1}</kbd><span>${d.name}</span><b></b><em class="rf" data-refund="${id}" title="Sell back (right-click)">↺</em></button>`;
     };
     this.$('.buy').innerHTML = `
-      <div class="buy-box">
+      <div class="buy-box wide">
         <div class="buy-head"><h2>Buy</h2><div class="buy-money"></div><div class="buy-time"></div><button data-close="1" class="x">Close</button></div>
-        <div class="buy-cats">${cats.map(([name], i) => `<button data-cat="${i}" class="${this.buyCat === i ? 'on' : ''}"><kbd>${i + 1}</kbd>${name}</button>`).join('')}</div>
-        <div class="buy-items">${this.buyCat == null ? '<p class="hint">Pick a category (number keys or click).</p>' : cats[this.buyCat][1].map(item).join('')}</div>
-        <p class="hint">Number keys: category, then item · ${keyLabel(g.binds.buy[0])} / Esc to close · buying a gun drops the one in that slot</p>
+        <div class="buy-grid">${cats.map(([name, ids], c) => `<section data-col="${c}"><h3><kbd>${c + 1}</kbd>${name}</h3>${ids.map(item).join('')}</section>`).join('')}</div>
+        <p class="hint">Click to buy · right-click (or ↺) sells back anything bought this round and not used yet · keys: column number, then item number · ${keyLabel(g.binds.buy[0])} / Esc to close</p>
       </div>`;
     this.buyCats = cats;
+    this.buyCat = null;
     this.refreshBuy();
   }
 
@@ -386,17 +397,20 @@ export class Hud {
       const owned = (d.slot === 1 || d.slot === 2) && p.weapons[d.slot]?.id === id;
       btn.classList.toggle('no', !!block && !owned);
       btn.classList.toggle('own', owned);
+      btn.classList.toggle('canrefund', !!refundable(p, id) && g.canBuy(p));
       if (btn.title !== (block || '')) btn.title = block || '';
       setText(btn.querySelector('b'), '$' + priceFor(p, id));
     }
   }
 
+  // Number keys: a column, then an item in it (then back to choosing a column).
   buyKey(code) {
     const i = +code.slice(5) - 1;
     if (i < 0) return;
-    if (this.buyCat == null) { if (this.buyCats?.[i]) { this.buyCat = i; this.renderBuy(); } return; }
-    const id = this.buyCats[this.buyCat]?.[1][i];
-    if (id) this.purchase(id); else if (i === 9) { this.buyCat = null; this.renderBuy(); }
+    const root = this.$('.buy');
+    if (this.buyCat == null) { if (this.buyCats?.[i]) this.buyCat = i; }
+    else { const id = this.buyCats[this.buyCat]?.[1][i]; if (id) this.purchase(id); this.buyCat = null; }
+    for (const s of root.querySelectorAll('section[data-col]')) s.classList.toggle('on', +s.dataset.col === this.buyCat);
   }
 
   showPause(v) { this.$('.pause').classList.toggle('hidden', !v); }

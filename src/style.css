@@ -493,3 +493,19 @@ img:not([src]) { visibility: hidden; }
 
 /* named rare patterns (blue gems, full fades, gem phases) */
 .pat-special { color: #5aa8ff; font-weight: 700; }
+
+/* one-page buy menu */
+.buy-box.wide { width: min(1260px, 97vw); }
+.buy-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+.buy-grid section { display: flex; flex-direction: column; gap: 5px; padding: 8px; border: 1px solid #222b34; border-radius: 6px; background: #0d1217; }
+.buy-grid section.on { border-color: var(--accent); }
+.buy-grid h3 { margin: 0 0 4px; font: 600 14px var(--cond); text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.buy-grid button { position: relative; display: grid; grid-template-columns: auto 1fr auto; gap: 6px; align-items: center; padding: 7px 9px; background: #1a2129; border: 1px solid #2c3540; border-radius: 5px; text-align: left; font-size: 14px; }
+.buy-grid button kbd { font-size: 10px; opacity: 0.6; }
+.buy-grid button span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.buy-grid button b { color: #9fe08f; font-weight: 600; font-size: 13px; }
+.buy-grid button.no { opacity: 0.45; }
+.buy-grid button.own { border-color: #3d7a52; background: #13241a; }
+.buy-grid button .rf { display: none; position: absolute; right: -6px; top: -7px; width: 20px; height: 20px; line-height: 19px; text-align: center; border-radius: 50%; background: #e8632b; color: #140a04; font-style: normal; font-weight: 700; font-size: 13px; cursor: pointer; }
+.buy-grid button.canrefund .rf { display: block; }
+@media (max-width: 900px) { .buy-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
