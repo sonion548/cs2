@@ -207,6 +207,14 @@ def bind(obj, body, bone=None, smooth_iters=0, only=None):
     IX = {b: i for i, b in enumerate(names)}
     if bone:
         W = np.zeros((n, len(names))); W[:, IX[bone]] = 1
+    elif obj.name in SHELLS and len(SHELLS[obj.name].src) == n:
+        # a garment grown off the body: each vertex takes the weights of the body
+        # vertex it grew from. Looking up the nearest body surface instead can land
+        # on the next finger over where fingers touch (in a fist), and that finger
+        # then drags a strip of glove with it when the hand opens.
+        if fingers and body.WX is None:
+            body.WX = H.arm_weights(len(body.V))
+        W = (body.WX if fingers else body.W)[SHELLS[obj.name].src].copy()
     else:
         W = np.array([body.weights_at(v.co[:], fingers) for v in me.vertices])
     if only:

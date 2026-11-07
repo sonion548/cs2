@@ -262,6 +262,41 @@ dropped them.
   Black Pearl (under 1 in 100) patterns; Gamma Wave is the green version with a rare Emerald (2 in 100).
   Like real dopplers they only come Factory New or Minimal Wear.
 
+## Stage 10 (this build)
+
+- **Lag spikes fixed**: skin textures are painted on a background thread (a Web Worker) instead of the
+  main thread, so equipping, dropping or picking up a skinned gun no longer freezes a frame. A gun shows its
+  stock finish for a moment until the skin is ready.
+- **Hit registration**: hitboxes are capsules on the posed skeleton (head, neck, chest, arms, legs) instead of
+  boxes that didn't match the models; bullets follow the aim punch the same way the camera does; invisible
+  colliders on props no longer swallow shots.
+- **Rewards always arrive**: a match result is queued on your device until the server confirms it (each
+  result is paid once), and a win always drops a case.
+- **Economy**: knives cost several times more (about 15,000 to 110,000), the gold-tier chance is 0.5%,
+  every player gets one **Gold Case** (opens free into a knife or gloves) and the **Universal Case** holds
+  every gun finish in the game plus every knife and pair of gloves.
+- **Wear**: Field-Tested now visibly wears a skin (3-12% of it), Battle-Scarred is capped at about a third.
+- **Buy menu**: one page with every weapon, and refunds: right-click (or click again) something you bought
+  this round to sell it back for the full price until it's been used.
+- **Weapons**: the M4A1 is now the **M4A4**, plus a new **M4A1-S** (silenced, 20 rounds) and **Negev**
+  (150-round belt that settles into a steady stream), each with skins. Four new knives: Skeleton,
+  Hawkbill, Trench and Cord, with every knife finish.
+- **Gloves**: six types with four finishes each, gold tier like knives. They show on your first-person hands
+  and drop from the new **Grip Case** (14 gun skins in the same styles: sport stripes, tartan, woven
+  leather, a hedge maze, snakeskin, kimono blossoms), the Universal Case and the Gold Case.
+- **Market buy orders name a condition**: an order asks for a wear (FN to BS) and optionally a pattern
+  (phases, gems, Full Fade), only a matching copy can fill it, and bots fill orders at their own asking
+  price with the rest of the bid returned. (Before, a bot could fill a high bid with a cheap Battle-Scarred
+  copy and keep the whole bid.) Cancel listings from the inventory or the market.
+- **Player profiles**: look at anyone's profile (from the social drawer, a market seller's name, the online
+  leaderboards, or by account name): level, ranks, stats and their whole inventory with its value.
+- **Hands that move**: the first-person arms have finger bones. Every knife has its own inspect with the
+  wrist and fingers moving: twirls walked through the fingers, tosses caught in the fist, the karambit and
+  skeleton knife spun round the index finger by their rings, real balisong flips from the end of a handle.
+  Push daggers are redesigned and held as a pair, one in each hand. Support hands open to let go of a pistol
+  and to take a magazine.
+- **Smaller enemy outline**, and **market inspect animation** to see a skin in first person.
+
 ## Blender models
 
 Weapons, knives, characters and the Dunehold map are modelled with Blender scripts in `blender/` (see

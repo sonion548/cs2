@@ -106,11 +106,17 @@ export const KNIFE_INSPECTS = {
     twirl(1.35, show({ flex: -0.4 }), TAU, TAU, 0.45),
     [[2.6, show({ roll: 0.6, flex: -0.25, twirl: 2 * TAU })], [3.3, show({ roll: 0.2, twirl: 2 * TAU })]],
   ) },
-  karambit: { len: 4.3, end: { ring: 3 * TAU }, keys: seq(
-    [[0.45, show({ roll: -0.35, flex: -0.2, y: 0.045 })], [0.95, show({ roll: -0.4, flex: -0.28, y: 0.05, wave: 0.2 })]],
-    ringSpin(1.05, show({ roll: -0.1, flex: -0.1, y: 0.05 }), 0, 2, 0.85),
-    [[2.95, show({ roll: 0.35, flex: -0.45, ring: 2 * TAU })]],
-    ringSpin(3.05, show({ roll: 0.1, flex: -0.2, y: 0.045 }), 2 * TAU, 1, 0.4),
+  // one continuous spin on the index finger (three turns), back into the fist,
+  // a look down the blade, then the wrist turns it over to show the other side
+  karambit: { len: 4.7, end: { ring: 3 * TAU }, keys: seq(
+    [[0.2, show({ roll: -0.15, flex: -0.12, y: 0.045 })]],
+    ringSpin(0.25, show({ roll: -0.1, flex: -0.1, y: 0.05 }), 0, 3, 1.35),
+    [[2.55, show({ roll: 0.58, flex: -0.35, y: 0.05, ring: 3 * TAU })],
+      [3.05, show({ roll: 0.64, flex: -0.4, y: 0.052, ring: 3 * TAU })],
+      // in a reverse grip the handle lies across the palm, so bending the
+      // wrist turns the blade about its own length: the other face
+      [3.6, show({ roll: 0.32, flex: 0.95, y: 0.055, ring: 3 * TAU })],
+      [4.15, show({ roll: 0.36, flex: 1.0, y: 0.052, ring: 3 * TAU })]],
   ) },
   butterfly: { len: 4.6, end: { bb: 6 * PI, bh: -12 * PI, twirl: TAU }, keys: seq(
     [[0.35, show({ flex: -0.3, y: 0.03 })]],
