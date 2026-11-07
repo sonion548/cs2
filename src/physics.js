@@ -129,16 +129,25 @@ export class World {
   // Ray vs boxes (slab method). dir must be normalised. Walks the spatial
   // index cell by cell along the ray (2D DDA in x/z) and stops as soon as the
   // closest hit so far is nearer than the next cell.
-  raycast(origin, dir, maxDist = 1000) {
+  // bullet: rays for shots and sight lines. They pass palm colliders (a
+  // straight 6 m pole at the base of a leaning tree, so most of it is empty
+  // air) and test round props (pots, barrels, tyres, gas bottles) against a
+  // box shrunk to their visible size instead of the square box's corners.
+  raycast(origin, dir, maxDist = 1000, bullet = false) {
     if (this.indexed !== this.boxes.length) this.buildIndex();
     let best = maxDist, bestBox = null, bestAxis = -1, bestSign = 0;
     const ox = origin.x, oy = origin.y, oz = origin.z;
     const ix = 1 / dir.x, iy = 1 / dir.y, iz = 1 / dir.z;
     const st = ++this.stamp, C = this.cell;
     const test = (list) => {
-      for (const b of list) {
-        if (b._q === st) continue;
-        b._q = st;
+      for (const b0 of list) {
+        if (b0._q === st) continue;
+        b0._q = st;
+        let b = b0;
+        if (bullet) {
+          if (b0.tag === 'palm') continue;
+          if (ROUND[b0.tag]) b = shrunk(b0);
+        }
         let t1 = (b.min.x - ox) * ix, t2 = (b.max.x - ox) * ix;
         let tmin = Math.min(t1, t2), tmax = Math.max(t1, t2), axis = 0;
         t1 = (b.min.y - oy) * iy; t2 = (b.max.y - oy) * iy;
@@ -150,7 +159,7 @@ export class World {
         if (zmin > tmin) { tmin = zmin; axis = 2; }
         tmax = Math.min(tmax, zmax);
         if (tmax >= Math.max(tmin, 0) && tmin < best && tmin >= 0) {
-          best = tmin; bestBox = b; bestAxis = axis;
+          best = tmin; bestBox = b0; bestAxis = axis;
           bestSign = axis === 0 ? -Math.sign(dir.x) : axis === 1 ? -Math.sign(dir.y) : -Math.sign(dir.z);
         }
       }
@@ -184,9 +193,44 @@ export class World {
     const d = b.clone().sub(a);
     const len = d.length();
     d.divideScalar(len);
-    const h = this.raycast(a, d, len);
+    const h = this.raycast(a, d, len, true);
     return !h || h.dist >= len - 0.05;
   }
+}
+
+// Round props: their boxes are inset to roughly the visible width for bullets.
+const ROUND = { pot: 0.2, barrel: 0.16, tyres: 0.15, gas: 0.12 };
+const _shrunk = new WeakMap();
+function shrunk(b) {
+  let s = _shrunk.get(b);
+  if (!s) {
+    const k = ROUND[b.tag], ix = (b.max.x - b.min.x) * k / 2, iz = (b.max.z - b.min.z) * k / 2;
+    s = { min: new THREE.Vector3(b.min.x + ix, b.min.y, b.min.z + iz), max: new THREE.Vector3(b.max.x - ix, b.max.y, b.max.z - iz), tag: b.tag };
+    _shrunk.set(b, s);
+  }
+  return s;
+}
+
+// Ray vs capsule (segment a-b, radius r); dir normalised. Entry distance or -1.
+export function rayCapsule(ro, rd, pa, pb, r) {
+  const bax = pb.x - pa.x, bay = pb.y - pa.y, baz = pb.z - pa.z;
+  const oax = ro.x - pa.x, oay = ro.y - pa.y, oaz = ro.z - pa.z;
+  const baba = bax * bax + bay * bay + baz * baz, bard = bax * rd.x + bay * rd.y + baz * rd.z;
+  const baoa = bax * oax + bay * oay + baz * oaz, rdoa = rd.x * oax + rd.y * oay + rd.z * oaz, oaoa = oax * oax + oay * oay + oaz * oaz;
+  const a = baba - bard * bard, b = baba * rdoa - baoa * bard, c = baba * oaoa - baoa * baoa - r * r * baba;
+  const h = b * b - a * c;
+  if (h >= 0 && a > 1e-9) {
+    const t = (-b - Math.sqrt(h)) / a, y = baoa + t * bard;
+    if (y > 0 && y < baba) return t >= 0 ? t : -1;
+  }
+  // the end caps
+  let best = -1;
+  for (const p of [pa, pb]) {
+    const ocx = ro.x - p.x, ocy = ro.y - p.y, ocz = ro.z - p.z;
+    const b2 = rd.x * ocx + rd.y * ocy + rd.z * ocz, c2 = ocx * ocx + ocy * ocy + ocz * ocz - r * r, h2 = b2 * b2 - c2;
+    if (h2 > 0) { const t = -b2 - Math.sqrt(h2); if (t >= 0 && (best < 0 || t < best)) best = t; }
+  }
+  return best;
 }
 
 // Ray vs a single AABB given as min/max arrays; returns entry distance or -1.

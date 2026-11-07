@@ -2,6 +2,20 @@
 import * as THREE from 'three';
 import { WeaponState, DEFAULT_PISTOL } from './weapons.js';
 
+// [bone, to (a bone, or 'tail' for the bone's own end), radius, damage group]
+const CAPSULES = [
+  ['head', 'tail', 0.115, 'head'],
+  ['neck', 'head', 0.065, 'chest'],
+  ['chest', 'neck', 0.175, 'chest'],
+  ['spine', 'chest', 0.165, 'stomach'],
+  ['hips', 'spine', 0.165, 'stomach'],
+  ['upperarm_L', 'forearm_L', 0.055, 'chest'], ['forearm_L', 'hand_L', 0.045, 'chest'],
+  ['upperarm_R', 'forearm_R', 0.055, 'chest'], ['forearm_R', 'hand_R', 0.045, 'chest'],
+  ['thigh_L', 'shin_L', 0.085, 'legs'], ['shin_L', 'foot_L', 0.065, 'legs'],
+  ['thigh_R', 'shin_R', 0.085, 'legs'], ['shin_R', 'foot_R', 0.065, 'legs'],
+];
+const _yawQ = new THREE.Quaternion(), _UP = new THREE.Vector3(0, 1, 0);
+
 export const MOVE = {
   maxSpeed: 6.35, walkMul: 0.52, crouchMul: 0.34,
   accel: 5.5, airAccel: 12, airCap: 0.76, friction: 5.2, stopSpeed: 2.0,
@@ -111,6 +125,24 @@ export class Character {
   }
 
   // Hitboxes as {group, min:[x,y,z], max:[x,y,z]} in world space.
+  // Hit capsules from the posed skeleton (third-person models), so shots land
+  // where the body is drawn: leaning, crouching, arms and gun out in front.
+  // null for characters without one (your own first-person body).
+  hitCapsules() {
+    const rig = this.model?.userData?.rig;
+    if (!rig?.b?.head?.mp) return null;
+    _yawQ.setFromAxisAngle(_UP, this.yaw);
+    const W = (v) => v.clone().applyQuaternion(_yawQ).add(this.pos);
+    const out = [];
+    for (const [n, to, r, group] of CAPSULES) {
+      const b = rig.b[n]; if (!b) continue;
+      const e = to === 'tail' ? b.mp.clone().add(b.dirLocal.clone().applyQuaternion(b.mq).multiplyScalar(b.len)) : rig.b[to]?.mp;
+      if (!e) continue;
+      out.push({ group, a: W(b.mp), b: W(e), r });
+    }
+    return out;
+  }
+
   hitboxes() {
     const p = this.pos, h = this.height, k = h / MOVE.standHeight;
     const fx = -Math.sin(this.yaw) * 0.04, fz = -Math.cos(this.yaw) * 0.04;

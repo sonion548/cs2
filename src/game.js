@@ -9,7 +9,7 @@ import { WEAPONS, computeDamage } from './weapons.js';
 import { ViewModel } from './viewmodel.js';
 import { audio } from './audio.js';
 import { radialTexture, skyTexture, tex, rng } from './textures.js';
-import { rayBox } from './physics.js';
+import { rayBox, rayCapsule } from './physics.js';
 import { Hud } from './hud.js';
 import { NetMatch } from './net/netmatch.js';
 import { bindsFrom, actionMap } from './input.js';
@@ -747,8 +747,11 @@ export class Game {
     const [rp, ry] = w.fire(now);
     const origin = shooter.eyePos();
     const pellets = d.pellets || 1;
+    // your bullets follow the aim punch (being shot, the kick of the last shot)
+    // exactly as far as the view does, so the crosshair always shows where they go
+    const punch = isPlayer ? (this.viewPunch || 0) * DEG * 0.3 : 0;
     for (let i = 0; i < pellets; i++) {
-      let pitch = shooter.pitch + rp * DEG, yaw = shooter.yaw - ry * DEG;
+      let pitch = shooter.pitch + rp * DEG + punch, yaw = shooter.yaw - ry * DEG;
       const a = Math.random() * Math.PI * 2, rr = spread * Math.random() + (d.pelletSpread ? d.pelletSpread * Math.sqrt(Math.random()) : 0);
       pitch += Math.sin(a) * rr; yaw += Math.cos(a) * rr;
       const cp = Math.cos(pitch);
@@ -772,14 +775,24 @@ export class Game {
   }
 
   traceBullet(shooter, origin, dir, d, visualOnly = false, quiet = false) {
-    const wh = this.level.world.raycast(origin, dir, 250);
+    const wh = this.level.world.raycast(origin, dir, 250, true);
     let end = wh ? wh.dist : 250;
     let victim = null, group = null;
+    const near = new THREE.Vector3();
     for (const e of this.characters) {
       if (!e.alive || e === shooter) continue;
-      for (const hb of e.hitboxes()) {
-        const t = rayBox(origin, dir, hb.min, hb.max);
-        if (t >= 0 && t < end) { end = t; victim = e; group = hb.group; }
+      // skip anyone the ray passes nowhere near (closest approach to their middle)
+      near.copy(e.pos); near.y += 1;
+      const along = near.clone().sub(origin).dot(dir);
+      if (along < -1 || origin.clone().addScaledVector(dir, Math.max(0, along)).distanceTo(near) > 1.4) continue;
+      const caps = e.hitCapsules?.();
+      if (caps) {
+        for (const c of caps) { const t = rayCapsule(origin, dir, c.a, c.b, c.r); if (t >= 0 && t < end) { end = t; victim = e; group = c.group; } }
+      } else {
+        for (const hb of e.hitboxes()) {
+          const t = rayBox(origin, dir, hb.min, hb.max);
+          if (t >= 0 && t < end) { end = t; victim = e; group = hb.group; }
+        }
       }
     }
     const endPt = origin.clone().addScaledVector(dir, end);
