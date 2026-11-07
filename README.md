@@ -323,8 +323,9 @@ dropped them.
   type shows its own set (Tactical: guard, finger pads, palm pad; Rider: guard, pads, back panel; Racer:
   seams, strap, palm; ...), the finish runs across all of them (the guard glossy and darker, thread
   lighter), and the team gloves keep their own (CT: guard and pads; T: plain leather with a strap).
-- **A Gold Case for every existing player** (Nov 2026): every account that existed when this went live gets
-  one extra Gold Case, once, with a "Gift" row in its history. New accounts don't get it (they start with
+- **Two Gold Cases for every existing player** (Nov 2026): every account that existed when each gift went
+  live gets it once, with a "Gift" row in its history: a first Gold Case, then one more (separate gifts, so
+  players who already had the first still get the second). New accounts don't get them (they start with
   their own Gold Case). One-off gifts like this are the `GIFTS` list in `src/shared/economy.js`.
 
 ## Blender models

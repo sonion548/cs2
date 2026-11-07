@@ -12,8 +12,9 @@ export function uid() { return Date.now().toString(36) + Math.random().toString(
 // here already in its list, so only players who existed when a gift was added
 // receive it. On the server this runs for every account when it starts.
 export const GIFTS = [
-  // Nov 2026: a Gold Case for every existing player
+  // Nov 2026: a Gold Case for every existing player, then one more
   { id: 'gold-case-2026-11', cases: ['gold'], note: 'Gift: a Gold Case for every player' },
+  { id: 'gold-case-2026-11b', cases: ['gold'], note: 'Gift: another Gold Case for every player' },
 ];
 
 export function freshProfile(name = 'You') {
