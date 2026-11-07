@@ -370,7 +370,7 @@ for (const [type, label] of Object.entries(KNIFE_TYPES)) {
     const id = `knife:${type}:${fname.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
     const h = hashStr(id);
     const [lo, hi] = PRICE_BAND.legendary;
-    const typeMult = { karambit: 1.8, butterfly: 1.7, combat: 1.4, bayonet: 1.2, kukri: 1.1 }[type] || 1;
+    const typeMult = { karambit: 1.8, butterfly: 1.7, skeleton: 1.5, combat: 1.4, bayonet: 1.2, kukri: 1.1, hawkbill: 1.1 }[type] || 1;
     SKINS[id] = {
       id, kind: 'skin', weapon: `knife:${type}`, knife: type, name: fname, rarity: 'legendary', finish,
       floatRange: finish && (finish.type === 'gradient' || finish.type === 'doppler') ? [0, 0.08] : [0, 1],
@@ -404,7 +404,7 @@ export const CASES = {
       sk('m4a1', 'Honeycomb'), sk('usp', 'Hive Mind'), sk('usp', 'Contour'),
       sk('m4a1', 'Night Market'), sk('usp', 'Orbit'),
       sk('ak47', 'Event Horizon'), sk('usp', 'Ivory Ink')],
-    knives: ['karambit', 'butterfly', 'stiletto'],
+    knives: ['karambit', 'butterfly', 'stiletto', 'skeleton'],
   },
   voltage: {
     id: 'voltage', name: 'Voltage Case', price: 140, color: '#3ad0ff',
@@ -412,7 +412,7 @@ export const CASES = {
       sk('m4a1', 'Signal Trace'), sk('glock', 'Fault Line'), sk('glock', 'Splash Zone'),
       sk('usp', 'Pulse'), sk('awp', 'Volt Line'), sk('m4a1', 'Blueprint'),
       sk('m4a1', 'Static Storm'), sk('deagle', 'Thunderhead')],
-    knives: ['flip', 'gut', 'push', 'survival'],
+    knives: ['flip', 'gut', 'push', 'survival', 'hawkbill'],
   },
   tidebreak: {
     id: 'tidebreak', name: 'Tidebreak Case', price: 130, color: '#2e9ac8',
@@ -420,7 +420,7 @@ export const CASES = {
       sk('ak47', 'Tidecaller'), sk('awp', 'Carp Pond'), sk('m4a1', 'Coral Reef'), sk('ak47', 'Jade Serpent'),
       sk('m4a1', 'Glacier Fade'), sk('awp', 'Folded Steel'),
       sk('awp', 'Nebula Swirl')],
-    knives: ['bayonet', 'combat', 'tanto'],
+    knives: ['bayonet', 'combat', 'tanto', 'trench'],
   },
   ember: {
     id: 'ember', name: 'Ember Case', price: 180, color: '#e8632b',
@@ -448,7 +448,7 @@ export const CASES = {
     skins: [sk('ak47', 'Steelwork'), sk('m4a1', 'Anodized Red'), sk('awp', 'Viper Steel'), sk('glock', 'Anodized Teal'), sk('usp', 'Bone'), sk('deagle', 'Ebony'),
       sk('ak47', 'Bloodwood'), sk('m4a1', 'Ivory Marble'), sk('awp', 'Heirloom'), sk('glock', 'Mosaic'), sk('usp', 'Blued Steel'), sk('deagle', 'Gold Crack'),
       sk('ak47', 'Gold Seam'), sk('m4a1', 'Petrol'), sk('awp', 'Obsidian Vein'), sk('glock', 'Ripcurl'), sk('usp', 'Purple Haze'), sk('deagle', 'Chrome Swirl')],
-    knives: ['bowie', 'stiletto', 'tanto', 'navaja'],
+    knives: ['bowie', 'stiletto', 'tanto', 'navaja', 'cord'],
   },
 };
 // The expanded arsenal's finishes go into the existing cases, matched by look

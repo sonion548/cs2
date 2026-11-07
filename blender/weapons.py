@@ -1229,6 +1229,62 @@ def survival():
 
 
 
+@knife
+def skeleton():
+    """Drop-point blade on a skeletal steel frame: an open handle with a few
+    turns of cord at the front and a finger ring at the end."""
+    M = mats()
+    blade('blade', [('M', 0.012, 0.012), ('L', 0.14, 0.012), ('Q', 0.18, 0.009, 0.2, -0.002), ('Q', 0.15, -0.017, 0.012, -0.013)],
+          edge_below(lambda x: 0.0 if x < 0.14 else 0.005), 0.0045, M['blade'])
+    fr = extrude('frame', [('M', 0.014, 0.012), ('L', -0.09, 0.01), ('Q', -0.104, 0.0, -0.09, -0.012), ('L', 0.014, -0.013)], 0.008, M['steel'], bevel=0.002)
+    cut(fr, extrude('cutter', [('M', -0.012, 0.006), ('L', -0.08, 0.005), ('Q', -0.088, 0.0, -0.08, -0.006), ('L', -0.012, -0.007)], 0.03, None, bevel=0))
+    for i in range(4):
+        box(f'cord{i}', (0.006, 0.013, 0.03), (0.004 - i * 0.0085, 0, 0), M['cord'], bevel=0.002, rot=(0, 0.35, 0))
+    torus('ring', 0.012, 0.0035, (-0.108, 0, 0), M['steel'], rot=(PI / 2, 0, 0))
+    return 0.2
+
+
+@knife
+def hawkbill():
+    """Folding knife with a hooked blade, the edge on the inside of the curve."""
+    M = mats()
+    chord = lambda x: 0.013 - 0.2416 * (x - 0.012)
+    blade('blade', [('M', 0.012, 0.013), ('Q', 0.12, 0.024, 0.19, -0.03), ('Q', 0.13, -0.008, 0.012, -0.012)], lambda x, z: z < chord(x) - 0.001, 0.0045, M['blade'])
+    puffy('handle', [('M', 0.018, 0.014), ('Q', -0.04, 0.02, -0.1, 0.005), ('Q', -0.114, -0.008, -0.1, -0.018), ('Q', -0.04, -0.015, 0.018, -0.016)], 0.02, M['polymer'], r=0.007, rings=3)
+    cyl('pivot', 0.0075, 0.024, (0.008, 0, 0.0), M['steel'], axis='Y', bevel=0.001)
+    for i in range(3):
+        cyl(f'pin{i}', 0.0025, 0.023, (-0.028 - i * 0.03, 0, -0.001), M['steel'], axis='Y')
+    cyl('thumb_stud', 0.0035, 0.012, (0.03, 0, 0.014), M['steel'], axis='Y')
+    return 0.19
+
+
+@knife
+def trench():
+    """Double-edged spear-point dagger with a studded knuckle guard."""
+    M = mats()
+    blade('blade', [('M', 0.016, 0.011), ('L', 0.15, 0.008), ('L', 0.205, 0.0), ('L', 0.15, -0.008), ('L', 0.016, -0.011)], lambda x, z: x > 0.03, 0.005, M['blade'])
+    extrude('knuckle', [('M', 0.018, 0.016), ('L', 0.018, -0.05), ('Q', 0.018, -0.062, 0.004, -0.062), ('L', -0.1, -0.058), ('Q', -0.114, -0.056, -0.114, -0.044),
+                        ('L', -0.114, -0.012), ('L', -0.102, -0.012), ('L', -0.102, -0.047), ('L', 0.006, -0.05), ('L', 0.006, -0.016)], 0.016, M['dark'], bevel=0.002)
+    for i in range(4):
+        cyl(f'stud{i}', 0.0055, 0.018, (-0.012 - i * 0.026, 0, -0.064), M['steel'], axis='Y', bevel=0.001)
+    puffy('handle', [('M', 0.014, 0.014), ('L', -0.1, 0.012), ('Q', -0.11, 0.0, -0.1, -0.012), ('L', 0.014, -0.014)], 0.022, M['wood'], r=0.008, rings=3)
+    box('pommel', (0.012, 0.026, 0.03), (-0.106, 0, 0), M['steel'], bevel=0.004)
+    return 0.205
+
+
+@knife
+def cord():
+    """Full-tang clip-point knife with the handle wrapped in paracord and a lanyard loop."""
+    M = mats()
+    blade('blade', [('M', 0.012, 0.014), ('L', 0.12, 0.014), ('Q', 0.15, 0.012, 0.165, 0.004), ('L', 0.19, 0.002), ('Q', 0.16, -0.018, 0.012, -0.015)],
+          edge_below(lambda x: 0.002 if x < 0.16 else 0.006), 0.005, M['blade'])
+    extrude('tang', [('M', 0.012, 0.016), ('L', -0.104, 0.014), ('L', -0.104, -0.016), ('L', 0.012, -0.017)], 0.01, M['dark'], bevel=0.002)
+    handle_wrap(M, -0.1, 0.008, 0.026, 0.022, M['cord'], M['cord'], 12)
+    torus('lanyard', 0.011, 0.003, (-0.115, 0, 0), M['cord'], rot=(PI / 2, 0, 0))
+    return 0.19
+
+
+
 # ================================================================ M4A1-S: the M4 with a slim
 # round handguard, a long suppressor and a 20-round magazine
 def m4a1s():
