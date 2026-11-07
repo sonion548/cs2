@@ -310,7 +310,7 @@ export class Menu {
             <div class="acts">
               ${fromUnbox ? '<button data-act="close" class="pri">Continue</button>' : ''}
               <button data-act="equip" class="${fromUnbox ? '' : 'pri'}">${equipped ? 'Unequip' : 'Equip'}</button>
-              ${P.isOnline() ? `<button data-act="list" ${it.listed ? 'disabled' : ''}>${it.listed ? 'Listed on market' : 'Sell on market'}</button>` : ''}
+              ${P.isOnline() ? (it.listed ? '<button data-act="unlist">Cancel market listing</button>' : '<button data-act="list">Sell on market</button>') : ''}
               <button data-act="sell" ${it.listed ? 'disabled' : ''}>Quick sell · ${CR(Math.floor(P.marketPrice(it) * 0.87))}</button>
             </div>
           </div>
@@ -333,6 +333,17 @@ export class Menu {
       }
       if (b.dataset.scrape != null) { await P.scrapeSticker(it.uid, +b.dataset.scrape); return render(); }
       if (b.dataset.act === 'list') return this.online.listDialog(it, render);
+      if (b.dataset.act === 'unlist') {
+        const mine = await net.rpc('market.mine');
+        const l = (mine.listings || []).find(x => x.item?.uid === it.uid);
+        if (!l) return this.toast('That listing has already sold or been cancelled');
+        const r = await net.rpc('market.cancel', { id: l.id });
+        if (r.error) return this.toast(r.error);
+        if (r.profile) P.setRemote(r.profile);
+        Object.assign(it, P.getProfile().items.find(x => x.uid === it.uid) || {}); delete it.listed;
+        this.toast('Listing cancelled: it is back in your inventory');
+        return render();
+      }
       if (b.dataset.apply != null) return this.pickSticker(it, +b.dataset.apply, render);
     };
     const close = () => { this.modalViewer?.dispose(); this.modalViewer = null; layer.innerHTML = ''; layer.onclick = null; if (this.tab === 'inventory') this.go('inventory'); };

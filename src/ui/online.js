@@ -7,6 +7,9 @@ import { KNIFE_TYPES } from '../shared/knives.js';
 import { thumbnail, Viewer } from './studio.js';
 import { applySkin } from '../items/render.js';
 import { patternInfo } from '../items/patterns.js';
+import * as THREE from 'three';
+import { ViewModel } from '../viewmodel.js';
+import { WEAPONS } from '../weapons.js';
 import { stickerCanvas } from '../items/stickers.js';
 import { audio } from '../audio.js';
 
@@ -360,7 +363,7 @@ export class OnlineUI {
     const me = net.user?.id;
     // copies of this item you own that aren't listed (to sell into a buy order)
     const own = (P.getProfile().items || []).filter(it => it.defId === defId && !it.listed);
-    page.innerHTML = `<div class="mk-head"><button class="mk-back">← Market</button><h3 style="color:${RARITY[d.rarity].color}">${h(t.weapon)} | ${h(t.name)}</h3>${SKINS[defId] ? '<button class="mk-insp" data-insp="1">Inspect in 3D</button>' : ''}</div>
+    page.innerHTML = `<div class="mk-head"><button class="mk-back">← Market</button><h3 style="color:${RARITY[d.rarity].color}">${h(t.weapon)} | ${h(t.name)}</h3>${SKINS[defId] ? '<button class="mk-insp" data-insp="1">Inspect in 3D</button><button class="mk-anim">Inspect animation</button>' : ''}</div>
       <div class="mk-item">
         <section><h4>Price history <small>value today ${CR(r.reference)} ${chg(r.change)}</small></h4>
           <div class="mk-range">${[[7, '7 days'], [30, '30 days'], [0, 'All']].map(([d, l]) => `<button data-range="${d}" class="${d === (this.chartRange ?? 30) ? 'on' : ''}">${l}</button>`).join('')}</div>
@@ -391,6 +394,7 @@ export class OnlineUI {
     page.querySelector('.mk-back').onclick = () => this.renderMarket(page);
     // inspect: the header button shows a typical copy, a listing's picture that exact copy
     page.querySelector('.mk-insp')?.addEventListener('click', () => this.inspectSkin(defId));
+    page.querySelector('.mk-anim')?.addEventListener('click', () => this.inspectAnimation(defId));
     for (const img of page.querySelectorAll('img[data-insp-l]')) img.addEventListener('click', () => this.inspectSkin(defId, r.listings.find(x => x.id === img.dataset.inspL)?.item));
     const form = page.querySelector('.mk-order'), total = form.querySelector('.mk-total');
     const updTotal = () => {
@@ -507,6 +511,62 @@ export class OnlineUI {
       if (!b) { if (e.target === layer.firstElementChild) close(); return; }
       if (b.dataset.view) return v.view(b.dataset.view);
       if (b.dataset.act === 'close') close();
+    };
+  }
+
+  // The in-game inspect animation for a skin: first-person arms holding the
+  // weapon (or knife) with this finish, the same code the game draws with.
+  inspectAnimation(defId, base = null) {
+    const d = SKINS[defId]; if (!d) return;
+    const [lo, hi] = d.floatRange;
+    const item = { defId, float: base?.float ?? +(lo + (hi - lo) * 0.25).toFixed(4), seed: base?.seed ?? 1, stickers: base?.stickers || [] };
+    const weapon = d.knife ? 'knife' : d.weapon, type = d.knife ? 'melee' : WEAPONS[weapon]?.type || 'rifle';
+    const t = defTitle(defId), r = RARITY[d.rarity];
+    const layer = this.m.$('.modal-layer');
+    layer.innerHTML = `
+      <div class="modal inspect mk-inspect" style="--rc:${r.color}">
+        <div class="view"><div class="vp anim"></div>
+          <div class="presets"><button data-a="inspect">Play inspect</button><button data-a="team">${'CT arms'}</button>${type === 'melee' ? '<button data-a="fire">Swing</button>' : '<button data-a="fire">Fire</button><button data-a="reload">Reload</button>'}</div>
+        </div>
+        <div class="info">
+          <button class="x" data-act="close">Close</button>
+          <div class="rar"><i></i>${r.name}${d.knife ? ' · Knife' : ''}</div>
+          <h2><small>${h(t.weapon)}</small>${h(t.name)}</h2>
+          <p class="note">How it looks in your hands in a match. The inspect plays on its own every few seconds; switch arms to see it with either side's gloves.</p>
+        </div>
+      </div>`;
+    const vp = layer.querySelector('.vp');
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.setClearColor(0x3d4650, 1);
+    vp.appendChild(renderer.domElement);
+    renderer.domElement.style.width = '100%'; renderer.domElement.style.height = '100%';
+    let team = 'CT', vm = null;
+    const build = () => { vm = new ViewModel(team, renderer); vm.setWeapon(weapon, type, 0.4, item); };
+    build();
+    const cam = new THREE.Matrix4();
+    let last = performance.now(), running = true, nextInspect = performance.now() + 900;
+    const loop = () => {
+      if (!running) return;
+      requestAnimationFrame(loop);
+      const now = performance.now(), dt = Math.min(0.05, (now - last) / 1000); last = now;
+      if (now > nextInspect && vm.inspectT < 0) { vm.inspect(); nextInspect = now + 5200; }
+      const w = vp.clientWidth || 1, hgt = vp.clientHeight || 1;
+      renderer.setSize(w, hgt, false);
+      vm.update(dt, 0, true, w / hgt, cam);
+      renderer.render(vm.scene, vm.camera);
+    };
+    loop();
+    const close = () => { running = false; renderer.dispose(); renderer.forceContextLoss(); layer.innerHTML = ''; layer.onclick = null; };
+    layer.onclick = (e) => {
+      const b = e.target.closest('button');
+      if (!b) { if (e.target === layer.firstElementChild) close(); return; }
+      if (b.dataset.act === 'close') return close();
+      if (b.dataset.a === 'inspect') { vm.inspectT = -1; vm.inspect(); nextInspect = performance.now() + 5200; }
+      if (b.dataset.a === 'fire') vm.fire();
+      if (b.dataset.a === 'reload') vm.reload(WEAPONS[weapon]?.reloadTime || 2.4);
+      if (b.dataset.a === 'team') { team = team === 'CT' ? 'T' : 'CT'; b.textContent = `${team} arms`; build(); }
     };
   }
 
