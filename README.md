@@ -332,6 +332,15 @@ dropped them.
   type shows its own set (Tactical: guard, finger pads, palm pad; Rider: guard, pads, back panel; Racer:
   seams, strap, palm; ...), the finish runs across all of them (the guard glossy and darker, thread
   lighter), and the team gloves keep their own (CT: guard and pads; T: plain leather with a strap).
+- **Inspects that are driven by the hand**: ring spins (karambit, skeleton knife) start with the wrist
+  cocking back and flicking the knife onto the index finger; while it turns, the hand circles a little
+  ahead of the knife and the finger pumps with each turn (the fingertip traces a loop per turn), and the
+  fist closes on the catch with some give. The skeleton knife's inspect is one flowing sequence, and
+  inspects can pass through their keys without stopping (`fluid`). Push daggers have a new inspect built
+  only from forearms, wrists and grips (each blade shown on both faces, a jab with each fist, the points
+  tapped together), so the T-bars never leave the fists; the left dagger no longer copies the right
+  hand's movements. The raised glove seams are bound to their own finger, so a finger moving on its own
+  no longer drags a sheet of seam behind it (the "webbing" in the spins).
 - **Two Gold Cases for every existing player** (Nov 2026): every account that existed when each gift went
   live gets it once, with a "Gift" row in its history: a first Gold Case, then one more (separate gifts, so
   players who already had the first still get the second). New accounts don't get them (they start with

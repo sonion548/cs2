@@ -11,7 +11,7 @@ import { radialTexture } from './textures.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { assets } from './assets.js';
-import { inspectFor, samplePose } from './inspects.js';
+import { inspectFor, samplePose, channelRate } from './inspects.js';
 
 const POSE = {
   rifle: new THREE.Vector3(0.1, -0.105, -0.2),
@@ -647,7 +647,30 @@ export class ViewModel {
       if (this.type === 'melee' && this.ins && this.knifeHold) {
         // the hand turns about its own axes through the grip; the knife and
         // fingers follow the same pose after the arms are placed
-        P = this.pose = samplePose(this.ins, Math.min(T, this.ins.len), this.pose || {});
+        const Tc = Math.min(T, this.ins.len);
+        P = this.pose = samplePose(this.ins, Tc, this.pose || {});
+        // the second push dagger moves with the view but not with the right hand
+        if (this.dual) (this._posL ||= new THREE.Vector3()).copy(pos);
+        // the hand is never quite still while it shows the knife
+        const env = Math.min(1, Tc / 0.35, Math.max(0, this.ins.len - Tc) / 0.35);
+        P.roll = (P.roll || 0) + 0.03 * Math.sin(Tc * 2.3) * env;
+        P.flex = (P.flex || 0) + 0.025 * Math.sin(Tc * 1.7 + 1.1) * env;
+        pos.y += 0.0012 * Math.sin(Tc * 2.9 + 0.4) * env;
+        // a ring spin is kept going by the hand: the wrist circles a little
+        // ahead of the knife (in the plane it turns in, the faster it turns
+        // the wider) and rocks with it; the index finger pumps (applyHands)
+        this.ringDrive = 0;
+        if ((P.ringW || 0) > 0.01 && this._ringAxis && this._ringCom) {
+          const om = channelRate(this.ins, 'ring', Tc);
+          const w = Math.min(1, P.ringW), k = Math.min(1, Math.abs(om) / 18) * w * w * (3 - 2 * w);
+          if (k > 0.001) {
+            const lead = (this._lead ||= new THREE.Vector3()).crossVectors(this._ringAxis, this._ringCom);
+            if (lead.lengthSq() > 1e-12) pos.addScaledVector(lead.normalize(), 0.011 * k * Math.sign(om));
+            P.roll += 0.14 * k * Math.sin(P.ring + 0.9);
+            P.flex += 0.11 * k * Math.cos(P.ring + 0.9);
+            this.ringDrive = k;
+          }
+        }
         iq.copy(handTurn(this.knifeHold, P.roll, P.flex, P.yaw));
         pos.x += P.x || 0; pos.y += P.y || 0; pos.z += P.z || 0;
         if (T > this.ins.len) { this.inspectT = -1; P = null; iq.identity(); }
@@ -672,7 +695,7 @@ export class ViewModel {
       this.root.quaternion.multiply(iq);
       this.root.position.add(before.sub(g.applyQuaternion(this.root.quaternion)));
     }
-    if (this.dual) this.placeDual(pos, rot, P);
+    if (this.dual) this.placeDual(P && this._posL ? this._posL : pos, rot, P);
     this.solveArms(handR, magReach, dropL);
     this.applyHands(P, magReach, dropL, gunInspect);
     this.applyKnifePose(P);
@@ -729,6 +752,8 @@ export class ViewModel {
       const th = P.th || 0, ix = P.ix || 0, mi = P.mi || 0;
       R = [th, ix, mi, mi * 0.95, mi * 0.9];
       if (P.wave) { const ph = this.inspectT * 10; cR = [0, 1, 2, 3, 4].map(i => (i ? P.wave * Math.sin(ph - i * 0.95) : P.wave * 0.4 * Math.sin(ph))); }
+      // ring spins: the index finger pumps with each turn of the knife
+      if (this.ringDrive > 0) { cR ||= [0, 0, 0, 0, 0]; cR[1] += 0.38 * this.ringDrive * Math.sin(P.ring + 1.4); }
       if (this.dual) { L = R.slice(); cL = cR; }
     }
     if (gunInspect > 0) R[1] = Math.max(R[1], 0.32 * gunInspect);      // trigger finger off the gun while it's turned over
@@ -792,6 +817,11 @@ export class ViewModel {
     const c = cW.lerp(target, w);
     const origin = c.sub(ri.c.clone().multiplyScalar(sc).applyQuaternion(q));
     const mw = new THREE.Matrix4().compose(origin, q, new THREE.Vector3(sc, sc, sc));
+    // for the hand's drive next frame: the finger's axis, and from the ring
+    // to the knife's weight across it
+    const com = this.balance.clone().applyMatrix4(mw).sub(ri.c.clone().applyMatrix4(mw));
+    this._ringAxis = (this._ringAxis || new THREE.Vector3()).copy(fy);
+    this._ringCom = (this._ringCom || new THREE.Vector3()).copy(com).addScaledVector(fy, -com.dot(fy));
     mw.premultiply(this.holder.matrixWorld.clone().invert());
     mw.decompose(g.position, g.quaternion, g.scale);
   }

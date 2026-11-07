@@ -118,6 +118,9 @@ def _bary(p, a, b, c):
 
 # ---------------------------------------------------------------- parts
 PARTS = []   # (object, material key, rigid bone or None)
+# Explicit per-vertex bone weights for parts that must follow particular bones
+# (object name -> one {bone: weight} per vertex); see bind().
+PART_WEIGHTS = {}
 
 
 def make(name, verts, faces, mat, bone=None, uv=None, closed=False):
@@ -209,6 +212,13 @@ def bind(obj, body, bone=None, smooth_iters=0, only=None):
         bone = None      # a finger bone on a model without them: the body's weights there
     if bone:
         W = np.zeros((n, len(names))); W[:, IX[bone]] = 1
+    elif obj.name in PART_WEIGHTS and len(PART_WEIGHTS[obj.name]) == n:
+        # weights given bone by bone (finger bones fall back to their hand on
+        # models without finger bones)
+        W = np.zeros((n, len(names)))
+        for i, wd in enumerate(PART_WEIGHTS[obj.name]):
+            for bname, w in wd.items():
+                W[i, IX[bname] if bname in IX else IX['hand_' + bname[-1]]] += w
     elif obj.name in SHELLS and len(SHELLS[obj.name].src) == n:
         # a garment grown off the body: each vertex takes the weights of the body
         # vertex it grew from. Looking up the nearest body surface instead can land
@@ -679,36 +689,52 @@ def glove_details(b, glove, kinds, cuff):
             # raised seams down both sides of each finger and over its tip
             for fi in range(1, 6):
                 segs = [tuple(np.array(v) for v in b.mh[f'finger{fi}-{k}.{side}'][:2]) for k in (1, 2, 3)]
+                ks = [1, 2, 3]
                 if fi == 1:
-                    segs = segs[1:]          # the thumb's first bone is inside the hand
+                    segs, ks = segs[1:], ks[1:]          # the thumb's first bone is inside the hand
+                bones = [f'finger{fi}_{k}_{side}' for k in ks]
+                # the bone before each segment: the hand, or the thumb's first bone
+                before = [hb if fi > 1 else f'finger1_1_{side}'] + bones[:-1]
+
+                def seg_w(si, f):
+                    # each point follows its own finger segment, blended into the
+                    # one before it just past the joint (a seam bound by nearest
+                    # skin would follow the next finger where fingers touch, and
+                    # stretch into a sheet when one finger moves on its own)
+                    if f < 0.25:
+                        t = 0.5 + 0.5 * f / 0.25
+                        return {bones[si]: t, before[si]: 1 - t}
+                    return {bones[si]: 1.0}
                 frames = []
                 for hh, tt in segs:
                     d = _unit(tt - hh)
                     a = across if fi > 1 else _unit(np.cross(d, n))
                     a = _unit(a - d * (a @ d))
                     frames.append((hh, tt, d, a, _unit(np.cross(d, a))))
-                sides = []
+                sides, side_w = [], []
                 for sgn in (1, -1):
-                    pts = []
+                    pts, wts = [], []
                     for si, (hh, tt, d, a, bd) in enumerate(frames):
                         for f in np.linspace(0.18 if si == 0 else 0.0, 1.0, 3, endpoint=False):
                             loc, nn = out_hit(hh + (tt - hh) * f, a * sgn * 0.86 + bd * 0.5)
                             if loc is not None:
-                                pts.append(loc + nn * 0.0002)
-                    sides.append(pts)
+                                pts.append(loc + nn * 0.0002); wts.append(seg_w(si, f))
+                    sides.append(pts); side_w.append(wts)
                 hh, tt, d, a, bd = frames[-1]
                 tip_c = tt - d * 0.0065
-                arc = []
+                arc, arc_w = [], []
                 for phi in np.linspace(0, math.pi, 7)[1:-1]:
                     loc, nn = out_hit(tip_c, (a * math.cos(phi) + d * math.sin(phi)) * 0.86 + bd * 0.5)
                     if loc is not None:
-                        arc.append(loc + nn * 0.0002)
+                        arc.append(loc + nn * 0.0002); arc_w.append({bones[-1]: 1.0})
                 path = sides[0] + arc + sides[1][::-1]
+                pw = side_w[0] + arc_w + side_w[1][::-1]
                 if len(path) < 8:
                     continue
                 path = G.smooth_path(path, 2)
                 V, F, UV = G.tube(path, 0.0009, sides=5)
-                part('seam', side, V, F, UV, 'stitch', smooth_below=85)
+                o = part('seam', side, V, F, UV, 'stitch', smooth_below=85)
+                PART_WEIGHTS[o.name] = [pw[i // 5] for i in range(len(V))]
 
         if 'wrap' in kinds:
             # fight wraps: round the knuckles, twice across the back of the hand
@@ -930,6 +956,7 @@ def build(team):
     reset()
     PARTS.clear()
     SHELLS.clear()
+    PART_WEIGHTS.clear()
     P = PROFILES[team]
     body = Body(**{**P['body'], **BODY_EXTRA})
     arm = build_armature(body.skel)

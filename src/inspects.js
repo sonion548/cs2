@@ -53,17 +53,24 @@ function twirl(t0, p, from, by, d = 0.5) {
   ];
 }
 
-// A spin round the index finger through the knife's ring: the finger goes
-// straight, the knife moves onto it, turns `turns` times and goes back into the fist.
+// A spin round the index finger through the knife's ring, driven from the
+// wrist: it cocks back as the grip loosens, then flicks through, the index
+// finger straightening as the knife swings out onto it; the knife turns
+// `turns` times, fast at first and slowing (the viewmodel moves the hand in a
+// small circle just ahead of the knife and pumps the finger with each turn,
+// so the hand is seen to keep it going); then the handle comes round into the
+// palm, the fist closes on it and the wrist gives a little with the catch.
 function ringSpin(t0, p, from, turns = 2, d = 0.9) {
-  const to = from + TAU * turns;
+  const to = from + TAU * turns, r = p.roll || 0, f = p.flex || 0, y = p.y || 0;
   return [
     [t0, { ...p, ring: from, ringW: 0 }],
-    [t0 + 0.2, { ...p, ix: 1, mi: 0.15, th: 0.45, ring: from, ringW: 1 }],
-    [t0 + 0.3, { ...p, ix: 1, mi: -0.15, th: -0.1, ring: from + 0.5, ringW: 1 }],
-    [t0 + 0.3 + d, { ...p, ix: 1, mi: -0.2, th: -0.1, ring: to - 0.4, ringW: 1 }],
-    [t0 + 0.4 + d, { ...p, ix: 1, mi: 0.15, th: 0.3, ring: to, ringW: 1 }],
-    [t0 + 0.62 + d, { ...p, ...GRIP, ring: to, ringW: 0 }],
+    [t0 + 0.16, { ...p, roll: r - 0.25, flex: f + 0.32, y: y - 0.004, ix: 0.3, mi: 0.1, th: 0.2, ring: from - 0.12, ringW: 0 }],
+    [t0 + 0.32, { ...p, roll: r + 0.15, flex: f - 0.18, y: y + 0.008, ix: 0.95, mi: -0.1, th: 0.35, ring: from + 1.1, ringW: 1 }],
+    [t0 + 0.32 + d * 0.5, { ...p, roll: r + 0.05, flex: f - 0.05, ix: 0.95, mi: -0.2, th: -0.05, ring: from + (to - from) * 0.56, ringW: 1 }],
+    [t0 + 0.32 + d, { ...p, ix: 0.95, mi: -0.2, th: -0.05, ring: to - 0.7, ringW: 1 }],
+    [t0 + 0.46 + d, { ...p, flex: f - 0.14, y: y - 0.004, ix: 0.55, mi: 0.25, th: 0.3, ring: to - 0.12, ringW: 0.55 }],
+    [t0 + 0.6 + d, { ...p, ...GRIP, flex: f + 0.06, y: y - 0.006, ring: to, ringW: 0 }],
+    [t0 + 0.8 + d, { ...p, ...GRIP, ring: to, ringW: 0 }],
   ];
 }
 
@@ -108,15 +115,15 @@ export const KNIFE_INSPECTS = {
   ) },
   // one continuous spin on the index finger (three turns), back into the fist,
   // a look down the blade, then the wrist turns it over to show the other side
-  karambit: { len: 4.7, end: { ring: 3 * TAU }, keys: seq(
-    [[0.2, show({ roll: -0.15, flex: -0.12, y: 0.045 })]],
-    ringSpin(0.25, show({ roll: -0.1, flex: -0.1, y: 0.05 }), 0, 3, 1.35),
-    [[2.55, show({ roll: 0.58, flex: -0.35, y: 0.05, ring: 3 * TAU })],
-      [3.05, show({ roll: 0.64, flex: -0.4, y: 0.052, ring: 3 * TAU })],
+  karambit: { len: 5.0, fluid: true, end: { ring: 3 * TAU }, keys: seq(
+    [[0.28, show({ roll: -0.15, flex: -0.12, y: 0.045 })]],
+    ringSpin(0.32, show({ roll: -0.1, flex: -0.1, y: 0.05 }), 0, 3, 1.4),
+    [[2.85, show({ roll: 0.58, flex: -0.35, y: 0.05, ring: 3 * TAU })],
+      [3.35, show({ roll: 0.66, flex: -0.42, y: 0.052, ring: 3 * TAU, th: 0.08 })],
       // in a reverse grip the handle lies across the palm, so bending the
       // wrist turns the blade about its own length: the other face
-      [3.6, show({ roll: 0.32, flex: 0.95, y: 0.055, ring: 3 * TAU })],
-      [4.15, show({ roll: 0.36, flex: 1.0, y: 0.052, ring: 3 * TAU })]],
+      [3.9, show({ roll: 0.32, flex: 0.95, y: 0.055, ring: 3 * TAU })],
+      [4.45, show({ roll: 0.38, flex: 1.02, y: 0.052, ring: 3 * TAU, th: 0.08 })]],
   ) },
   butterfly: { len: 4.6, end: { bb: 6 * PI, bh: -12 * PI, twirl: TAU }, keys: seq(
     [[0.35, show({ flex: -0.3, y: 0.03 })]],
@@ -147,18 +154,37 @@ export const KNIFE_INSPECTS = {
     toss(2.0, show({ roll: 0.3, flex: -0.3 }), 0, 1, 0.085, 0.7),
     [[3.5, show({ flex: -0.42, flip: TAU })]],
   ) },
-  push: { len: 3.8, end: { twirl: TAU, ltwirl: TAU }, keys: seq(
-    [[0.45, { roll: 0.55, flex: -0.15, x: -0.02, y: 0.03, z: 0.02, lroll: 0.55, lflex: -0.15, lx: 0.02, ly: 0.03, lz: 0.02 }],
-      [1.05, { roll: 0.62, flex: -0.25, x: -0.025, y: 0.035, z: 0.02, lroll: 0.62, lflex: -0.25, lx: 0.025, ly: 0.035, lz: 0.02, wave: 0.15 }],
-      [1.25, { roll: 0.3, flex: -0.1, x: -0.02, y: 0.03, ...LOOSE, lroll: 0.3, lflex: -0.1, lx: 0.02, ly: 0.03, twirl: 0, ltwirl: 0 }],
-      [1.75, { roll: 0.3, flex: -0.1, x: -0.02, y: 0.03, ...LOOSE, wave: 0.4, lroll: 0.3, lflex: -0.1, lx: 0.02, ly: 0.03, twirl: PI, ltwirl: PI }],
-      [1.95, { roll: 0.35, flex: -0.15, x: -0.02, y: 0.03, ...GRIP, lroll: 0.35, lflex: -0.15, lx: 0.02, ly: 0.03, twirl: PI, ltwirl: PI }],
-      [2.25, { roll: 0.1, z: -0.045, y: 0.01, mi: -0.2, twirl: PI, ltwirl: PI, lroll: 0.2, lz: 0.01 }],
-      [2.5, { roll: 0.2, z: 0.0, twirl: PI, ltwirl: PI, lroll: 0.1, lz: -0.045, ly: 0.01 }],
-      [2.8, { roll: 0.35, flex: -0.2, y: 0.025, twirl: PI, ltwirl: PI, lroll: 0.35, lflex: -0.2, ly: 0.025 }],
-      [3.0, { roll: 0.35, flex: -0.2, y: 0.025, ...LOOSE, twirl: PI, ltwirl: PI, lroll: 0.35, lflex: -0.2, ly: 0.025 }],
-      [3.45, { roll: 0.15, y: 0.01, ...LOOSE, wave: 0.35, twirl: TAU, ltwirl: TAU, lroll: 0.15, ly: 0.01 }]],
-  ) },
+  // Push daggers, one in each fist. The T-bar stays clenched in the palm the
+  // whole time (it can't turn in the hand), so it's all forearms, wrists and
+  // grips: up into a guard, the right forearm turned to show one face of its
+  // blade and then the other while the left waits, the left the same, a jab
+  // with each fist (the grip squeezing first), the blades brought in point to
+  // point and tapped together, and back down.
+  push: { len: 4.7, fluid: true, keys: (() => {
+    const R0 = { roll: 0, flex: -0.15, yaw: 0, x: -0.02, y: 0.045, z: 0 };
+    const L0 = { lroll: 0, lflex: -0.15, lyaw: 0, lx: 0.02, ly: 0.045, lz: 0 };
+    const L = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => ['l' + k, k === 'x' ? -v : v]));
+    const pose = (r = {}, l = {}, f = {}) => ({ ...R0, ...r, ...L0, ...L(l), ...f });
+    const faceA = { roll: -0.5, flex: -0.35, y: 0.052 }, faceB = { roll: 0.4, flex: -0.3, y: 0.05 };
+    const jab = { z: -0.05, flex: 0.45, y: 0.06 }, back = { z: 0.008, flex: -0.2 };
+    const meet = { x: -0.075, y: 0.064, z: -0.012, yaw: -0.85, flex: -0.15 };
+    return [
+      [0.42, pose()],
+      [0.9, pose(faceA, { y: 0.043 })],
+      [1.35, pose(faceB, { y: 0.047 }, { th: 0.06 })],
+      [1.7, pose({}, faceA)],
+      [2.15, pose({ y: 0.043 }, faceB, { th: 0.06 })],
+      [2.45, pose({}, {}, { mi: -0.1 })],
+      [2.62, pose(jab, {}, { mi: -0.12 })],
+      [2.8, pose(back, {})],
+      [2.95, pose({}, jab, { mi: -0.12 })],
+      [3.13, pose({}, back, { mi: 0.06 })],
+      [3.5, pose(meet, meet)],
+      [3.62, pose({ ...meet, x: -0.08, yaw: -0.9 }, { ...meet, x: -0.08, yaw: -0.9 }, { th: -0.1 })],
+      [3.78, pose({ ...meet, x: -0.068 }, { ...meet, x: -0.068 })],
+      [4.25, { roll: 0, flex: -0.03, yaw: 0, x: -0.004, y: 0.008, z: 0, lroll: 0, lflex: -0.03, lyaw: 0, lx: 0.004, ly: 0.008, lz: 0 }],
+    ];
+  })() },
   navaja: { len: 3.9, end: { twirl: TAU }, keys: seq(
     [[0.5, show({ flex: -0.42 })], [1.3, show({ roll: 0.55, flex: -0.3 })], [1.7, show({ roll: 0.2, flex: -0.5 })]],
     twirl(1.75, show({ flex: -0.5 }), 0, PI, 0.55),
@@ -186,10 +212,18 @@ export const KNIFE_INSPECTS = {
     twirl(1.45, show({ flex: -0.45 }), 0, TAU, 0.8),
     [[3.0, show({ flex: -0.55, twirl: TAU })]],
   ) },
-  skeleton: { len: 4.1, end: { ring: 2 * TAU }, keys: seq(
-    [[0.45, show({ flex: -0.45 })], [1.0, show({ flex: -0.55, roll: 0.25 })]],
-    ringSpin(1.1, show({ roll: 0.0, flex: -0.15, y: 0.045 }), 0, 2, 0.85),
-    [[3.1, show({ roll: 0.55, flex: -0.3, ring: 2 * TAU })], [3.6, show({ roll: 0.2, ring: 2 * TAU })]],
+  // Skeleton knife: a slow roll up to look along the blade, a flick from the
+  // wrist onto the index finger through the ring, two turns that start fast
+  // and ease off, caught back in the fist, then a turn of the wrist to show
+  // the other face and an easy settle, every move running into the next.
+  skeleton: { len: 4.8, fluid: true, end: { ring: 2 * TAU }, keys: seq(
+    [[0.4, show({ flex: -0.38, roll: 0.08, y: 0.034 })],
+      [0.85, show({ flex: -0.52, roll: 0.3, y: 0.04, x: -0.058 })],
+      [1.2, show({ flex: -0.32, roll: 0.16, y: 0.046, th: 0.06 })]],
+    ringSpin(1.25, show({ roll: 0.04, flex: -0.16, y: 0.048 }), 0, 2, 1.05),
+    [[3.4, show({ roll: 0.42, flex: -0.34, y: 0.043, ring: 2 * TAU })],
+      [3.85, show({ roll: 0.62, flex: -0.26, y: 0.04, ring: 2 * TAU, th: 0.06 })],
+      [4.3, show({ roll: 0.28, flex: -0.14, y: 0.02, ring: 2 * TAU })]],
   ) },
   hawkbill: { len: 3.8, end: { twirl: TAU }, keys: seq(
     [[0.45, show({ flex: -0.6, roll: -0.2 })], [1.1, show({ flex: -0.62, roll: -0.15 })]],
@@ -212,6 +246,11 @@ export const KNIFE_INSPECTS = {
 // ---------------------------------------------------------------- sampling
 // Per channel: keys at their times, starting from rest at 0 and ending at
 // `end` (or rest) at `len`; tangents for a monotone cubic through them.
+// With `fluid`, the hand's own channels pass through their keys without
+// stopping (the next move already under way: a touch of follow-through)
+// instead of easing to a halt at every key; spins keep the monotone curve so
+// they never run backwards.
+const HAND_CH = new Set(['roll', 'flex', 'yaw', 'x', 'y', 'z', 'lroll', 'lflex', 'lyaw', 'lx', 'ly', 'lz']);
 export function compileInspect(def) {
   const tracks = {};
   for (const [t, ch] of def.keys) for (const [k, v] of Object.entries(ch)) (tracks[k] ||= [[0, 0]]).push([t, v]);
@@ -220,9 +259,16 @@ export function compileInspect(def) {
     // keys for the same moment: the last one wins
     for (let i = tr.length - 1; i > 0; i--) if (Math.abs(tr[i][0] - tr[i - 1][0]) < 1e-6) tr.splice(i - 1, 1);
     if (tr[tr.length - 1][0] < def.len - 1e-6) tr.push([def.len, def.end?.[k] ?? 0]);
-    tracks[k] = withTangents(tr);
+    tracks[k] = def.fluid && HAND_CH.has(k) ? withFlow(tr) : withTangents(tr);
   }
   return { len: def.len, tracks };
+}
+
+// Catmull-Rom tangents (a little tighter), still at rest at both ends.
+function withFlow(tr) {
+  const n = tr.length, m = new Array(n).fill(0);
+  for (let i = 1; i < n - 1; i++) m[i] = 0.8 * (tr[i + 1][1] - tr[i - 1][1]) / Math.max(1e-6, tr[i + 1][0] - tr[i - 1][0]);
+  return { t: tr.map(k => k[0]), v: tr.map(k => k[1]), m };
 }
 
 function withTangents(tr) {
@@ -251,6 +297,14 @@ export function samplePose(ins, t, out = {}) {
   for (const k in out) out[k] = 0;
   for (const k in ins.tracks) out[k] = sampleTrack(ins.tracks[k], t);
   return out;
+}
+
+// How fast a channel is changing at time t (per second).
+export function channelRate(ins, key, t) {
+  const tr = ins.tracks[key];
+  if (!tr) return 0;
+  const e = 1 / 240;
+  return (sampleTrack(tr, t + e) - sampleTrack(tr, t - e)) / (2 * e);
 }
 
 const cache = {};
