@@ -69,7 +69,7 @@ export function skinTextureAsync(defId, float, seed, size = 1024) {
 }
 
 function setSkinMaterial(gun, t, def) {
-  if (def?.gloves) return setGloveMaterial(gun, t);
+  if (def?.gloves) return setGloveMaterial(gun, t, def);
   const mat = new THREE.MeshStandardMaterial({ map: t.map, metalness: t.metal, roughness: t.rough });
   gun.userData.inner.traverse(o => { if (o.isMesh && o.userData.part === 'skin') o.material = mat; });
 }
@@ -114,16 +114,43 @@ function handFrames(geo, single) {
   return out;
 }
 
+// The gloves are built with their construction parts as separate meshes
+// (moulded knuckle guard, padded finger plates and back panel, palm pad, wrist
+// strap with its tab, raised seams, cloth wraps). Each glove type shows the
+// parts it is made with; with no glove skin the team's own gloves show theirs.
+export const GLOVE_PARTS = {
+  racer: ['seam', 'cuff', 'palm'],
+  field: ['seam', 'cuff', 'panel', 'palm'],
+  wraps: ['wrap'],
+  rider: ['knuckle', 'pad', 'cuff', 'seam', 'panel'],
+  tactical: ['knuckle', 'pad', 'cuff', 'seam', 'palm'],
+  touring: ['seam', 'cuff'],
+  CT: ['knuckle', 'pad', 'cuff', 'seam'],
+  T: ['cuff', 'seam'],
+};
+export function glovePartVisible(kind, type) {
+  return kind === 'body' || (GLOVE_PARTS[type] || GLOVE_PARTS.T).includes(kind);
+}
+// How a finish sits on each part: the moulded guard is a smoked, glossy
+// version of the print, padding and the strap a shade darker, thread lighter.
+const PART_LOOK = {
+  knuckle: { tint: 0.5, rough: 0.3 }, pad: { tint: 0.72 }, panel: { tint: 0.86 }, palm: { tint: 0.6, rough: 0.8 },
+  cuff: { tint: 0.55, rough: 0.7 }, seam: { tint: 1.45, rough: 0.75 }, wrap: { tint: 1.0, rough: 0.92 },
+};
+
 // A material for glove faces: the finish texture projected as above. With
 // `base` (the team's glove material on the first-person arms) its normal map
 // and the fine shading of its colour map (stitching, creases) carry over.
-export function gloveMaterial(t, geo, { base = null, single = false } = {}) {
-  const fr = handFrames(geo, single);
+// Parts take the projection frames of the glove they sit on (`frameGeo`), so
+// the print runs on across them, and their `kind` sets the shade.
+export function gloveMaterial(t, geo, { base = null, single = false, frameGeo = null, kind = 'body', type = null } = {}) {
+  const fr = handFrames(frameGeo || geo, single);
   const m = base ? base.clone() : new THREE.MeshStandardMaterial();
   const baseMap = base?.map || null;
-  m.map = t.map; m.color.set(0xffffff);
+  const look = PART_LOOK[kind];
+  m.map = t.map; m.color.setScalar(kind === 'body' && type === 'wraps' ? 0.62 : look?.tint ?? 1);
   m.roughnessMap = null; m.metalnessMap = null;
-  m.roughness = t.rough; m.metalness = t.metal;
+  m.roughness = look?.rough ?? t.rough; m.metalness = t.metal;
   m.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, {
       uGC0: { value: fr[0].c }, uGF0: { value: fr[0].f }, uGC1: { value: fr[1].c }, uGF1: { value: fr[1].f },
@@ -152,8 +179,14 @@ uniform float uGK; uniform sampler2D uGBase; varying vec3 vGP; varying vec3 vGN;
   return m;
 }
 
-function setGloveMaterial(gun, t) {
-  gun.userData.inner.traverse(o => { if (o.isMesh && o.userData.part === 'skin') o.material = gloveMaterial(t, o.geometry, { single: true }); });
+function setGloveMaterial(gun, t, def) {
+  const type = def?.gloveType;
+  gun.userData.inner.traverse(o => {
+    if (!o.isMesh || o.userData.part !== 'skin') return;
+    const kind = o.userData.gkind || 'body';
+    o.visible = glovePartVisible(kind, type);
+    o.material = gloveMaterial(t, o.geometry, { single: true, frameGeo: o.userData.frameGeo, kind, type });
+  });
 }
 
 // applySkin for in-match use: puts on whatever size of this finish is already

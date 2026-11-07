@@ -205,6 +205,8 @@ def bind(obj, body, bone=None, smooth_iters=0, only=None):
     fingers = bool(only) and any(b.startswith('finger') for b in only)
     names = BONES_X if fingers else BONES
     IX = {b: i for i, b in enumerate(names)}
+    if bone and bone not in IX:
+        bone = None      # a finger bone on a model without them: the body's weights there
     if bone:
         W = np.zeros((n, len(names))); W[:, IX[bone]] = 1
     elif obj.name in SHELLS and len(SHELLS[obj.name].src) == n:
@@ -472,6 +474,256 @@ def gloves(b, M, *, cuff=0.055, ease=0.0016, mat='glove', guard=True, flare=0.00
     return shell_obj('gloves', sh, mat)
 
 
+# Glove construction parts. Each part's faces carry its kind through the join
+# (the 'glove' face attribute: 1 for the glove itself) and end up as their own
+# material, 'char_<team>_glove_<kind>', so the game can show just the parts a
+# glove type has and put the glove finish on them.
+GLOVE_PART = {'knuckle': 2, 'cuff': 3, 'seam': 4, 'wrap': 5, 'palm': 6, 'pad': 7, 'panel': 8}
+PART_OF = {v: k for k, v in GLOVE_PART.items()}
+# The parts each team's own gloves wear (the third-person models get only
+# these; the first-person arms and the display gloves get every part).
+TEAM_GLOVE_PARTS = {'ct': {'knuckle', 'pad', 'cuff', 'seam'}, 't': {'cuff', 'seam'}}
+GLOVE_DETAILS = None     # None: the team's own parts; or a set of kinds to build
+
+
+TAU = 2 * math.pi
+
+
+def _unit(v):
+    v = np.asarray(v, float)
+    return v / np.linalg.norm(v)
+
+
+def _unit_rows(V):
+    V = np.asarray(V, float)
+    return V / np.linalg.norm(V, axis=1, keepdims=True)
+
+
+def glove_details(b, glove, kinds, cuff):
+    """Construction on top of the glove shell, made the way real gloves are:
+    a moulded knuckle guard over the knuckles, padded panels on the back of
+    the hand and the fingers, a wrist strap with a hook-and-loop tab, raised
+    seams down the sides of every finger and round the fingertips, a palm pad,
+    and for fight wraps, cloth bands wound round the knuckles, across the back
+    of the hand and round the wrist. Everything is placed on this glove by ray
+    casts, from inside the hand where fingers could be in the way."""
+    S = G.Surface([glove])
+
+    def out_hit(p, d, reach=0.07):
+        # from a point inside the hand outward: the first glove face hit
+        d = _unit(d)
+        loc, nn = S.ray(p, d, reach)
+        return (None, None) if loc is None else (loc, -nn)
+
+    def in_hit(p, d, reach=0.08):
+        # from outside in, toward a point inside the hand (misses inner folds)
+        d = _unit(d)
+        loc, nn = S.ray(p + d * reach, -d, reach * 1.6)
+        return (None, None) if loc is None else (loc, nn)
+
+    def part(kind, side, V, F, UV, mat, bone=None, smooth_below=None):
+        o = make(f'glove_{kind}', V, F, mat, bone, UV, closed=True)
+        if smooth_below:
+            o.data.set_sharp_from_angle(angle=math.radians(smooth_below))
+        o['glovepart'] = GLOVE_PART[kind]
+        o['gside'] = side
+        return o
+
+    def grid_sheet(kind, side, rows, cols, at, d, inner, outer, mat, bone, edge=0.0025, hit=in_hit):
+        """A padded panel over a patch of the glove: `at(s, x)` gives a point
+        inside the hand for row s and column x, `d` the direction to cast."""
+        G_, N_ = [], []
+        for s in rows:
+            gr, nr = [], []
+            for x in cols:
+                loc, nn = hit(at(s, x), d)
+                if loc is None:
+                    # past the edge of the hand: the nearest point of the glove
+                    loc, nn = S.nearest(at(s, x) + _unit(d) * 0.012)
+                    nn = nn if nn @ d > 0 else -nn
+                gr.append(loc); nr.append(nn)
+            G_.append(gr); N_.append(nr)
+        N_ = np.array(N_)
+        # soften the normals so the panel doesn't copy every ripple of the glove
+        for _ in range(2):
+            N2 = N_.copy()
+            N2[1:-1, :] += N_[:-2, :] + N_[2:, :]
+            N2[:, 1:-1] += N_[:, :-2] + N_[:, 2:]
+            N_ = N2 / np.linalg.norm(N2, axis=2, keepdims=True)
+        V, F, UV = G.sheet(np.array(G_), N_, inner, outer, edge=edge)
+        return part(kind, side, V, F, UV, mat, bone)
+
+    def loop(kind, side, center, e1, e2, width, thick, mat, bone=None, n=30, ease=0.0012, hit=out_hit):
+        """A band right round the hand or wrist in the plane (e1, e2) through
+        `center`. Hit distances are smoothed round the loop so the band
+        bridges the gaps between fingers instead of dipping into them."""
+        A = np.linspace(0, TAU, n, endpoint=False)
+        D = np.array([math.cos(a) * e1 + math.sin(a) * e2 for a in A])
+        r = np.full(n, np.nan); NN = np.zeros((n, 3))
+        for i, d in enumerate(D):
+            loc, nn = hit(center, d)
+            if loc is not None:
+                r[i] = (loc - center) @ d; NN[i] = nn
+        if np.isnan(r).sum() > n // 4:
+            return None
+        ok = ~np.isnan(r)
+        r[~ok] = np.interp(np.flatnonzero(~ok), np.flatnonzero(ok), r[ok], period=n)
+        # a cloth band can't follow a hollow narrower than itself: take the
+        # largest radius over a window, then smooth
+        k = 1
+        r = np.array([r[[(i + j) % n for j in range(-k, k + 1)]].max() for i in range(n)])
+        for _ in range(3):
+            r = (np.roll(r, 1) + 2 * r + np.roll(r, -1)) / 4
+        P = center + D * (r + ease)[:, None]
+        N = D.copy()
+        N[ok] = _unit_rows(D[ok] * 0.6 + NN[ok] * 0.4)
+        V, F, UV = G.strap(P, N, width, thick, closed=True, rounded=False)
+        return part(kind, side, V, F, UV, mat, bone)
+
+    for side in ('L', 'R'):
+        hb = f'hand_{side}'
+        n = H._palm(b.mh, side)
+        back = -n
+        w = b.joint(f'wrist.{side}')
+        h, t, ax = b.bone_frame(hb)
+        hand_dir = _unit(b.joint(f'finger3-1.{side}') - w)
+        across = _unit(np.cross(hand_dir, n))
+        back_h = _unit(back - hand_dir * (back @ hand_dir))
+        K = [b.joint(f'finger{fi}-1.{side}') for fi in range(2, 6)]
+        Kc = np.mean(K, axis=0)
+        L = float((Kc - w) @ hand_dir)                        # wrist to knuckles
+        half = float(abs((K[0] - K[3]) @ across)) / 2         # half the knuckle span
+        mid = w + hand_dir * ((Kc - w) @ hand_dir) + across * ((Kc - w) @ across)
+
+        def on_hand(s, x):
+            # a point inside the hand, s along it from the wrist, x across
+            return w + hand_dir * s + across * (x + float((Kc - w) @ across) * s / L) + n * 0.002
+
+        if 'knuckle' in kinds:
+            # moulded guard: a band across the knuckle line with a dome over each knuckle
+            Kx = [float((k - w) @ across) for k in K]
+            Ks = [float((k - w) @ hand_dir) for k in K]
+            xs = np.linspace(min(Kx) - 0.0045, max(Kx) + 0.0045, 15)
+            ks = np.interp(xs, sorted(Kx), [s for _, s in sorted(zip(Kx, Ks))])
+
+            def kat(s, x, xs=xs, ks=ks):
+                return w + hand_dir * (np.interp(x, xs, ks) + s) + across * x + n * 0.004
+            grid_sheet('knuckle', side, np.linspace(-0.019, 0.003, 6), xs, kat, back_h, -0.0007, 0.0034, 'knuckle', hb, edge=0.002)
+            for k in K:
+                loc, nn = in_hit(k + n * 0.004 - hand_dir * 0.003, back_h)
+                if loc is None:
+                    continue
+                V, F, UV = G.rbox((0.0152, 0.0036, 0.0124), 0.0032, n=2, bulge=0.0009)
+                o, R = G.frame(loc + nn * 0.0024, across, nn)
+                V = V + np.array([0, 0.0018, 0])
+                part('knuckle', side, G.place(V, o, R), F, UV, 'knuckle', hb)
+
+        if 'panel' in kinds:
+            # padded back-of-hand panel in two pieces, a flex gap between them
+            s0, s1 = 0.024, L - 0.026
+            sm = (s0 + s1) / 2
+            xs = np.linspace(-half * 0.92, half * 0.92, 9)
+            for a_, b_ in ((s0, sm - 0.0018), (sm + 0.0018, s1)):
+                grid_sheet('panel', side, np.linspace(a_, b_, 5), xs, on_hand, back_h, -0.0006, 0.0026, 'gpad', hb, edge=0.0022)
+
+        if 'palm' in kinds:
+            # palm pad over the heel of the hand, toward the little finger
+            xs = np.sort(np.linspace(-half * 0.55, half * 0.8, 9) * np.sign(float((K[3] - K[0]) @ across)))
+            grid_sheet('palm', side, np.linspace(0.014, 0.042, 6), xs, lambda s, x: on_hand(s, x) - n * 0.004,
+                       n, -0.0006, 0.0028, 'gpad', hb, edge=0.0022, hit=out_hit)
+
+        if 'pad' in kinds:
+            # padded plates on the backs of the first two segments of each finger
+            for fi in range(2, 6):
+                for k in (1, 2):
+                    hh, tt = (np.array(v) for v in b.mh[f'finger{fi}-{k}.{side}'][:2])
+                    d = _unit(tt - hh)
+                    a = _unit(across - d * (across @ d))
+                    bd = _unit(np.cross(d, a))
+                    loc, nn = out_hit(hh + (tt - hh) * 0.52, bd)
+                    if loc is None:
+                        continue
+                    ln = float(np.linalg.norm(tt - hh))
+                    V, F, UV = G.rbox((0.0102, 0.0026, ln * (0.5 if k == 1 else 0.56)), 0.0012, n=1, bulge=0.0005)
+                    o, R = G.frame(loc - nn * 0.0005, a, nn)
+                    V = V + np.array([0, 0.0013, 0])
+                    part('pad', side, G.place(V, o, R), F, UV, 'gpad', f'finger{fi}_{k}_{side}')
+
+        if 'cuff' in kinds:
+            # wrist strap round the cuff, and a hook-and-loop tab over it on the back
+            e1 = _unit(back - ax * (back @ ax))
+            e2 = np.cross(ax, e1)
+            c0 = h + ax * (-cuff * 0.52)
+            A = np.linspace(0, TAU, 36, endpoint=False)
+            P, N = [], []
+            for a_ in A:
+                d = math.cos(a_) * e1 + math.sin(a_) * e2
+                loc, nn = in_hit(c0, d, 0.07)
+                if loc is not None:
+                    P.append(loc); N.append(nn)
+            if len(P) > 28:
+                P = G.smooth_path(np.r_[P[-2:], P, P[:2]], 2)[2:-2]
+                V, F, UV = G.strap(P + np.array(N) * 0.0002, N, 0.0155, 0.0026, closed=True)
+                part('cuff', side, V, F, UV, 'gcuff')
+                # the tab: wider, on top of the strap, from just past the back of
+                # the wrist round toward the thumb side
+                sgn = 1.0 if float(e2 @ (b.joint(f'finger1-1.{side}') - w)) > 0 else -1.0
+                arc = [i for i, a_ in enumerate(A) if -0.55 < (a_ if a_ < math.pi else a_ - TAU) * sgn < 0.6]
+                arc.sort(key=lambda i: (A[i] if A[i] < math.pi else A[i] - TAU) * sgn)
+                if len(arc) > 3:
+                    Pa = np.array([P[i] for i in arc]); Na = np.array([N[i] for i in arc])
+                    V, F, UV = G.strap(Pa + Na * 0.0026, Na, 0.0195, 0.0024, cap=True)
+                    part('cuff', side, V, F, UV, 'gcuff')
+
+        if 'seam' in kinds:
+            # raised seams down both sides of each finger and over its tip
+            for fi in range(1, 6):
+                segs = [tuple(np.array(v) for v in b.mh[f'finger{fi}-{k}.{side}'][:2]) for k in (1, 2, 3)]
+                if fi == 1:
+                    segs = segs[1:]          # the thumb's first bone is inside the hand
+                frames = []
+                for hh, tt in segs:
+                    d = _unit(tt - hh)
+                    a = across if fi > 1 else _unit(np.cross(d, n))
+                    a = _unit(a - d * (a @ d))
+                    frames.append((hh, tt, d, a, _unit(np.cross(d, a))))
+                sides = []
+                for sgn in (1, -1):
+                    pts = []
+                    for si, (hh, tt, d, a, bd) in enumerate(frames):
+                        for f in np.linspace(0.18 if si == 0 else 0.0, 1.0, 3, endpoint=False):
+                            loc, nn = out_hit(hh + (tt - hh) * f, a * sgn * 0.86 + bd * 0.5)
+                            if loc is not None:
+                                pts.append(loc + nn * 0.0002)
+                    sides.append(pts)
+                hh, tt, d, a, bd = frames[-1]
+                tip_c = tt - d * 0.0065
+                arc = []
+                for phi in np.linspace(0, math.pi, 7)[1:-1]:
+                    loc, nn = out_hit(tip_c, (a * math.cos(phi) + d * math.sin(phi)) * 0.86 + bd * 0.5)
+                    if loc is not None:
+                        arc.append(loc + nn * 0.0002)
+                path = sides[0] + arc + sides[1][::-1]
+                if len(path) < 8:
+                    continue
+                path = G.smooth_path(path, 2)
+                V, F, UV = G.tube(path, 0.0009, sides=5)
+                part('seam', side, V, F, UV, 'stitch', smooth_below=85)
+
+        if 'wrap' in kinds:
+            # fight wraps: round the knuckles, twice across the back of the hand
+            # (crossing), and round the wrist
+            loop('wrap', side, Kc - hand_dir * 0.006 + n * 0.003, back_h, across, 0.021, 0.0019, 'wrap', hb)
+            for tilt in (0.55, -0.55):
+                pn = _unit(hand_dir * math.cos(tilt) + across * math.sin(tilt))
+                e1 = _unit(back_h - pn * (back_h @ pn))
+                loop('wrap', side, mid - hand_dir * L * 0.42 + n * 0.004, e1, np.cross(pn, e1), 0.019, 0.0019, 'wrap', hb)
+            for u, tilt in ((-0.004, 0.1), (-0.022, -0.12)):
+                pn = _unit(ax * math.cos(tilt) + across * math.sin(tilt))
+                e1 = _unit(back - pn * (back @ pn))
+                loop('wrap', side, h + ax * u, e1, np.cross(pn, e1), 0.02, 0.0019, 'wrap', None, hit=in_hit)
+
+
 def boots(b, M, *, top, ease=0.005, toe_h=0.05, mat='boot', seed=31, n=40):
     """Boot uppers lofted through sections of the foot and ankle: a roomy toe
     box, a heel counter, a padded collar at the shaft top. Returns the object
@@ -688,7 +940,8 @@ def build(team):
     if team == 'ct':
         pants = trousers(body, M, bottom=0.195, blouse=0.215, ease_leg=0.022, ease_seat=0.014)
         top = shirt(body, M, tuck=True)
-        gloves(body, M)
+        gl = gloves(body, M)
+        glove_details(body, gl, GLOVE_DETAILS or TEAM_GLOVE_PARTS[team], cuff=0.055)
         _, ol = boots(body, M, top=0.215)
         sole(ol['L'], 'L'); sole(ol['R'], 'R')
         L = balaclava(body, M)
@@ -703,7 +956,8 @@ def build(team):
     else:
         pants = trousers(body, M, bottom=0.05, ease_leg=0.028, ease_seat=0.02, flare=0.012)
         top = shirt(body, M, tuck=False, ease_body=0.02, ease_sleeve=0.02, hem_z=0.87, mat='jacket')
-        gloves(body, M, ease=0.0022, cuff=0.045, guard=False, flare=0.006)
+        gl = gloves(body, M, ease=0.0022, cuff=0.045, guard=False, flare=0.006)
+        glove_details(body, gl, GLOVE_DETAILS or TEAM_GLOVE_PARTS[team], cuff=0.045)
         L = shemagh(body, M)
         _, ol = boots(body, M, top=0.15, ease=0.007)
         sole(ol['L'], 'L', thick=0.022, lip=0.004, heel=0.004); sole(ol['R'], 'R', thick=0.022, lip=0.004, heel=0.004)
@@ -764,8 +1018,9 @@ def decimate(obj, ratio):
 
 
 def split_gloves(me, team):
-    """Glove faces onto a second material (the same baked textures), so the
-    glTF has the gloves as their own primitive."""
+    """Glove faces onto their own materials (the same baked textures), so the
+    glTF has the gloves as their own primitive, and each kind of glove part
+    ('char_<team>_glove_knuckle', ...) as another."""
     ga = me.attributes.get('glove')
     if ga is None:
         return
@@ -774,10 +1029,13 @@ def split_gloves(me, team):
     me.attributes.remove(me.attributes['glove'])
     if not any(flags) or not me.materials:
         return
-    gm = me.materials[0].copy()
-    gm.name = f'char_{team}_glove'
-    me.materials.append(gm)
-    me.polygons.foreach_set('material_index', [1 if f else 0 for f in flags])
+    slot = {}
+    for v in sorted(set(flags) - {0}):
+        gm = me.materials[0].copy()
+        gm.name = f'char_{team}_glove' + ('' if v == 1 else f'_{PART_OF[v]}')
+        slot[v] = len(me.materials)
+        me.materials.append(gm)
+    me.polygons.foreach_set('material_index', [slot.get(f, 0) for f in flags])
 
 
 def finish(team, arm, body, bake=True, size=2048, lift=None, bones=None, reduce=True, lods=(0.32, 0.1)):
@@ -792,11 +1050,12 @@ def finish(team, arm, body, bake=True, size=2048, lift=None, bones=None, reduce=
         if not obj.data.materials:
             m = bpy.data.materials.get(mat) or bpy.data.materials.new(mat)
             obj.data.materials.append(m)
-        if base == 'gloves':
-            # remembered through the join so the gloves can get their own
-            # material slot (glove skins replace just that part in the game)
+        gp = int(obj.get('glovepart', 0)) or (1 if base == 'gloves' else 0)
+        if gp:
+            # remembered through the join so the gloves (and each kind of glove
+            # part) get their own material slot: glove skins replace just those
             ga = obj.data.attributes.new('glove', 'INT', 'FACE')
-            ga.data.foreach_set('value', [1] * len(obj.data.polygons))
+            ga.data.foreach_set('value', [gp] * len(obj.data.polygons))
     # stand on the soles: everything up by the sole thickness
     lift = SOLE[team] if lift is None else lift
     for obj, _, _ in PARTS:
@@ -895,11 +1154,17 @@ def export_arms(team, path, size=1024):
     """The arms as the player sees them: sleeves from the shoulder down and
     the gloves, skinned to six free bones (no hierarchy) that the viewmodel
     places directly every frame."""
-    arm, body = build(team)
+    global GLOVE_DETAILS
+    GLOVE_DETAILS = set(GLOVE_PART)      # every glove part: the game shows the ones a glove has
+    try:
+        arm, body = build(team)
+    finally:
+        GLOVE_DETAILS = None
     keep = {'shirt', 'gloves'}
-    kept = [(o, m, b) for o, m, b in PARTS if o.name.split('.')[0] in keep]
+    wanted = lambda o: o.name.split('.')[0] in keep or o.get('glovepart')
+    kept = [(o, m, b) for o, m, b in PARTS if wanted(o)]
     for obj, mat, bone in PARTS:
-        if obj.name.split('.')[0] not in keep:
+        if not wanted(obj):
             bpy.data.objects.remove(obj)
     PARTS[:] = kept
     # sleeves only: drop the torso of the shirt
@@ -962,13 +1227,22 @@ def export_glove_display(team, path):
     hand's frame (x from the wrist to the fingertips, z out of the back of the
     hand, origin mid-hand). Material 'skin_glove' and no textures: the game
     paints the finish on."""
+    global GLOVE_DETAILS
     BODY_EXTRA.clear(); BODY_EXTRA.update(grip=0.3)
+    GLOVE_DETAILS = set(GLOVE_PART)
     try:
         arm, body = build(team)
     finally:
         BODY_EXTRA.clear()
+        GLOVE_DETAILS = None
     src = next(o for o, _, _ in PARTS if o.name.split('.')[0] == 'gloves')
     mat = bpy.data.materials.new('skin_glove')
+    # glove parts, one mesh per side and kind: 'glove_L_knuckle', ...
+    groups = {}
+    for o, _, _ in PARTS:
+        if o.get('glovepart'):
+            groups.setdefault((o['gside'], PART_OF[int(o['glovepart'])]), []).append(o)
+    keep = {'glove_L', 'glove_R'}
     for side in ('L', 'R'):
         o = src.copy(); o.data = src.data.copy(); o.name = f'glove_{side}'
         link(o)
@@ -985,8 +1259,28 @@ def export_glove_display(team, path):
         o.data.materials.clear(); o.data.materials.append(mat)
         o.matrix_world = Matrix.Identity(4)
         o.data.uv_layers.new(name='uv')
+        for (gs, kind), objs in groups.items():
+            if gs != side:
+                continue
+            Vs, Fs = [], []
+            for po in objs:
+                V, F = mesh_arrays(po)
+                Fs += [[i + sum(len(v) for v in Vs) for i in f] for f in F]
+                Vs.append(V)
+            name = f'glove_{side}_{kind}'
+            me = bpy.data.meshes.new(name)
+            me.from_pydata([tuple(map(float, v)) for v in np.concatenate(Vs)], [], Fs)
+            me.transform(R @ Matrix.Translation(-(Vector(tuple(h)) + Vector(tuple(ax)) * 0.06)))
+            for p in me.polygons:
+                p.use_smooth = True
+            me.set_sharp_from_angle(angle=math.radians(50))
+            me.materials.append(bpy.data.materials.get(f'skin_glove_{kind}') or bpy.data.materials.new(f'skin_glove_{kind}'))
+            me.uv_layers.new(name='uv')
+            po = bpy.data.objects.new(name, me)
+            link(po)
+            keep.add(name)
     for o in list(bpy.context.scene.objects):
-        if o.name not in ('glove_L', 'glove_R'):
+        if o.name not in keep:
             bpy.data.objects.remove(o)
     PARTS.clear()
     export(path)

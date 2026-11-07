@@ -574,6 +574,16 @@ function gloves() {
       const m = new THREE.Mesh(src.geometry.clone(), M.leather);
       m.userData.part = 'skin'; m.castShadow = true;
       hand.add(m);
+      // construction parts (knuckle guard, pads, strap, seams, wraps...): the
+      // finish decides which show (see GLOVE_PARTS)
+      for (const kind of ['knuckle', 'pad', 'panel', 'palm', 'cuff', 'seam', 'wrap']) {
+        const p = assets.gloves.getObjectByName(`glove_${side}_${kind}`);
+        if (!p?.isMesh) continue;
+        const pm = new THREE.Mesh(p.geometry.clone(), M.leather);
+        Object.assign(pm.userData, { part: 'skin', gkind: kind, frameGeo: m.geometry });
+        pm.castShadow = true; pm.visible = kind === 'seam' || kind === 'cuff';
+        hand.add(pm);
+      }
     } else {
       hand.add(mesh(new THREE.BoxGeometry(0.19, 0.03, 0.09), M.leather, 'skin'));
     }

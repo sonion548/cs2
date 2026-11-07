@@ -316,6 +316,13 @@ dropped them.
   (`docs/Vantage skin review.docx`); the 13 weakest finish types were redrawn from scratch with the same
   names, colours and feel (paint, carbon, anodized, damascus, topo, scales, marble, ink, flames, lightning,
   tempered, livery, galaxy).
+- **Gloves built like gloves**: real 3D construction on the first-person hands and the inventory model
+  instead of a print on a bare hand: a moulded knuckle guard with a dome over each knuckle, padded plates
+  on the fingers, a padded back panel, a palm pad, a wrist strap with a hook-and-loop tab, raised seams
+  down every finger and round the tips, and cloth bands wound round the hand for Fight Wraps. Each glove
+  type shows its own set (Tactical: guard, finger pads, palm pad; Rider: guard, pads, back panel; Racer:
+  seams, strap, palm; ...), the finish runs across all of them (the guard glossy and darker, thread
+  lighter), and the team gloves keep their own (CT: guard and pads; T: plain leather with a strap).
 - **A Gold Case for every existing player** (Nov 2026): every account that existed when this went live gets
   one extra Gold Case, once, with a "Gift" row in its history. New accounts don't get it (they start with
   their own Gold Case). One-off gifts like this are the `GIFTS` list in `src/shared/economy.js`.
