@@ -3,11 +3,11 @@ import { KNIFE_TYPES } from '../shared/knives.js';
 import { WEAPONS } from '../weapons.js';
 
 export const RARITIES = [
-  { id: 'standard', name: 'Standard', color: '#4f7cff', odds: 0.7920 },
+  { id: 'standard', name: 'Standard', color: '#4f7cff', odds: 0.7900 },
   { id: 'superior', name: 'Superior', color: '#8c52ff', odds: 0.1600 },
   { id: 'exotic', name: 'Exotic', color: '#d23cd8', odds: 0.0360 },
   { id: 'mythic', name: 'Mythic', color: '#e8423a', odds: 0.0090 },
-  { id: 'legendary', name: 'Legendary', color: '#e7b53c', odds: 0.0030 },
+  { id: 'legendary', name: 'Legendary', color: '#e7b53c', odds: 0.0050 },   // knives (and gloves): 1 in 200
 ];
 export const RARITY = Object.fromEntries(RARITIES.map((r, i) => [r.id, { ...r, tier: i }]));
 
@@ -338,7 +338,8 @@ export const STICKER_FINISHES = [
 // ---------------------------------------------------------------- build defs
 function hashStr(s) { let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return h >>> 0; }
 
-const PRICE_BAND = { standard: [8, 40], superior: [40, 180], exotic: [180, 700], mythic: [700, 3000], legendary: [3500, 25000] };
+// legendary (knives) was 3,500-25,000, so a good knife took about 8 matches of credits
+const PRICE_BAND = { standard: [8, 40], superior: [40, 180], exotic: [180, 700], mythic: [700, 3000], legendary: [15750, 112500] };
 
 export const SKINS = {};
 for (const [weapon, name, rarity, finish, range] of GUN_SKINS) {
@@ -466,12 +467,23 @@ const CASE_THEME = {
 for (const c of Object.values(CASES)) for (const s of c.skins) if (!SKINS[s]) console.warn('Missing skin in case', c.id, s); // eslint-disable-line no-console
 
 export const STICKER_CAPSULE = { id: 'capsule', name: 'Sticker Capsule', price: 90, color: '#e7b53c' };
+// A gift every player gets once: opens without a key into a guaranteed knife
+// (or gloves). It can't be bought or sold.
+export const GOLD_CASE = { id: 'gold', name: 'Gold Case', price: 0, color: '#e7b53c', gold: true };
+// Every gun finish in the game in one case (and every knife type), for a
+// little more than any other case.
+CASES.universal = {
+  id: 'universal', name: 'Universal Case', color: '#a58aff',
+  price: Math.max(...Object.values(CASES).map(c => c.price)) + 40,
+  skins: Object.values(SKINS).filter(s => !s.knife).map(s => s.id),
+  knives: Object.keys(KNIFE_TYPES).filter(k => k !== 'standard'),
+};
 export const KEY_PRICE = 250;
 
 export function itemDef(item) {
   if (item.kind === 'skin') return SKINS[item.defId];
   if (item.kind === 'sticker') return STICKERS[item.defId];
-  if (item.kind === 'case') return item.defId === 'capsule' ? STICKER_CAPSULE : CASES[item.defId];
+  if (item.kind === 'case') return item.defId === 'capsule' ? STICKER_CAPSULE : item.defId === 'gold' ? GOLD_CASE : CASES[item.defId];
   return null;
 }
 

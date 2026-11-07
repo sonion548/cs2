@@ -8,8 +8,9 @@ export function uid() { return Date.now().toString(36) + Math.random().toString(
 
 export function freshProfile(name = 'You') {
   return {
-    name, credits: 2500, xp: 0,
+    name, credits: 2500, xp: 0, goldGranted: true,
     items: [
+      { uid: uid(), kind: 'case', defId: 'gold', acquired: Date.now() },
       { uid: uid(), kind: 'case', defId: 'dunehold', acquired: Date.now() },
       { uid: uid(), kind: 'case', defId: 'voltage', acquired: Date.now() },
       { uid: uid(), kind: 'case', defId: 'capsule', acquired: Date.now() },
@@ -37,6 +38,8 @@ export function migrateItem(it) {
 export function migrateProfile(state) {
   if (!state?.items) return false;
   let changed = false;
+  // every existing player gets the Gold Case once
+  if (!state.goldGranted) { state.items.push({ uid: uid(), kind: 'case', defId: 'gold', acquired: Date.now() }); state.goldGranted = true; changed = true; }
   for (const it of state.items) if (migrateItem(it)) changed = true;
   const keep = state.items.filter(it => itemDef(it));
   if (keep.length !== state.items.length) { state.items = keep; changed = true; }
@@ -117,6 +120,8 @@ export function rollCase(caseId, r = Math.random) {
     const fin = roll < 0.8 ? 'paper' : roll < 0.95 ? 'holo' : roll < 0.99 ? 'foil' : 'gold';
     return makeSticker(pick(Object.values(STICKERS).filter(s => s.finishType === fin), r).id);
   }
+  // the Gold Case: always a knife (or gloves)
+  if (caseId === 'gold') return makeSkin(pick(Object.values(SKINS).filter(s => s.knife || s.gloves), r).id, r);
   const c = CASES[caseId];
   const roll = r();
   let tier = RARITIES[0].id, acc = 0;
@@ -131,7 +136,7 @@ export function rollCase(caseId, r = Math.random) {
 }
 
 export function caseContents(caseId) {
-  if (caseId === 'capsule') return [];
+  if (caseId === 'capsule' || caseId === 'gold') return [];
   return CASES[caseId].skins.map(id => SKINS[id]).sort((a, b) => RARITY[b.rarity].tier - RARITY[a.rarity].tier);
 }
 
@@ -143,7 +148,7 @@ export function openCase(state, caseUid, r = Math.random) {
   const c = findItem(state, caseUid);
   if (!c || c.kind !== 'case') return { error: 'Case not found' };
   if (c.listed) return { error: 'Item is listed on the market' };
-  const cost = c.defId === 'capsule' ? 0 : KEY_PRICE;
+  const cost = c.defId === 'capsule' || c.defId === 'gold' ? 0 : KEY_PRICE;
   if (state.credits < cost) return { error: `You need ${cost} credits for a key` };
   state.credits -= cost;
   removeItem(state, caseUid);
@@ -169,6 +174,7 @@ export function quickSell(state, itemUid) {
   const it = findItem(state, itemUid);
   if (!it) return { error: 'Item not found' };
   if (it.listed) return { error: 'Cancel the market listing first' };
+  if (it.kind === 'case' && it.defId === 'gold') return { error: 'The Gold Case can\u2019t be sold. Open it for a free knife!' };
   const value = Math.floor(marketPrice(it) * QUICK_SELL);
   state.credits += value;
   removeItem(state, itemUid);

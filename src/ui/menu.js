@@ -3,7 +3,7 @@ import { patternInfo } from '../items/patterns.js';
 import { Viewer, thumbnail, previewItem, warmThumbnails } from './studio.js';
 import { QUALITY, QUALITY_ORDER, detectQuality } from '../gfx.js';
 import * as P from '../items/profile.js';
-import { SKINS, STICKERS, CASES, RARITY, RARITIES, CONDITIONS, condition, itemDef, itemTitle, KEY_PRICE, STICKER_CAPSULE, WEAPON_NAMES } from '../items/catalog.js';
+import { SKINS, STICKERS, CASES, RARITY, RARITIES, CONDITIONS, condition, itemDef, itemTitle, KEY_PRICE, STICKER_CAPSULE, GOLD_CASE, WEAPON_NAMES } from '../items/catalog.js';
 import { KNIFE_TYPES, buildGun } from '../gunmodels.js';
 import { stickerCanvas } from '../items/stickers.js';
 import { STICKER_SLOTS } from '../items/render.js';
@@ -43,7 +43,8 @@ function caseArt(def) {
   return c.toDataURL();
 }
 const caseArtCache = {};
-function caseThumb(id) { return caseArtCache[id] ||= caseArt(id === 'capsule' ? STICKER_CAPSULE : CASES[id]); }
+const caseDef = (id) => (id === 'capsule' ? STICKER_CAPSULE : id === 'gold' ? GOLD_CASE : CASES[id]);
+function caseThumb(id) { return caseArtCache[id] ||= caseArt(caseDef(id)); }
 const stickerThumbCache = {};
 function stickerThumb(id) { return stickerThumbCache[id] ||= stickerCanvas(STICKERS[id]).toDataURL(); }
 
@@ -373,15 +374,15 @@ export class Menu {
     const p = P.getProfile();
     const owned = {};
     for (const it of p.items) if (it.kind === 'case') owned[it.defId] = (owned[it.defId] || 0) + 1;
-    const all = [...Object.values(CASES), STICKER_CAPSULE];
+    const all = [...(owned.gold ? [GOLD_CASE] : []), ...Object.values(CASES), STICKER_CAPSULE];
     page.innerHTML = `
       <div class="cases-head"><h3>Containers</h3><p>Keys cost ${CR(KEY_PRICE)}. Sticker capsules open without a key. Containers also drop at the end of matches.</p></div>
       <div class="case-list">${all.map(c => `
         <div class="case-card" data-case="${c.id}">
           <img src="${caseThumb(c.id)}" alt="">
-          <div class="meta"><b>${h(c.name)}</b><small>${c.id === 'capsule' ? 'Paper · Holo · Foil · Gold' : `${CASES[c.id].skins.length} finishes + rare knives`}</small></div>
+          <div class="meta"><b>${h(c.name)}</b><small>${c.id === 'capsule' ? 'Paper · Holo · Foil · Gold' : c.id === 'gold' ? 'A guaranteed knife or gloves · no key needed' : `${CASES[c.id].skins.length} finishes + rare knives`}</small></div>
           <div class="own">${owned[c.id] ? `<span>Owned × ${owned[c.id]}</span>` : '<span class="none">None owned</span>'}</div>
-          <div class="btns"><button data-buy="${c.id}">Buy · ${CR(c.price)}</button><button data-view="${c.id}" class="pri">${owned[c.id] ? 'Open' : 'Contents'}</button></div>
+          <div class="btns">${c.id === 'gold' ? '' : `<button data-buy="${c.id}">Buy · ${CR(c.price)}</button>`}<button data-view="${c.id}" class="pri">${owned[c.id] ? 'Open' : 'Contents'}</button></div>
         </div>`).join('')}</div>`;
     // get every case's previews ready in the background before anyone opens one
     warmThumbnails(Object.values(CASES).flatMap(c => c.skins));
@@ -395,12 +396,13 @@ export class Menu {
 
   openCaseView(caseId) {
     const layer = this.$('.modal-layer');
-    const def = caseId === 'capsule' ? STICKER_CAPSULE : CASES[caseId];
+    const def = caseDef(caseId), gold = caseId === 'gold';
     const ownedItem = P.getProfile().items.find(i => i.kind === 'case' && i.defId === caseId);
     const contents = P.caseContents(caseId);
-    const knives = caseId === 'capsule' ? [] : CASES[caseId].knives;
+    const knives = caseId === 'capsule' ? [] : gold ? Object.keys(KNIFE_TYPES).filter(k => k !== 'standard') : CASES[caseId].knives;
     const oddsRows = caseId === 'capsule'
       ? [['Paper', '80%'], ['Holo', '15%'], ['Foil', '4%'], ['Gold', '1%']]
+      : gold ? [['Knife or gloves', '100%', RARITY.legendary.color]]
       : RARITIES.map(r => [r.name, (r.odds * 100).toFixed(2) + '%', r.color]);
     layer.innerHTML = `
       <div class="modal casev">
@@ -413,11 +415,12 @@ export class Menu {
         </div>
         <div class="cfoot">
           <table class="odds">${oddsRows.map(([n, o, c]) => `<tr><td><i style="background:${c || '#888'}"></i>${n}</td><td>${o}</td></tr>`).join('')}</table>
-          <div class="unlock">${ownedItem ? `<button class="pri big" data-act="open">${caseId === 'capsule' ? 'Open capsule' : `Unlock · key ${CR(KEY_PRICE)}`}</button>` : `<button class="pri big" data-act="buyopen">Buy &amp; unlock · ${CR(def.price + (caseId === 'capsule' ? 0 : KEY_PRICE))}</button>`}</div>
+          <div class="unlock">${ownedItem ? `<button class="pri big" data-act="open">${caseId === 'capsule' ? 'Open capsule' : gold ? 'Open Gold Case' : `Unlock · key ${CR(KEY_PRICE)}`}</button>` : gold ? '' : `<button class="pri big" data-act="buyopen">Buy &amp; unlock · ${CR(def.price + (caseId === 'capsule' ? 0 : KEY_PRICE))}</button>`}</div>
         </div>
       </div>`;
-    // previews for contents
-    for (const img of layer.querySelectorAll('img[data-def]')) thumbnail(previewItem(img.dataset.def), url => { img.src = url; });
+    // previews for contents, as they scroll into view (the Universal Case holds every finish)
+    const io = new IntersectionObserver((ents) => { for (const e of ents) if (e.isIntersecting) { io.unobserve(e.target); thumbnail(previewItem(e.target.dataset.def), url => { e.target.src = url; }); } }, { rootMargin: '200px' });
+    for (const img of layer.querySelectorAll('img[data-def]')) io.observe(img);
     layer.onclick = async (e) => {
       const b = e.target.closest('button'); if (!b) return;
       if (b.dataset.act === 'close') { layer.innerHTML = ''; layer.onclick = null; this.go(this.tab); return; }
