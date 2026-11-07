@@ -48,6 +48,11 @@ const T_FORCE = ['mac10', 'galil', 'ump45', 'mp7', 'pump', 'dbarrel', 'mp5'];
 const CT_FORCE = ['vector', 'famas', 'mp5', 'ump45', 'mp7', 'm1014', 'pump'];
 const ECO_PISTOLS = ['deagle', 'fiveseven', 'm1911', 'vz61', 'revolver'];
 
+// Roles holding a position (they only go after what's close) and roles that
+// must not be pulled away by a sighting.
+const HOLDING = new Set(['hold', 'default', 'gather', 'split', 'guard', 'stage', 'lurk', 'regroup', 'investigate']);
+const COMMITTED = new Set(['retake', 'deny', 'fetch', 'regroup', 'save']);
+
 function weighted(list) { let r = Math.random(); for (const [id, w] of list) { if ((r -= w) <= 0) return id; } return list[0][0]; }
 
 export class Bot extends Character {
@@ -114,6 +119,7 @@ export class Bot extends Character {
     this.goal = p.clone(); this.role = role;
     this.path = findPath(this.game.level.nav, this.pos, this.goal);
     this.pathIdx = 0;
+    this.arrivedAt = null;
   }
 
   // ---------------------------------------------------------------- economy
@@ -210,8 +216,8 @@ export class Bot extends Character {
 
   onBombPlanted(bomb) {
     if (!this.alive || this.puppet) return;
+    if (this.game.strategy?.enabled) return;   // the team plan sets up the retake and the guards
     if (this.team === 'CT') this.setGoal(bomb.pos.clone(), 'retake');
-    else if (this.game.strategy?.enabled) return;   // the team plan places the guards
     else {
       const a = Math.random() * Math.PI * 2, r = 4 + Math.random() * 7;
       const p = bomb.pos.clone().add(new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r));
@@ -339,8 +345,8 @@ export class Bot extends Character {
         else {
           // players holding a spot (or waiting for the team) only turn toward far-off
           // sounds; they go after something only when it's close
-          const holding = this.role === 'hold' || this.role === 'default' || this.role === 'gather' || this.role === 'split' || this.role === 'guard';
-          const chase = this.lastSeen && now - this.lastSeenTime < 6 && this.role !== 'retake' && this.role !== 'deny' && !this.hasBomb &&
+          const holding = HOLDING.has(this.role);
+          const chase = this.lastSeen && now - this.lastSeenTime < 6 && !COMMITTED.has(this.role) && !this.hasBomb &&
             (!holding || this.pos.distanceTo(this.lastSeen) < 9);
           if (chase && (!this.path || this.chasing !== this.lastSeenTime)) {
             if (this.pos.distanceTo(this.lastSeen) > 2) {
@@ -373,7 +379,9 @@ export class Bot extends Character {
                 if (ld > 3 && ld < 35) wantYaw = Math.atan2(-lx, -lz);
               }
             }
-            this.walking = this.role === 'hold' && this.goal && this.pos.distanceTo(this.goal) < 10 && this.prof.skill > 0.5;
+            // quiet plays (lurks, contact walks, closing in on a fight) walk the last stretch
+            this.walking = (this.quiet && this.goal && this.pos.distanceTo(this.goal) < 26) ||
+              (this.role === 'hold' && this.goal && this.pos.distanceTo(this.goal) < 10 && this.prof.skill > 0.5);
             this.stuckTimer += dt;
             if (this.stuckTimer > 1) {
               if (this.pos.distanceTo(this.lastPos) < 0.5) {
@@ -389,6 +397,7 @@ export class Bot extends Character {
             }
           } else {
             // reached the goal: hold and scan, then pick a new one
+            if (this.arrivedAt == null) this.arrivedAt = now;
             if (this.lastSeen && now - this.lastSeenTime < 3) {
               wantYaw = Math.atan2(-(this.lastSeen.x - this.pos.x), -(this.lastSeen.z - this.pos.z));
             } else {
@@ -396,10 +405,10 @@ export class Bot extends Character {
                 // hold the spot's angle with small sweeps, or look around if it has none
                 this.lookYaw = this.holdLook != null ? this.holdLook + (Math.random() - 0.5) * 0.7 : this.yaw + (Math.random() - 0.5) * 2.4;
                 this.holdUntil = now + 1.5 + Math.random() * 2.5;
-                const planned = g.strategy?.enabled;
-                const strategic = this.role === 'hold' || this.role === 'default' || this.role === 'gather' || this.role === 'split';
-                const late = planned ? g.roundTime > 60 : g.roundTime > 45;
-                if (this.role !== 'guard' && this.role !== 'retake' && this.role !== 'deny' && !this.hasBomb && !(planned && strategic) && (late || (!planned && Math.random() < 0.25))) g.assignHunt(this);
+                // with a team plan, the plan decides what to do next (shift angle,
+                // next map-control spot, back from checking something out...)
+                if (g.strategy?.enabled) g.strategy.idle(this, now);
+                else if (this.role !== 'guard' && this.role !== 'retake' && this.role !== 'deny' && !this.hasBomb && (g.roundTime > 45 || Math.random() < 0.25)) g.assignHunt(this);
               }
               wantYaw = this.lookYaw;
             }
@@ -470,10 +479,27 @@ export class Bot extends Character {
       if (near === this) this.setGoal(bomb.pos.clone(), 'fetch');
     }
     if (this.team === 'CT' && bomb.state === 'planted') {
-      if (this.role !== 'retake') this.setGoal(bomb.pos.clone(), 'retake');
+      if (this.role !== 'retake' && !g.strategy?.enabled) this.setGoal(bomb.pos.clone(), 'retake');
       if (this.pos.distanceTo(bomb.pos) < 1.5 && (!this.lastSeen || now - this.lastSeenTime > 1.5 || bomb.timer < (this.hasKit ? 6 : 11))) {
         const pr = bomb.holdDefuse(this, dt);
         if (pr >= 0) { this.defusing = true; return 'rooted'; }
+      }
+    }
+    // utility the team plan asked for (a smoke on an angle, a flash over a doorway):
+    // thrown once there's a clear line to the spot, or dropped when it's too late
+    if (this.wantNade) {
+      const w = this.wantNade;
+      if (now > w.until || !this.nades.includes(w.type)) this.wantNade = null;
+      else {
+        const to = w.at.clone().sub(this.pos), dist = Math.hypot(to.x, to.z);
+        if (dist > 4 && dist < 30 && g.level.world.lineOfSight(this.eyePos(), w.at.clone().add(new THREE.Vector3(0, 1.2, 0)))) {
+          this.slot !== 4 && this.switchTo(4);
+          this.selectNade(w.type); this.equip();
+          this.weapons[4].deploying = 0.4;
+          this.aimNade = { yaw: Math.atan2(-to.x, -to.z), pitch: Math.min(0.75, 0.12 + dist * 0.018), power: Math.min(1, 0.45 + dist / 26), until: now + 2.5 };
+          this.nadeUsedAt = now; this.wantNade = null;
+          return 'aim';
+        }
       }
     }
     // utility: attackers smoke/flash the site they're pushing; defenders burn or frag where they heard enemies

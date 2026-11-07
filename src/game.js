@@ -903,6 +903,8 @@ export class Game {
     }
     this.hud.killfeed(killer, victim, weaponDef, headshot);
     this.net?.event(['kill', killer?.netId ?? null, victim.netId, weaponDef.id, headshot ? 1 : 0], true);
+    // bots react: callouts, someone checks the spot, the bomb gets picked up, plans change
+    this.guard(() => this.strategy.onDeath(victim, killer));
     this.checkRoundEnd();
   }
 
