@@ -1165,10 +1165,22 @@ def bowie():
 
 @knife
 def push():
+    """Push dagger (they come in pairs): a short double-edged spear blade with
+    a raised centre ridge, a small guard, a slim neck that passes between the
+    middle and ring fingers, and a cord-wrapped T-bar that sits across the palm."""
     M = mats()
-    blade('blade', [('M', 0.0, 0.016), ('L', 0.06, 0.012), ('Q', 0.1, 0.004, 0.12, 0.0), ('Q', 0.1, -0.004, 0.06, -0.012), ('L', 0.0, -0.016)], lambda x, z: x > 0.02, 0.005, M['blade'])
-    puffy('t_handle', [('M', -0.012, 0.045), ('Q', 0.004, 0.05, 0.004, 0.03), ('L', 0.004, -0.03), ('Q', 0.004, -0.05, -0.012, -0.045), ('Q', -0.022, 0, -0.012, 0.045)], 0.026, M['polymer'], r=0.0099, rings=3)
-    return 0.12
+    blade('blade', [('M', 0.012, 0.011), ('Q', 0.034, 0.02, 0.062, 0.0125), ('L', 0.1, 0.0), ('L', 0.062, -0.0125), ('Q', 0.034, -0.02, 0.012, -0.011)],
+          lambda x, z: x > 0.018, 0.0055, M['blade'])
+    blade('ridge', [('M', 0.016, 0.0018), ('L', 0.092, 0.0003), ('L', 0.092, -0.0003), ('L', 0.016, -0.0018)], lambda x, z: False, 0.0068, M['steel'])
+    extrude('guard', [('M', 0.005, 0.021), ('Q', 0.01, 0.024, 0.014, 0.018), ('L', 0.014, -0.018), ('Q', 0.01, -0.024, 0.005, -0.021)], 0.012, M['dark'], bevel=0.0015)
+    puffy('neck', [('M', -0.012, 0.0072), ('L', 0.007, 0.0062), ('L', 0.007, -0.0062), ('L', -0.012, -0.0072)], 0.011, M['dark'], r=0.004, rings=2)
+    puffy('t_handle', [('M', -0.012, 0.05), ('Q', 0.001, 0.054, 0.001, 0.038), ('L', 0.001, -0.038), ('Q', 0.001, -0.054, -0.012, -0.05),
+                       ('Q', -0.031, -0.044, -0.031, -0.02), ('L', -0.031, 0.02), ('Q', -0.031, 0.044, -0.012, 0.05)], 0.026, M['polymer'], r=0.0095, rings=3)
+    for i in range(5):
+        box(f'wrap{i}', (0.0335, 0.0285, 0.0042), (-0.015, 0, -0.03 + i * 0.015), M['cord'], bevel=0.0015)
+    for z_ in (-0.044, 0.044):
+        cyl(f'cap{0 if z_ < 0 else 1}', 0.0035, 0.029, (-0.012, 0, z_), M['steel'], axis='Y', segs=16)
+    return 0.1, -0.016
 
 
 @knife
@@ -1380,9 +1392,11 @@ def build(name):
     if name in GUNS:
         GUNS[name]()
     else:
-        tip = KNIVES[name]()
+        r = KNIVES[name]()
+        # a knife returns its tip, or (tip, where the fist closes) when that isn't the usual spot
+        tip, gx = r if isinstance(r, tuple) else (r, -0.04)
         empty('muzzle', (tip, 0, 0))
-        empty('grip', (-0.04, 0, 0))
+        empty('grip', (gx, 0, 0))
 
 
 def lod_export(path, target=2500):

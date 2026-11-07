@@ -175,6 +175,34 @@ GAME_PARENT = {'hips': None, 'spine': 'hips', 'chest': 'spine', 'neck': 'chest',
                'thigh_R': 'hips', 'shin_R': 'thigh_R', 'foot_R': 'shin_R'}
 
 
+# The first-person arms also get finger bones: three per finger, thumb = 1.
+FINGER_BONES = [f'finger{fi}_{k}_{s}' for s in ('L', 'R') for fi in range(1, 6) for k in range(1, 4)]
+
+
+def finger_bone(mh):
+    """MakeHuman finger segment 'finger2-1.R' -> 'finger2_1_R' (None for other bones)."""
+    if mh.startswith('finger') and mh[-2:] in ('.L', '.R'):
+        fi, k = mh[6:-2].split('-')
+        return f'finger{fi}_{k}_{mh[-1]}'
+    return None
+
+
+def arm_weights(n, W=None):
+    """(n, 17 + 30) weights over GAME_BONES + FINGER_BONES: like game_weights,
+    but each finger segment keeps its own weight instead of joining the hand."""
+    W = W or mh_weights()
+    names = GAME_BONES + FINGER_BONES
+    out = np.zeros((n, len(names)))
+    col = {b: i for i, b in enumerate(names)}
+    for mh, (idx, w) in W.items():
+        fb = finger_bone(mh)
+        for g, f in ([(fb, 1.0)] if fb else game_bone(mh)):
+            np.add.at(out[:, col[g]], idx, w * f)
+    s = out.sum(axis=1, keepdims=True)
+    s[s == 0] = 1
+    return out / s
+
+
 def game_weights(n, W=None):
     """(n, 17) weight matrix over GAME_BONES from the MakeHuman weights."""
     W = W or mh_weights()

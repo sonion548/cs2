@@ -45,6 +45,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PI = math.pi
 BONES = H.GAME_BONES
 BI = {b: i for i, b in enumerate(BONES)}
+BONES_X = H.GAME_BONES + H.FINGER_BONES     # the first-person arms' finger bones too
 
 
 # ---------------------------------------------------------------- body
@@ -60,6 +61,7 @@ class Body:
         self.faces = [f for f, _, g in F if g == 'body']
         self.face_uv = [t for f, t, g in F if g == 'body']
         self.W = H.game_weights(len(self.V))
+        self.WX = None    # with finger bones, made when the first-person arms need it
         self.tris = []
         for f in self.faces:
             for k in range(1, len(f) - 1):
@@ -81,13 +83,17 @@ class Body:
         loc, nrm, idx, dist = self.bvh.find_nearest(Vector(p))
         return np.array(loc), np.array(nrm), idx, dist
 
-    def weights_at(self, p):
-        """Bone weights at a point, interpolated across the nearest body triangle."""
+    def weights_at(self, p, fingers=False):
+        """Bone weights at a point, interpolated across the nearest body triangle
+        (over BONES, or BONES_X with the finger bones)."""
+        if fingers and self.WX is None:
+            self.WX = H.arm_weights(len(self.V))
+        W = self.WX if fingers else self.W
         loc, _, idx, _ = self.bvh.find_nearest(Vector(p))
         t = self.tris[idx]
         A, B, C = (self.V[i] for i in t)
         bc = _bary(np.array(loc), A, B, C)
-        return bc[0] * self.W[t[0]] + bc[1] * self.W[t[1]] + bc[2] * self.W[t[2]]
+        return bc[0] * W[t[0]] + bc[1] * W[t[1]] + bc[2] * W[t[2]]
 
     def bone_frame(self, bone):
         h, t = self.skel[bone]
@@ -196,19 +202,22 @@ def bind(obj, body, bone=None, smooth_iters=0, only=None):
     (optionally only over a subset of bones, renormalised)."""
     me = obj.data
     n = len(me.vertices)
+    fingers = bool(only) and any(b.startswith('finger') for b in only)
+    names = BONES_X if fingers else BONES
+    IX = {b: i for i, b in enumerate(names)}
     if bone:
-        W = np.zeros((n, len(BONES))); W[:, BI[bone]] = 1
+        W = np.zeros((n, len(names))); W[:, IX[bone]] = 1
     else:
-        W = np.array([body.weights_at(v.co[:]) for v in me.vertices])
+        W = np.array([body.weights_at(v.co[:], fingers) for v in me.vertices])
     if only:
-        mask = np.array([b in only for b in BONES], float)
+        mask = np.array([b in only for b in names], float)
         W = W * mask
         s_ = W.sum(axis=1, keepdims=True)
         # anything left without weight (the shoulder end) follows the upper arm on its side
         lone = s_[:, 0] < 1e-6
         V = np.array([v.co[:] for v in me.vertices])
-        W[lone & (V[:, 0] < 0), BI['upperarm_L']] = 1
-        W[lone & (V[:, 0] >= 0), BI['upperarm_R']] = 1
+        W[lone & (V[:, 0] < 0), IX['upperarm_L']] = 1
+        W[lone & (V[:, 0] >= 0), IX['upperarm_R']] = 1
         W = W / np.maximum(W.sum(axis=1, keepdims=True), 1e-9)
         if smooth_iters:
             nb = [[] for _ in range(n)]
@@ -219,7 +228,7 @@ def bind(obj, body, bone=None, smooth_iters=0, only=None):
                 W = np.array([(W[i] + W[nb[i]].mean(axis=0)) / 2 if nb[i] else W[i] for i in range(n)])
     # four strongest influences, normalised
     top = np.argsort(-W, axis=1)[:, :4]
-    groups = {b: obj.vertex_groups.new(name=b) for b in BONES}
+    groups = {b: obj.vertex_groups.new(name=b) for b in names}
     for i in range(n):
         ws = W[i, top[i]]
         s = ws.sum()
@@ -227,7 +236,7 @@ def bind(obj, body, bone=None, smooth_iters=0, only=None):
             continue
         for j, w in zip(top[i], ws / s):
             if w > 0.004:
-                groups[BONES[j]].add([i], float(w), 'REPLACE')
+                groups[names[j]].add([i], float(w), 'REPLACE')
 
 
 # ---------------------------------------------------------------- build
@@ -911,8 +920,28 @@ def export_arms(team, path, size=1024):
         eb = data.edit_bones.new(name)
         eb.head, eb.tail = Vector(h), Vector(t)
         eb.roll = 0
+    # finger bones under each hand, three segments a finger (the thumb is
+    # finger 1), each rolled so it bends toward the palm about its own X axis:
+    # the game opens, closes and rolls the fingers for inspects and grabs
+    for side in ('L', 'R'):
+        n = H._palm(body.mh, side)
+        w = body.mh[f'wrist.{side}'][0]
+        hand_dir = body.mh[f'finger3-1.{side}'][0] - w
+        across = np.cross(hand_dir / np.linalg.norm(hand_dir), n)
+        for fi in range(1, 6):
+            parent = data.edit_bones[f'hand_{side}']
+            for k in range(1, 4):
+                h, t, _ = body.mh[f'finger{fi}-{k}.{side}']
+                eb = data.edit_bones.new(f'finger{fi}_{k}_{side}')
+                eb.head, eb.tail = Vector(tuple(h)), Vector(tuple(t))
+                eb.parent = parent; eb.use_connect = False
+                d = (t - h) / np.linalg.norm(t - h)
+                ax = across if fi > 1 else np.cross(d, n)
+                ax = ax - d * float(ax @ d); ax = ax / np.linalg.norm(ax)
+                eb.align_roll(Vector(tuple(np.cross(ax, d))))     # Z = X x Y
+                parent = eb
     bpy.ops.object.mode_set(mode='OBJECT')
-    char = finish(team, rig, body, bake=True, size=size, lift=0.0, bones=ARM_BONES, reduce=False, lods=())
+    char = finish(team, rig, body, bake=True, size=size, lift=0.0, bones=ARM_BONES + H.FINGER_BONES, reduce=False, lods=())
     char.name = f'arms_{team}'
     for o in bpy.context.scene.objects:
         o.select_set(False)
