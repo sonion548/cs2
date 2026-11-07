@@ -14,6 +14,7 @@ import { OnlineUI } from './online.js';
 import { audio } from '../audio.js';
 import { WEAPONS } from '../weapons.js';
 import { ACTIONS, DEFAULT_BINDS, bindsFrom, keyLabel } from '../input.js';
+import { GAME_TYPES } from '../match/modes.js';
 import { DEFAULT_CROSSHAIR, crosshairFrom, drawCrosshair } from '../crosshair.js';
 
 const h = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -144,15 +145,17 @@ export class Menu {
         ${this.online.partyPanel()}
         ${P.isOnline() && s.queue === 'casual' ? `
         <h3>Casual <small>online</small></h3>
-        <div class="modes">${[['5v5', 'Casual 5v5', 'Real players, bots fill empty slots'], ['2v2', 'Casual 2v2', 'Real players, bots fill empty slots']].map(([id, l, n]) => `<button class="mode ${s.mode === id ? 'on' : ''}" data-mode="${id}"><b>${id}</b><span>${l}<small>${n}</small></span></button>`).join('')}
+        <div class="modes">${[['5v5', 'Casual 5v5', 'Real players, bots fill empty slots'], ['3v3', 'Casual 3v3', 'Real players on the market map, bots fill in'], ['2v2', 'Casual 2v2', 'Real players, bots fill empty slots']].map(([id, l, n]) => `<button class="mode ${s.mode === id ? 'on' : ''}" data-mode="${id}"><b>${id}</b><span>${l}<small>${n}</small></span></button>`).join('')}
           <button class="mode ${s.mode === 'offline' ? 'on' : ''}" data-mode="offline"><b>Solo</b><span>Practice vs bots<small>Solo match against bots (choose difficulty below)</small></span></button></div>` : ''}
         ${P.isOnline() && s.queue === 'casual' && s.mode === 'offline' ? `
-        <div class="field"><label>Opponents</label><div class="steps">${DIFFS.map((d, i) => `<button data-diff="${i}" class="${i <= s.diff ? 'fill' : ''} ${i === s.diff ? 'on' : ''}" title="${d[0]}"></button>`).join('')}<em>${DIFFS[s.diff][0]}</em></div></div>` : ''}
+        <div class="field"><label>Opponents</label><div class="steps">${DIFFS.map((d, i) => `<button data-diff="${i}" class="${i <= s.diff ? 'fill' : ''} ${i === s.diff ? 'on' : ''}" title="${d[0]}"></button>`).join('')}<em>${DIFFS[s.diff][0]}</em></div></div>
+        ${gameTypes(s)}` : ''}
         ${!P.isOnline() && s.queue === 'casual' ? `
         <h3>Matchmaking <small>vs bots</small></h3>
         <div class="modes">${MODES.map(m => `<button class="mode ${s.mode === m.id ? 'on' : ''}" data-mode="${m.id}"><b>${m.id}</b><span>${m.label}<small>${m.note}</small></span></button>`).join('')}</div>
         <div class="field"><label>Opponents</label><div class="steps">${DIFFS.map((d, i) => `<button data-diff="${i}" class="${i <= s.diff ? 'fill' : ''} ${i === s.diff ? 'on' : ''}" title="${d[0]}"></button>`).join('')}<em>${DIFFS[s.diff][0]}</em></div></div>
-        <div class="field"><label>Side</label><div class="tog">${[['T', 'Attack'], ['CT', 'Defend'], ['random', 'Any']].map(([v, l]) => `<button data-side="${v}" class="${s.side === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>` : ''}
+        <div class="field"><label>Side</label><div class="tog">${[['T', 'Attack'], ['CT', 'Defend'], ['random', 'Any']].map(([v, l]) => `<button data-side="${v}" class="${s.side === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+        ${gameTypes(s)}` : ''}
         ${s.queue === 'ranked' ? `
         <h3>Ranked</h3>
         <div class="modes">${Object.entries(R.LADDERS).filter(([, l]) => P.isOnline() || !l.online).map(([id, l]) => { const L = R.ladder(id); return `<button class="mode rk ${s.ladder === id ? 'on' : ''}" data-ladder="${id}"><img src="${R.rankEmblem(L.rank, 64)}" alt=""><span>${l.label}${l.online ? '' : ' · vs bots'}<small>${L.rank == null ? `Placements ${L.placements}/5` : `${R.rankName(L.rank)} · ${L.rp} RP`}</small></span></button>`; }).join('')}
@@ -188,6 +191,7 @@ export class Menu {
       if (t.dataset.mode) s.mode = t.dataset.mode;
       if (t.dataset.diff) s.diff = +t.dataset.diff;
       if (t.dataset.side) s.side = t.dataset.side;
+      if (t.dataset.gtype) s.gameType = t.dataset.gtype;
       if (t.dataset.queue) s.queue = t.dataset.queue;
       if (t.dataset.ladder) s.ladder = t.dataset.ladder;
       if (t.dataset.signin) return this.online.signIn();
@@ -199,7 +203,8 @@ export class Menu {
             const L = R.LADDERS[s.ladder];
             return this.online.queue({ mode: L.online ? 'ranked-pvp' : 'ranked-bots', size: L.size });
           }
-          if (s.mode !== 'offline' && (s.mode === '5v5' || s.mode === '2v2')) return this.online.queue({ mode: 'casual', size: s.mode === '5v5' ? 5 : 2 });
+          const sizes = { '5v5': 5, '3v3': 3, '2v2': 2 };
+          if (s.mode !== 'offline' && sizes[s.mode]) return this.online.queue({ mode: 'casual', size: sizes[s.mode] });
         }
         if (s.queue === 'ranked') {
           const q = R.canQueue(s.ladder);
@@ -207,7 +212,8 @@ export class Menu {
           return this.onPlay({ map: s.map, ranked: s.ladder });
         }
         const m = MODES.find(m => m.id === s.mode) || MODES[0];
-        return this.onPlay({ map: s.map, teamSize: m.size, winRounds: m.win, skill: DIFFS[s.diff][1], side: s.side });
+        const gt = s.gameType || 'defusal';
+        return this.onPlay({ map: s.map, teamSize: m.size, winRounds: gt === 'retakes' ? 7 : m.win, skill: DIFFS[s.diff][1], side: s.side, gameType: gt });
       }
       this.go('play');
     };
@@ -804,6 +810,12 @@ export class Menu {
 }
 
 // Stock (unskinned) weapon model for the showcase.
+// Game types for matches against bots (match/modes.js).
+function gameTypes(s) {
+  const cur = s.gameType || 'defusal', note = GAME_TYPES.find(g => g[0] === cur)?.[2] || '';
+  return `<div class="field"><label>Game type</label><div class="tog gtype">${GAME_TYPES.map(([id, l]) => `<button data-gtype="${id}" class="${cur === id ? 'on' : ''}">${l}</button>`).join('')}</div><p class="note">${note}</p></div>`;
+}
+
 // Inventory filters, shared by your inventory and other players' profiles.
 const INV_CATS = [['all', 'All'], ['rifle', 'Rifles'], ['smg', 'SMGs'], ['pistol', 'Pistols'], ['sniper', 'Snipers'], ['heavy', 'Heavy'], ['knife', 'Knives'], ['gloves', 'Gloves'], ['sticker', 'Stickers'], ['case', 'Containers']];
 function categoryOf(it) {

@@ -183,7 +183,7 @@ export class Hud {
     setText(time, planted ? '💣 ' + this.fmtTime(g.bomb.timer) : this.fmtTime(g.stateTimer));
     time.classList.toggle('freeze', g.state === 'freeze');
     time.classList.toggle('bomb', planted);
-    setText(this.$('.round'), g.state === 'freeze' && g.canBuy() ? `Buy time · press ${keyLabel(g.binds.buy[0])}` : `Round ${g.round} · first to ${g.winRounds}`);
+    setText(this.$('.round'), g.canBuy() && (g.state === 'freeze' || g.mode?.type === 'tdm') ? `Buy time · press ${keyLabel(g.binds.buy[0])}` : g.mode?.hudText ? g.mode.hudText() : `Round ${g.round} · first to ${g.winRounds}`);
     setText(this.$('.team-score.t .sc'), g.score.T);
     setText(this.$('.team-score.ct .sc'), g.score.CT);
     setText(this.$('.team-score.t .alive'), '●'.repeat(g.aliveCount('T')));
@@ -275,6 +275,7 @@ export class Hud {
   roundStart() {
     this.$('.killfeed').innerHTML = '';
     const g = this.g;
+    if (g.mode?.roundMessage) { const [a, b] = g.mode.roundMessage(); this.message(a, b, 4); return; }
     const sites = Object.keys(g.map.points?.plant || { A: 1, B: 1 });
     const job = g.playerTeam === 'T' ? `plant the bomb on ${sites.join(' or ')}` : 'stop the bomb plant, or defuse it';
     this.message(`Round ${g.round}`, `${TEAM_NAME[g.playerTeam]}: ${job} · ${keyLabel(g.binds.buy[0])} to buy`, 3.5);

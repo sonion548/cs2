@@ -19,6 +19,7 @@ import { Grenades } from './match/grenades.js';
 import { Drops } from './match/drops.js';
 import { Decals } from './decals.js';
 import { Strategy } from './match/strategy.js';
+import { makeMode } from './match/modes.js';
 import { qualityOf, DynamicResolution } from './gfx.js';
 import { Outlines } from './outline.js';
 import { skinTextureAsync } from './items/render.js';
@@ -68,6 +69,9 @@ export class Game {
     this.map = map;
     this.level = buildLevel(map, this.scene, q);
     this.strategy = new Strategy(this);
+    // other game types (Team Deathmatch, Arms Race, Retakes) hook into the rounds
+    this.mode = this.net ? null : makeMode(this);
+    if (this.mode && !this.mode.usesStrategy) this.strategy.pts = null;
     this.buildEnvironment();
 
     // --- teams ---
@@ -420,6 +424,7 @@ export class Game {
     return list.some(s => Math.hypot(s.x - ch.pos.x, s.z - ch.pos.z) < ECON.buyRadius);
   }
   canBuy(ch = this.player) {
+    if (this.mode?.canBuy) return this.mode.canBuy(ch);
     const roundTime = this.net && !this.net.isHost ? (this.opts.roundTime ?? 115) - this.stateTimer : this.roundTime;
     return ch.alive && (this.state === 'freeze' || (this.state === 'live' && roundTime < ECON.buyTime)) && this.nearOwnSpawn(ch);
   }
@@ -590,6 +595,7 @@ export class Game {
     const ts = this.characters.filter(c => c.team === 'T');
     if (ts.length) this.bomb.give(ts[Math.floor(Math.random() * ts.length)]);
     this.planRound();
+    if (this.mode) { this.mode.onRoundStart(); if (this.mode.freeze != null) this.stateTimer = this.mode.freeze; }
     this.hud.roundStart();
     this.net?.event(['round', 'start', this.round]);
   }
@@ -662,10 +668,19 @@ export class Game {
   aliveCount(team) { return this.characters.filter(c => c.team === team && c.alive).length; }
 
   checkRoundEnd() {
-    if (this.state !== 'live') return;
+    if (this.state !== 'live' || this.mode?.noRounds) return;
     const t = this.aliveCount('T'), ct = this.aliveCount('CT');
     if (ct === 0) this.endRound('T', 'Defenders eliminated', 'elim');
     else if (t === 0 && this.bomb.state !== 'planted') this.endRound('CT', 'Attackers eliminated', 'elim');
+  }
+
+  // The whole match ends at once (Team Deathmatch, Arms Race).
+  endMatch(winner, reason) {
+    if (this.matchOver) return;
+    this.matchOver = winner; this.state = 'post'; this.stateTimer = 7;
+    const won = winner === this.playerTeam;
+    this.audio.ui(won ? 'win' : 'lose');
+    this.hud.message(won ? 'MATCH WON' : 'MATCH LOST', reason, 7, won ? 'win' : 'lose');
   }
 
   endRound(winner, reason, kind = 'elim') {
@@ -903,6 +918,8 @@ export class Game {
     }
     this.hud.killfeed(killer, victim, weaponDef, headshot);
     this.net?.event(['kill', killer?.netId ?? null, victim.netId, weaponDef.id, headshot ? 1 : 0], true);
+    // game types: kill limits, respawns, the next gun in Arms Race
+    if (this.mode) this.guard(() => this.mode.onKill(victim, killer, weaponDef));
     // bots react: callouts, someone checks the spot, the bomb gets picked up, plans change
     this.guard(() => this.strategy.onDeath(victim, killer));
     this.checkRoundEnd();
@@ -1165,12 +1182,13 @@ export class Game {
     this.stateTimer -= dt;
     this.freeze = this.state === 'freeze';
     if (this.state === 'freeze' && this.stateTimer <= 0) {
-      this.state = 'live'; this.stateTimer = this.opts.roundTime ?? 115; this.hud.goLive();
+      this.state = 'live'; this.stateTimer = this.mode?.roundTime ?? this.opts.roundTime ?? 115; this.hud.goLive();
+      if (this.mode?.onLive) this.guard(() => this.mode.onLive());
       this.net?.event(['round', 'live']);
     } else if (this.state === 'live') {
       this.roundTime += dt;
       if (this.bomb.state === 'planted') this.stateTimer = this.bomb.timer;
-      else if (this.stateTimer <= 0) this.endRound('CT', 'Time ran out', 'time');
+      else if (this.stateTimer <= 0) { if (this.mode?.onTimeUp) this.mode.onTimeUp(); else this.endRound('CT', 'Time ran out', 'time'); }
     } else if (this.state === 'post' && this.stateTimer <= 0) {
       if (this.matchOver) { this.finish(); return; }
       this.startRound();
@@ -1178,6 +1196,7 @@ export class Game {
     this.updatePlayer(dt);
     for (const b of this.bots) this.guard(() => b.update(dt, this.time));
     this.guard(() => this.strategy.update());
+    if (this.mode?.update) this.guard(() => this.mode.update(dt));
     this.guard(() => this.bomb.update(dt));
     this.guard(() => this.grenades.update(dt));
     this.guard(() => this.drops.update(dt));
@@ -1303,7 +1322,7 @@ export class Game {
       won: this.matchOver === this.playerTeam,
       score: { ...this.score }, team: this.playerTeam,
       stats: { ...this.player.stats },
-      rounds: this.round,
+      rounds: this.round, gameType: this.opts.gameType || 'defusal',
       weaponKills: { ...this.weaponKills },
       players: this.characters.map(c => ({ name: c.name, team: c.team, ...c.stats, you: c === this.player })),
     };

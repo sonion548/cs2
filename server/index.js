@@ -147,7 +147,7 @@ function tryMatch() {
   }
   // casual + pvp: group compatible entries
   for (const mode of ['casual', 'ranked-pvp']) {
-    for (const size of [5, 2]) {
+    for (const size of [5, 3, 2]) {
       const pool = queue.filter(q => q.mode === mode && q.size === size).sort((a, b) => a.since - b.since);
       if (!pool.length) continue;
       const need = size * 2;
@@ -490,7 +490,8 @@ const handlers = {
   // ---- matchmaking
   'mm.queue'(ws, { mode, size }) {
     const u = ws.user;
-    if (!['casual', 'ranked-bots', 'ranked-pvp'].includes(mode) || ![2, 5].includes(size)) return { error: 'Bad queue' };
+    // casual also comes in 3v3 (ranked ladders are 5v5 and 2v2)
+    if (!['casual', 'ranked-bots', 'ranked-pvp'].includes(mode) || ![2, 5, ...(mode === 'casual' ? [3] : [])].includes(size)) return { error: 'Bad queue' };
     const p = partyOf.get(u.id);
     if (p && p.leader !== u.id) return { error: 'Only the party leader can start matchmaking' };
     const members = groupOf(u.id);
