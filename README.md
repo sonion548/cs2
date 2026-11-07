@@ -296,6 +296,26 @@ dropped them.
   Push daggers are redesigned and held as a pair, one in each hand. Support hands open to let go of a pistol
   and to take a magazine.
 - **Smaller enemy outline**, and **market inspect animation** to see a skin in first person.
+- **Fingers move on their own**: glove vertices are bound to the finger they belong to, so no more
+  stretched strips between fingers when the hand opens. The karambit inspect is one continuous
+  three-turn spin on the index finger, then a look at the blade and a turn of the wrist to show the other
+  side.
+- **Bots, remade** (`src/match/strategy.js`): the map is read once into dozens of positions (ways into
+  each site, lanes, staging spots, defender angles, lurk and early-aggression spots), so bots don't keep
+  going to the same few spots. Attackers run a different play each round (rush, execute, split, fake,
+  slow default, contact walk, solo lurk), stage out of sight, throw utility and go together; they go
+  early when ahead, switch sites after running into a stack and always hit before time runs out.
+  Post-plant angles depend on how many are left. Defenders take varied angles and shift between them,
+  rotate on information, fall back together when outnumbered, hunt when well ahead, and retake as a
+  group (or save). A death sends the nearest teammate to check it out and tells the team where the shot
+  came from; a dropped bomb is fetched with cover.
+- **Game types** (vs bots, Play > Game type): **Team Deathmatch** (respawns, free weapons, first team to
+  the kill limit), **Arms Race** (every kill is the next gun, a knife kill wins) and **Retakes** (every
+  round starts planted). Online casual adds **3v3**.
+- **Skin review**: every skin was scored against the best Counter-Strike skins of the same tier
+  (`docs/Vantage skin review.docx`); the 13 weakest finish types were redrawn from scratch with the same
+  names, colours and feel (paint, carbon, anodized, damascus, topo, scales, marble, ink, flames, lightning,
+  tempered, livery, galaxy).
 
 ## Blender models
 
