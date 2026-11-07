@@ -209,7 +209,8 @@ export const WEAPONS = {
     sound: { freq: 900, body: 110, decay: 0.2, gain: 0.8 },
   },
   m4a1: {
-    id: 'm4a1', name: 'M4A1', slot: 1, type: 'rifle', cls: 'rifle', team: 'CT', price: 3000, reward: 300,
+    // shown as the M4A4 (the id stays 'm4a1' so everyone's skins keep working)
+    id: 'm4a1', name: 'M4A4', slot: 1, type: 'rifle', cls: 'rifle', team: 'CT', price: 3000, reward: 300,
     damage: 32, armorPen: 0.7, rangeMod: 0.97, rpm: 666, auto: true,
     magSize: 30, reserve: 90, reloadTime: 3.0, deployTime: 0.9,
     moveSpeed: 0.9, baseSpread: 0.0021, moveSpread: 0.068, airSpread: 0.2, crouchMul: 0.75,
@@ -221,6 +222,20 @@ export const WEAPONS = {
       [26, 10.3, 1.8], [30, 10.4, 0.6],
     ], 30),
     sound: { freq: 1200, body: 120, decay: 0.16, gain: 0.7 },
+  },
+  m4a1s: {
+    id: 'm4a1s', name: 'M4A1-S', slot: 1, type: 'rifle', cls: 'rifle', team: 'CT', price: 2900, reward: 300,
+    // Silenced: harder hitting and steadier than the M4A4, but a 20-round
+    // magazine and a slower rate of fire. Quiet: shots carry less far.
+    damage: 38, armorPen: 0.7, rangeMod: 0.97, rpm: 600, auto: true,
+    magSize: 20, reserve: 80, reloadTime: 3.1, deployTime: 1.0,
+    moveSpeed: 0.9, baseSpread: 0.0017, moveSpread: 0.064, airSpread: 0.19, crouchMul: 0.74,
+    recoilRecovery: 5.2, viewKick: 0.55, suppressed: true,
+    pattern: P([
+      [0, 0, 0], [1, 0.6, -0.04], [4, 3.0, 0.25], [7, 5.6, 0.5], [10, 7.0, 0.9],
+      [13, 7.6, -0.5], [16, 7.9, -1.4], [20, 8.1, -0.4],
+    ], 20),
+    sound: S.suppressed,
   },
   scarh: {
     id: 'scarh', name: 'SCAR-H', slot: 1, type: 'rifle', cls: 'rifle', price: 3100, reward: 300,
@@ -341,6 +356,18 @@ export const WEAPONS = {
     sound: { freq: 780, body: 92, decay: 0.22, gain: 0.85 },
   },
 
+  negev: {
+    id: 'negev', name: 'Negev', slot: 1, type: 'lmg', cls: 'lmg', price: 1700, reward: 300,
+    // 150-round belt at a high rate: wild for the first dozen shots, then the
+    // spray settles into a tight, steady stream (hold it to lay down fire).
+    damage: 35, armorPen: 0.71, rangeMod: 0.96, rpm: 800, auto: true,
+    magSize: 150, reserve: 300, reloadTime: 5.7, deployTime: 1.2,
+    moveSpeed: 0.62, baseSpread: 0.0055, moveSpread: 0.1, airSpread: 0.26, crouchMul: 0.6,
+    recoilRecovery: 3.4, viewKick: 0.7,
+    pattern: P([[0, 0, 0], [1, 1.2, 0.1], [5, 5.4, 0.9], [10, 6.8, -1.4], [14, 4.2, 0.8], [20, 2.0, 0.3], [30, 1.4, -0.2], [60, 1.3, 0.2], [150, 1.3, 0]], 150),
+    sound: S.lmg,
+  },
+
   // ------------------------------------------------------------ grenades (slot 4)
   he: { id: 'he', name: 'HE Grenade', slot: 4, type: 'grenade', cls: 'grenade', price: 300, reward: 300, max: 1, moveSpeed: 1, magSize: 0, reserve: 0, deployTime: 0.5 },
   flash: { id: 'flash', name: 'Flashbang', slot: 4, type: 'grenade', cls: 'grenade', price: 200, reward: 300, max: 2, moveSpeed: 1, magSize: 0, reserve: 0, deployTime: 0.5 },
@@ -357,8 +384,8 @@ export const WEAPONS = {
 export const BUY_MENU = [
   ['Pistols', ['glock', 'usp', 'm1911', 'fiveseven', 'vz61', 'revolver', 'deagle']],
   ['SMGs', ['mac10', 'vector', 'mp5', 'ump45', 'mp7', 'p90']],
-  ['Rifles', ['galil', 'famas', 'ak47', 'm4a1', 'scarh', 'sg550', 'aug']],
-  ['Heavy', ['scout', 'awp', 'dmr', 'dbarrel', 'pump', 'm1014', 'pkm', 'm249']],
+  ['Rifles', ['galil', 'famas', 'ak47', 'm4a1', 'm4a1s', 'scarh', 'sg550', 'aug']],
+  ['Heavy', ['scout', 'awp', 'dmr', 'dbarrel', 'pump', 'm1014', 'negev', 'pkm', 'm249']],
   ['Grenades', ['flash', 'smoke', 'he', 'molotov', 'incendiary', 'decoy']],
   ['Gear', ['vest', 'vesthelm', 'kit']],
 ];

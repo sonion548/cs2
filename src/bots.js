@@ -43,7 +43,7 @@ export function skillProfile(skill) {
 }
 
 const T_RIFLES = [['ak47', 0.66], ['sg550', 0.12], ['scarh', 0.1], ['galil', 0.12]];
-const CT_RIFLES = [['m4a1', 0.58], ['aug', 0.18], ['scarh', 0.1], ['famas', 0.14]];
+const CT_RIFLES = [['m4a1', 0.32], ['m4a1s', 0.3], ['aug', 0.14], ['scarh', 0.1], ['famas', 0.14]];
 const T_FORCE = ['mac10', 'galil', 'ump45', 'mp7', 'pump', 'dbarrel', 'mp5'];
 const CT_FORCE = ['vector', 'famas', 'mp5', 'ump45', 'mp7', 'm1014', 'pump'];
 const ECO_PISTOLS = ['deagle', 'fiveseven', 'm1911', 'vz61', 'revolver'];

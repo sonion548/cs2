@@ -1228,11 +1228,92 @@ def survival():
     return 0.195
 
 
+
+# ================================================================ M4A1-S: the M4 with a slim
+# round handguard, a long suppressor and a 20-round magazine
+def m4a1s():
+    m4a1()
+    M = mats()
+    for n in ('flash_hider', 'barrel', 'gas_block', 'handguard', 'barrel_nut', 'muzzle', 'fore', 'sling_front',
+              'mag', 'mag_floor', 'magrib0', 'magrib1', 'magrib2'):
+        o = bpy.data.objects.get(n)
+        if o:
+            for c in list(o.children):
+                bpy.data.objects.remove(c, do_unlink=True)
+            bpy.data.objects.remove(o, do_unlink=True)
+    hg = lathe('handguard', [(0.175, 0.0001), (0.175, 0.026), (0.188, 0.029), (0.39, 0.029), (0.402, 0.025), (0.402, 0.0001)], M['paint'], z=0.043, segs=28)
+    for i in range(7):
+        for s_ in (-1, 1):
+            cut(hg, cutter_box((0.018, 0.012, 0.007), (0.205 + i * 0.026, s_ * 0.028, 0.043)))
+    lathe('delta_ring', [(0.17, 0.0001), (0.17, 0.031), (0.182, 0.031), (0.182, 0.0001)], M['dark'], z=0.043, segs=24)
+    tube('barrel', 0.4, 0.45, 0.0095, M['dark'], z=0.042)
+    lathe('gas_block', [(0.41, 0.0001), (0.41, 0.014), (0.428, 0.014), (0.428, 0.0001)], M['dark'], z=0.042, segs=20)
+    sup = lathe('suppressor', [(0.445, 0.0001), (0.445, 0.0135), (0.458, 0.0172), (0.655, 0.0172), (0.668, 0.0148), (0.672, 0.0001)], M['dark'], z=0.042, segs=36)
+    for i in range(4):
+        lathe(f'sup_ring{i}', [(0.47 + i * 0.05, 0.0001), (0.47 + i * 0.05, 0.0178), (0.476 + i * 0.05, 0.0178), (0.476 + i * 0.05, 0.0001)], M['steel'], z=0.042, segs=36)
+    mag = puffy('mag', [('M', 0.052, -0.035), ('L', 0.112, -0.035), ('Q', 0.118, -0.09, 0.126, -0.14), ('L', 0.07, -0.148), ('Q', 0.062, -0.09, 0.052, -0.035)],
+                0.028, M['paint'], r=0.0035, rings=2)
+    fp = puffy('mag_floor', [('M', 0.068, -0.14), ('L', 0.13, -0.133), ('L', 0.132, -0.145), ('L', 0.072, -0.153)], 0.034, M['polymer'], r=0.003, rings=2); fp.parent = mag
+    empty('muzzle', (0.674, 0, 0.042))
+    empty('fore', (0.28, 0, 0.015))
+
+
+# ================================================================ Negev-style LMG: squared receiver,
+# box magazine under it, long ribbed barrel shroud with a vertical grip, folding
+# skeleton stock and a tall carry handle
+def negev():
+    M = mats()
+    rec = puffy('receiver', [('M', -0.075, -0.004), ('L', 0.25, -0.004), ('L', 0.25, 0.064), ('L', 0.21, 0.074), ('L', -0.06, 0.074), ('Q', -0.075, 0.072, -0.075, 0.058)],
+                0.058, M['paint'], r=0.004, rings=2)
+    cut(rec, cutter_box((0.07, 0.02, 0.022), (0.11, -0.03, 0.035)))
+    rivets('rivet', [(-0.055, 0.008), (0.03, 0.008), (0.2, 0.008), (0.2, 0.052), (-0.055, 0.052)], M, y=0.0295)
+    puffy('feed_cover', [('M', -0.035, 0.072), ('L', 0.2, 0.072), ('L', 0.2, 0.09), ('L', 0.02, 0.096), ('L', -0.035, 0.09)], 0.056, M['dark'], r=0.004, rings=2)
+    picatinny('rail', -0.02, 0.19, 0.094, 0.103, M, w=0.02)
+    box('cover_latch', (0.02, 0.06, 0.012), (-0.045, 0, 0.088), M['dark'], bevel=0.002)
+    mag = puffy('mag', [('M', 0.04, -0.004), ('L', 0.2, -0.004), ('L', 0.198, -0.15), ('Q', 0.19, -0.165, 0.17, -0.165), ('L', 0.06, -0.165), ('Q', 0.042, -0.165, 0.04, -0.15)],
+                0.074, M['polymer'], r=0.008, rings=3)
+    for i in range(3):
+        r_ = box(f'mag_rib{i}', (0.15, 0.078, 0.004), (0.12, 0, -0.05 - i * 0.04), M['polymer'], bevel=0.0015); r_.parent = mag
+    shroud = loft('shroud', [(0.25, rrect(0.056, 0.052, 0.012, cz=0.036)), (0.47, rrect(0.05, 0.046, 0.011, cz=0.038)), (0.48, rrect(0.042, 0.04, 0.01, cz=0.04))], M['paint'])
+    for i in range(7):
+        for s_ in (-1, 1):
+            cut(shroud, cutter_box((0.02, 0.012, 0.01), (0.272 + i * 0.028, s_ * 0.027, 0.04)))
+    bar = lathe('barrel', [(0.47, 0.0001), (0.47, 0.0128), (0.7, 0.0112), (0.7, 0.0001)], M['dark'], z=0.04, segs=32)
+    for i in range(5):
+        a = i / 5 * PI * 2
+        cut(bar, cutter_box((0.16, 0.004, 0.004), (0.6, math.cos(a) * 0.012, 0.04 + math.sin(a) * 0.012), rot=(a, 0, 0)))
+    tube('gas_tube', 0.25, 0.6, 0.008, M['dark'], z=0.012)
+    box('gas_block', (0.03, 0.028, 0.042), (0.6, 0, 0.026), M['dark'], bevel=0.003)
+    fh = lathe('flash_hider', [(0.7, 0.0001), (0.7, 0.0135), (0.755, 0.0155), (0.76, 0.0001)], M['dark'], z=0.04)
+    for i in range(4):
+        a = i / 4 * PI * 2 + 0.4
+        cut(fh, cutter_box((0.04, 0.004, 0.04), (0.735, math.cos(a) * 0.014, 0.04 + math.sin(a) * 0.014), rot=(a, 0, 0)))
+    bipod_folded(M, 0.59, 0.44, 0.0, spread=0.016)
+    # vertical grip under the shroud
+    vg = puffy('vgrip', [('M', 0.33, -0.012), ('L', 0.37, -0.012), ('L', 0.366, -0.1), ('Q', 0.364, -0.11, 0.352, -0.11), ('L', 0.342, -0.11), ('Q', 0.33, -0.11, 0.33, -0.1)],
+               0.03, M['polymer'], r=0.008, rings=3)
+    for i in range(4):
+        cut(vg, cutter_box((0.05, 0.034, 0.0018), (0.35, 0, -0.03 - i * 0.018)))
+    puffy('carry_handle', [('M', 0.29, 0.066), ('Q', 0.29, 0.112, 0.32, 0.118), ('L', 0.4, 0.118), ('Q', 0.43, 0.112, 0.43, 0.066), ('L', 0.418, 0.066),
+                           ('Q', 0.418, 0.104, 0.4, 0.106), ('L', 0.32, 0.106), ('Q', 0.302, 0.104, 0.302, 0.066)], 0.014, M['dark'], y=0.0, r=0.003, rings=1)
+    puffy('front_sight', [('M', 0.66, 0.05), ('L', 0.685, 0.05), ('L', 0.68, 0.088), ('L', 0.665, 0.088)], 0.016, M['dark'], r=0.002, rings=1)
+    ar_grip(M, 0.004, -0.004)
+    trigger_group(M, 0.006, 0.07, -0.004, 0.034, M['paint'])
+    # folding skeleton stock: a frame with an open middle and a rubber pad
+    st = puffy('stock', [('M', -0.075, 0.064), ('L', -0.34, 0.056), ('Q', -0.356, 0.054, -0.358, 0.038), ('L', -0.362, -0.078), ('Q', -0.352, -0.09, -0.334, -0.086),
+                         ('L', -0.12, -0.01), ('Q', -0.09, 0.0, -0.075, 0.004)], 0.046, M['poly'], r=0.01, rings=3)
+    cut(st, extrude('cutter', [('M', -0.12, 0.042), ('L', -0.32, 0.036), ('L', -0.326, -0.058), ('L', -0.15, -0.002)], 0.1, None, bevel=0))
+    cyl('stock_hinge', 0.012, 0.05, (-0.078, 0, 0.03), M['dark'], axis='Y', bevel=0.002)
+    puffy('buttpad', [('M', -0.356, 0.058), ('L', -0.372, 0.058), ('L', -0.376, -0.083), ('L', -0.36, -0.086)], 0.05, M['rubber'], r=0.006, rings=3)
+    empty('muzzle', (0.762, 0, 0.04)); empty('grip', (-0.025, 0, -0.055)); empty('fore', (0.35, 0, -0.04))
+
+
 GUNS = {'ak47': ak47, 'm4a1': m4a1, 'awp': awp, 'glock': glock, 'usp': usp, 'deagle': deagle,
         'm1911': m1911, 'fiveseven': fiveseven, 'vz61': vz61, 'revolver': revolver,
         'mac10': mac10, 'mp5': mp5, 'mp7': mp7, 'ump45': ump45, 'vector': vector, 'p90': p90,
         'galil': galil, 'famas': famas, 'scarh': scarh, 'sg550': sg550, 'aug': aug,
-        'scout': scout, 'dmr': dmr, 'dbarrel': dbarrel, 'pump': pump, 'm1014': m1014, 'm249': m249, 'pkm': pkm}
+        'scout': scout, 'dmr': dmr, 'dbarrel': dbarrel, 'pump': pump, 'm1014': m1014, 'm249': m249, 'pkm': pkm,
+        'm4a1s': m4a1s, 'negev': negev}
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

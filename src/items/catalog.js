@@ -246,6 +246,19 @@ const MORE_SKINS = [
   ['pkm', 'Tundra', 'superior', { type: 'digital', colors: ['#e0e4e8', '#9aa0a8', '#5a6068'] }],
   ['pkm', 'Iron Curtain', 'exotic', { type: 'folded', base: '#8a8e94', dark: '#2a2c30' }],
   ['pkm', 'Bear Claw', 'mythic', { type: 'ink', base: '#efe8d8', ink: '#141414', accent: '#a81a1a' }],
+  // ---- M4A1-S
+  ['m4a1s', 'Quiet Hours', 'standard', { type: 'digital', colors: ['#3a4250', '#252a33', '#6a7686', '#14171c'] }],
+  ['m4a1s', 'Dusk Patrol', 'standard', { type: 'camo', colors: ['#6a5a4a', '#3e3428', '#9a8a70', '#24201a'] }],
+  ['m4a1s', 'Night Cipher', 'superior', { type: 'circuit', base: '#0c1416', line: '#1e7a6a', glow: '#5affd2' }],
+  ['m4a1s', 'Moonwake', 'exotic', { type: 'waves', deep: '#070d24', mid: '#2a3e8a', foam: '#d8e4ff' }],
+  ['m4a1s', 'Velvet Ghost', 'exotic', { type: 'gradient', colors: ['#f2e8ff', '#a87ae8', '#4a1e8a', '#0e0620'] }, [0, 0.08]],
+  ['m4a1s', 'Hush Protocol', 'mythic', { type: 'mecha', base: '#d8dce0', c1: '#2a8aff', c2: '#101418', code: 'A1-S' }],
+  // ---- Negev
+  ['negev', 'Sandbar', 'standard', { type: 'camo', colors: ['#c2a878', '#9a7f52', '#e0cfa4', '#6c5636'] }],
+  ['negev', 'Bunker', 'standard', { type: 'paint', base: '#4a5038', accent: '#a8a070' }],
+  ['negev', 'Lattice', 'superior', { type: 'hex', base: '#1a1d22', line: '#e8b23a', glow: '#ffd87a', size: 18 }],
+  ['negev', 'Thunderhead', 'exotic', { type: 'lightning', base: '#141a26', base2: '#2a1a3a', bolt: '#e8f4ff' }],
+  ['negev', 'Lionheart', 'mythic', { type: 'mecha', base: '#e8c84a', c1: '#a81a1a', c2: '#141414', code: 'NG-7' }],
   // ---- more for the original six
   ['ak47', 'Steelwork', 'standard', { type: 'damascus' }],
   ['ak47', 'Bloodwood', 'superior', { type: 'woodgrain', light: '#8a2a1a', dark: '#2a0806', rings: 18 }],
@@ -442,7 +455,7 @@ export const CASES = {
 // (desert camo to Dunehold, fire to Ember, street art to Street...), with a cap
 // so every case gains about the same number.
 const NEW_GUNS = ['m1911', 'fiveseven', 'vz61', 'revolver', 'mac10', 'mp5', 'mp7', 'ump45', 'vector', 'p90',
-  'galil', 'famas', 'scarh', 'sg550', 'aug', 'scout', 'dmr', 'dbarrel', 'pump', 'm1014', 'm249', 'pkm'];
+  'galil', 'famas', 'scarh', 'sg550', 'aug', 'scout', 'dmr', 'dbarrel', 'pump', 'm1014', 'm249', 'pkm', 'm4a1s', 'negev'];
 const CASE_THEME = {
   camo: 'dunehold', digital: 'dunehold', spots: 'dunehold', tiger: 'dunehold', topo: 'dunehold',
   carbon: 'nightfall', hex: 'nightfall', galaxy: 'nightfall', swirl: 'nightfall', paint: 'nightfall',
