@@ -13,7 +13,11 @@ let remote = null; // server copy when signed in
 function loadLocal() {
   try {
     const p = JSON.parse(localStorage.getItem(KEY));
-    if (p && Array.isArray(p.items)) { const f = E.freshProfile(); const out = { ...f, ...p, stats: { ...f.stats, ...p.stats } }; E.migrateProfile(out); return out; }
+    if (p && Array.isArray(p.items)) { const f = E.freshProfile(); const out = { ...f, ...p, gifts: Array.isArray(p.gifts) ? p.gifts : [], stats: { ...f.stats, ...p.stats } };
+      // saved straight away, so a gift or migration is never applied twice
+      if (E.migrateProfile(out)) { try { localStorage.setItem(KEY, JSON.stringify(out)); } catch { /* ignore */ } }
+      return out;
+    }
   } catch { /* storage unavailable or corrupt */ }
   return E.freshProfile();
 }

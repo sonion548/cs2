@@ -316,6 +316,9 @@ dropped them.
   (`docs/Vantage skin review.docx`); the 13 weakest finish types were redrawn from scratch with the same
   names, colours and feel (paint, carbon, anodized, damascus, topo, scales, marble, ink, flames, lightning,
   tempered, livery, galaxy).
+- **A Gold Case for every existing player** (Nov 2026): every account that existed when this went live gets
+  one extra Gold Case, once, with a "Gift" row in its history. New accounts don't get it (they start with
+  their own Gold Case). One-off gifts like this are the `GIFTS` list in `src/shared/economy.js`.
 
 ## Blender models
 

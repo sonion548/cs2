@@ -570,7 +570,7 @@ export class Menu {
         <table class="hist">${p.history.slice(0, 30).map(e => {
           const d = SKINS[e.item] || STICKERS[e.item];
           const name = d ? (d.weapon ? weaponLabel(d) : 'Sticker') + ' | ' + d.name : e.note || e.item || '';
-          return `<tr><td>${new Date(e.t).toLocaleString()}</td><td>${e.type === 'unbox' ? 'Unboxed' : e.type === 'sell' ? 'Sold' : e.type === 'refund' ? 'Refund' : e.type}</td><td style="color:${d ? RARITY[d.rarity].color : ''}">${h(name)}</td><td>${e.value ? CR(e.value) : ''}</td></tr>`;
+          return `<tr><td>${new Date(e.t).toLocaleString()}</td><td>${e.type === 'unbox' ? 'Unboxed' : e.type === 'sell' ? 'Sold' : e.type === 'refund' ? 'Refund' : e.type === 'gift' ? 'Gift' : e.type}</td><td style="color:${d ? RARITY[d.rarity].color : ''}">${h(name)}</td><td>${e.value ? CR(e.value) : ''}</td></tr>`;
         }).join('') || '<tr><td>No activity yet.</td></tr>'}</table>
       </section>`;
   }

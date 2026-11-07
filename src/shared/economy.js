@@ -7,9 +7,18 @@ import { patternInfo } from '../items/patterns.js';
 
 export function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 10); }
 
+// One-off gifts for every player who already has a profile. Each is given once
+// (its id is kept in the profile's `gifts`); a new profile starts with every id
+// here already in its list, so only players who existed when a gift was added
+// receive it. On the server this runs for every account when it starts.
+export const GIFTS = [
+  // Nov 2026: a Gold Case for every existing player
+  { id: 'gold-case-2026-11', cases: ['gold'], note: 'Gift: a Gold Case for every player' },
+];
+
 export function freshProfile(name = 'You') {
   return {
-    name, credits: 2500, xp: 0, goldGranted: true,
+    name, credits: 2500, xp: 0, goldGranted: true, gifts: GIFTS.map(g => g.id),
     items: [
       { uid: uid(), kind: 'case', defId: 'gold', acquired: Date.now() },
       { uid: uid(), kind: 'case', defId: 'dunehold', acquired: Date.now() },
@@ -41,6 +50,14 @@ export function migrateProfile(state) {
   let changed = false;
   // every existing player gets the Gold Case once
   if (!state.goldGranted) { state.items.push({ uid: uid(), kind: 'case', defId: 'gold', acquired: Date.now() }); state.goldGranted = true; changed = true; }
+  if (!Array.isArray(state.gifts)) state.gifts = [];
+  for (const g of GIFTS) {
+    if (state.gifts.includes(g.id)) continue;
+    for (const c of g.cases) state.items.push(makeCase(c));
+    state.gifts.push(g.id);
+    if (Array.isArray(state.history)) state.history.unshift({ t: Date.now(), type: 'gift', note: g.note });
+    changed = true;
+  }
   for (const it of state.items) if (migrateItem(it)) changed = true;
   const keep = state.items.filter(it => itemDef(it));
   if (keep.length !== state.items.length) { state.items = keep; changed = true; }
