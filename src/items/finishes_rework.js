@@ -315,6 +315,77 @@ export const REWORKED = {
     ctx.shadowBlur = 0;
   } },
 
+  // Race livery: a sweeping stripe package in the two band colours with a
+  // pinline between, speed bars breaking up toward the back, a number roundel,
+  // sponsor-style blocks, a checkered panel and a gloss sweep over the base.
+  livery: { metal: 0.35, rough: 0.28, draw(ctx, W, H, p, seed) {
+    const r = rng(seed + 41), band = p.band || '#c41f2a', band2 = p.band2 || '#111111', txt = p.text || (band2 === '#111' ? '#111' : '#111111');
+    ctx.fillStyle = p.base; ctx.fillRect(0, 0, W, H);
+    const sweep = (y0, y1, w, color) => {
+      ctx.beginPath();
+      ctx.moveTo(-W * 0.05, H * y0); ctx.bezierCurveTo(W * 0.32, H * y0, W * 0.48, H * y1, W * 1.05, H * y1);
+      ctx.lineTo(W * 1.05, H * y1 + w); ctx.bezierCurveTo(W * 0.48, H * y1 + w, W * 0.32, H * y0 + w, -W * 0.05, H * y0 + w);
+      ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+    };
+    const lift = (r() - 0.5) * 0.12;
+    sweep(0.66 + lift, 0.08 + lift, H * 0.22, band);
+    sweep(0.9 + lift, 0.32 + lift, H * 0.012, band2);
+    sweep(0.93 + lift, 0.35 + lift, H * 0.08, band2);
+    // speed bars toward the back
+    ctx.fillStyle = band;
+    for (let i = 0; i < 8; i++) ctx.fillRect(W * (0.02 + i * 0.03), H * (0.68 + lift), W * 0.016 * (1 - i / 9), H * 0.2);
+    // number roundel
+    const cx = W * (0.66 + r() * 0.06), cy = H * 0.6, R = H * 0.19;
+    ctx.beginPath(); ctx.arc(cx, cy, R * 1.12, 0, 7); ctx.fillStyle = band2; ctx.fill();
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.fillStyle = '#f4f2ec'; ctx.fill();
+    ctx.fillStyle = '#111'; ctx.font = `italic 900 ${Math.round(R * 1.15)}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(String(p.number ?? 7), cx, cy + R * 0.05);
+    // sponsor blocks and checkers
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    for (let i = 0; i < 3; i++) {
+      const bx = W * (0.36 + i * 0.09), by = H * (0.72 + (i % 2) * 0.1), bw = W * 0.075, bh = H * 0.06;
+      ctx.fillStyle = i === 1 ? band : band2; ctx.fillRect(bx, by, bw, bh);
+      ctx.fillStyle = '#f4f2ec'; for (let k = 0; k < 3; k++) ctx.fillRect(bx + bw * (0.1 + k * 0.3), by + bh * 0.35, bw * 0.2, bh * 0.3);
+    }
+    const q = H * 0.035;
+    for (let j = 0; j < 4; j++) for (let i = 0; i < 6; i++) { ctx.fillStyle = (i + j) & 1 ? band2 : '#f4f2ec'; ctx.fillRect(W * 0.86 + i * q, H * 0.08 + j * q, q, q); }
+    ctx.fillStyle = txt; ctx.globalAlpha = 0.6; ctx.font = `bold ${Math.round(H * 0.05)}px sans-serif`;
+    ctx.fillText('VANTAGE RACING', W * 0.06, H * 0.14);
+    ctx.globalAlpha = 1;
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, 'rgba(255,255,255,0.14)'); g.addColorStop(0.45, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(0,0,0,0.12)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    grain(ctx, W, H, seed, 6);
+  } },
+
+  // Deep space: layered nebula clouds in two colours with dark dust lanes,
+  // a dense field of faint stars and a few bright ones with cross glints.
+  galaxy: { metal: 0.32, rough: 0.26, draw(ctx, W, H, p, seed) {
+    const cols = (p.colors || ['#07061a', '#2c1360', '#e0389a', '#46c2ff']).map(C), r = rng(seed + 61);
+    pixels(ctx, W, H, (x, y, o) => {
+      const w = fbm(x * 1.1, y * 1.1, seed + 1, 4);
+      const n = fbm(x * 2 + w * 1.6, y * 2 - w * 1.2, seed, 6);
+      const m = fbm(x * 3.2 + 7, y * 3.2, seed + 5, 5);
+      const dust = smooth(0.56, 0.76, fbm(x * 4.5 + 3, y * 4.5, seed + 9, 5));
+      let c = mixRgb(cols[0], cols[1], smooth(0.3, 0.78, n));
+      const neb = mixRgb(cols[2], cols[3], smooth(0.35, 0.68, m));
+      c = mixRgb(c, neb, smooth(0.52, 0.86, n) * 0.85);
+      c = mixRgb(c, [255, 255, 255], smooth(0.8, 0.95, n) * 0.25);
+      c = mul(c, 1 - dust * 0.55);
+      const st = valueNoise(x * 260, y * 260, seed + 17);
+      if (st > 0.93) c = mixRgb(c, [255, 255, 255], (st - 0.93) / 0.07);
+      set(o, c);
+    });
+    for (let k = 0; k < 14; k++) {
+      const x = r() * W, y = r() * H, s = H * (0.006 + r() * 0.014);
+      const g = ctx.createRadialGradient(x, y, 0, x, y, s * 4);
+      g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.25, 'rgba(255,255,255,0.5)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, s * 4, 0, 7); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = Math.max(1, s * 0.25);
+      ctx.beginPath(); ctx.moveTo(x - s * 7, y); ctx.lineTo(x + s * 7, y); ctx.moveTo(x, y - s * 7); ctx.lineTo(x, y + s * 7); ctx.stroke();
+    }
+  } },
+
   // Case-hardened steel: brushed steel with heat colours mottled through it
   // (gold, bronze, purple and blue). params.blue (from the pattern template)
   // sets how much of it is blue: a Blue Gem is nearly all blue.

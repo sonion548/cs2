@@ -166,22 +166,6 @@ export const FINISH_TYPES = {
     });
   } },
 
-  galaxy: { metal: 0.3, rough: 0.3, draw(ctx, W, H, p, seed) {
-    const cols = (p.colors || ['#08061a', '#3b1a6a', '#d13a9a', '#46c2ff']).map(C);
-    const r = rng(seed + 1);
-    pixels(ctx, W, H, (x, y, o) => {
-      const n = fbm(x * 2, y * 2, seed, 6), m = fbm(x * 4 + 5, y * 4, seed + 7, 4);
-      let c = mixRgb(cols[0], cols[1], smooth(0.4, 0.7, n));
-      c = mixRgb(c, cols[2], smooth(0.62, 0.8, m) * 0.8);
-      c = mixRgb(c, cols[3], smooth(0.7, 0.9, n * m * 1.6) * 0.7);
-      set(o, c);
-    });
-    for (let i = 0; i < 700; i++) {
-      const s = r() * r() * 2.4;
-      ctx.fillStyle = `rgba(255,255,255,${0.4 + r() * 0.6})`;
-      ctx.beginPath(); ctx.arc(r() * W, r() * H, s, 0, 7); ctx.fill();
-    }
-  } },
 
   // ---- vector-drawn finishes (canvas paths) ----
   shards: { metal: 0.2, rough: 0.45, draw(ctx, W, H, p, seed) {
@@ -291,18 +275,6 @@ export const FINISH_TYPES = {
     }
   } },
 
-  livery: { metal: 0.35, rough: 0.35, draw(ctx, W, H, p, seed) {
-    // bold two-tone racing bands with a number
-    ctx.fillStyle = p.base; ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = p.band;
-    ctx.beginPath(); ctx.moveTo(W * 0.25, 0); ctx.lineTo(W * 0.48, 0); ctx.lineTo(W * 0.62, H); ctx.lineTo(W * 0.39, H); ctx.fill();
-    ctx.fillStyle = p.band2 || p.band;
-    ctx.beginPath(); ctx.moveTo(W * 0.52, 0); ctx.lineTo(W * 0.56, 0); ctx.lineTo(W * 0.7, H); ctx.lineTo(W * 0.66, H); ctx.fill();
-    ctx.fillRect(0, H * 0.46, W, H * 0.02);
-    ctx.font = `italic 900 ${H * 0.3}px "Barlow Condensed", Impact, sans-serif`;
-    ctx.fillStyle = p.text || '#fff'; ctx.textBaseline = 'middle';
-    ctx.fillText(String(p.number ?? (seed % 99)), W * 0.12, H * 0.5);
-  } },
 
   blueprint: { metal: 0.1, rough: 0.6, draw(ctx, W, H, p, seed) {
     const r = rng(seed + 19);
@@ -556,7 +528,7 @@ Object.assign(FINISH_TYPES, ART_FINISHES, REWORKED);
 // layered washes) and finished with paper grain. Value: brush style.
 export const HAND_DRAWN = {
   anime: 'gouache', landscape: 'wash', koi: 'wash', wildstyle: 'gouache', comic: 'gouache', tattoo: 'gouache',
-  mecha: 'gouache', shards: 'wash', splatter: 'wash', graffiti: 'gouache', livery: 'gouache', blueprint: 'wash',
+  mecha: 'gouache', shards: 'wash', splatter: 'wash', graffiti: 'gouache', blueprint: 'wash',
 };
 const PAPER_ONLY = { ink: true };
 
