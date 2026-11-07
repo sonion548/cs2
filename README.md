@@ -316,6 +316,15 @@ dropped them.
   (`docs/Vantage skin review.docx`); the 13 weakest finish types were redrawn from scratch with the same
   names, colours and feel (paint, carbon, anodized, damascus, topo, scales, marble, ink, flames, lightning,
   tempered, livery, galaxy).
+- **Second skin review: every finish type at 7 or better.** 34 finish types were redrawn again
+  (`src/items/finishes_v3.js`), lifting every tier's average to at least 7/10 against the best Counter-Strike
+  skins of the same tier (`docs/Vantage skin review.docx`): mirror-candy Doppler with black voids and flake,
+  combed marble swirls, airbrushed fades, printed multi-scale camo and pixel camo with stencilled markings,
+  two-tone cerakote with a halftone fade, figured wood, acrylic-pour hydro-dip with cells, tiger and leopard
+  coats, mokume folded steel with a hamon, bevelled hex armour, seigaiha waves, neon signs on brick, fish and
+  snake scales, molten lava, veined marble, gold-filled kintsugi breaks, three damascus patterns, case
+  hardening, hot-rod flames, crystal shards, thrown paint, graffiti throw-ups, two-tone anodising, woven
+  leather, a hedge maze, a technical drawing, and fuller tattoo, comic, anime, mecha and landscape art.
 - **Gloves built like gloves**: real 3D construction on the first-person hands and the inventory model
   instead of a print on a bare hand: a moulded knuckle guard with a dome over each knuckle, padded plates
   on the fingers, a padded back panel, a palm pad, a wrist strap with a hook-and-loop tab, raised seams
