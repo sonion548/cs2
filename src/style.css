@@ -511,3 +511,25 @@ img:not([src]) { visibility: hidden; }
 .buy-grid button .rf { display: none; position: absolute; right: -6px; top: -7px; width: 20px; height: 20px; line-height: 19px; text-align: center; border-radius: 50%; background: #e8632b; color: #140a04; font-style: normal; font-weight: 700; font-size: 13px; cursor: pointer; }
 .buy-grid button.canrefund .rf { display: block; }
 @media (max-width: 900px) { .buy-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+/* other players' profiles */
+.findp { display: flex; gap: 6px; margin-bottom: 10px; } .findp input { flex: 1; } .findp button { border: 1px solid var(--line2); padding: 0 10px; font: 600 13px var(--cond); }
+.pname { color: inherit; font: inherit; padding: 0; text-decoration: underline dotted var(--dim); text-underline-offset: 3px; }
+.pname:hover { color: var(--accent); }
+.modal.pview { width: min(1180px, 96vw); height: min(780px, 92vh); grid-template-rows: auto auto 1fr; }
+.modal.pview .ch { display: flex; justify-content: space-between; align-items: flex-start; padding: 16px 20px 6px; }
+.pv-status { font: 600 12px var(--cond); letter-spacing: 1px; text-transform: uppercase; color: var(--dim); vertical-align: middle; margin-left: 8px; }
+.pv-status.online, .pv-status.searching { color: #6fdc8c; } .pv-status.in-match { color: #e7b53c; }
+.pv-top { display: flex; flex-wrap: wrap; gap: 10px; padding: 8px 20px 14px; border-bottom: 1px solid var(--line); }
+.pv-top > div { background: var(--panel2); padding: 10px 14px; display: flex; flex-direction: column; min-width: 110px; }
+.pv-top > div > small, .pv-rank span small { font: 600 11px var(--cond); letter-spacing: 1px; text-transform: uppercase; color: var(--dim); }
+.pv-top b { font: 700 22px var(--cond); }
+.pv-top > div > span { color: var(--muted); font-size: 12px; }
+.pv-val b { color: #e7b53c; font-size: 26px; }
+.pv-rank { flex-direction: row !important; align-items: center; gap: 10px; }
+.pv-rank img { width: 40px; height: 40px; }
+.pv-rank span { display: flex; flex-direction: column; color: var(--text) !important; font: 600 15px var(--cond) !important; }
+.pv-body { display: grid; grid-template-columns: 190px 1fr; gap: 18px; padding: 14px 20px; overflow: hidden; min-height: 0; }
+.pv-body .grid { overflow-y: auto; padding-right: 4px; }
+.tile .pv-price { bottom: 40px; right: 8px; color: #e7b53c; }
+@media (max-width: 700px) { .pv-body { grid-template-columns: 1fr; } }

@@ -143,7 +143,7 @@ export class OnlineUI {
       ${this.invites.map(i => `<div class="invite">Party invite from <b>${h(i.from)}</b><div><button class="pri" data-accept-party="${i.partyId}">Join</button><button data-drop-invite="${i.partyId}">Ignore</button></div></div>`).join('')}
       <section>
         <h4>Party ${this.party ? `<small>${this.party.members.length}/5</small>` : ''}</h4>
-        ${this.party ? this.party.members.map(m => `<div class="fr"><span class="dot ${m.status}"></span><span>${h(m.name)}${m.id === this.party.leader ? ' <em>leader</em>' : ''}</span>${this.party.leader === me && m.id !== me ? `<button data-kick="${m.id}">Kick</button>` : ''}</div>`).join('') + '<button data-act="leave-party" class="wide">Leave party</button>'
+        ${this.party ? this.party.members.map(m => `<div class="fr"><span class="dot ${m.status}"></span><span><button class="pname" data-profile="${m.id}">${h(m.name)}</button>${m.id === this.party.leader ? ' <em>leader</em>' : ''}</span>${this.party.leader === me && m.id !== me ? `<button data-kick="${m.id}">Kick</button>` : ''}</div>`).join('') + '<button data-act="leave-party" class="wide">Leave party</button>'
           : '<p class="note">Invite friends to queue together. The leader starts matchmaking for everyone.</p>'}
       </section>
       <section>
@@ -153,13 +153,19 @@ export class OnlineUI {
       <section>
         <h4>Friends <small>${this.onlineCount()} online</small></h4>
         <form class="addf"><input name="n" placeholder="Add friend by name" maxlength="16"><button>Add</button></form>
+        <form class="findp"><input name="n" placeholder="Look up any player by name" maxlength="16"><button>View</button></form>
         ${this.social.requests.map(r => `<div class="fr req"><span>${h(r.name)} wants to be friends</span><button class="pri" data-accept-friend="${r.id}">Accept</button><button data-decline-friend="${r.id}">✕</button></div>`).join('')}
-        ${fr.map(f => `<div class="fr"><span class="dot ${f.status}"></span><span>${h(f.name)}<small>${st[f.status]}</small></span>
+        ${fr.map(f => `<div class="fr"><span class="dot ${f.status}"></span><span><button class="pname" data-profile="${f.id}" title="View profile and inventory">${h(f.name)}</button><small>${st[f.status]}</small></span>
           <span class="fa">${f.status !== 'offline' ? `<button data-invite="${f.id}">Invite</button>` : ''}<button data-trade-with="${f.id}" data-name="${h(f.name)}">Trade</button><button data-remove="${f.id}" title="Remove">✕</button></span></div>`).join('') || '<p class="note">No friends yet. Add someone by their account name.</p>'}
       </section>
       <footer><button data-act="logout">Sign out</button></footer>`;
     const inp = this.drawer.querySelector('.addf input');
     inp.value = typed; if (hadFocus) inp.focus();
+    this.drawer.querySelector('.findp').onsubmit = (e) => {
+      e.preventDefault();
+      const n = e.target.n.value.trim(); if (!n) return;
+      this.m.viewPlayer({ name: n });
+    };
     this.drawer.querySelector('.addf').onsubmit = async (e) => {
       e.preventDefault();
       const n = e.target.n.value.trim(); if (!n) return;
@@ -172,8 +178,9 @@ export class OnlineUI {
 
   async drawerClick(e) {
     const b = e.target.closest('button'); if (!b) return;
-    // the add-friend form handles its own submit (Enter fires a synthetic click on its button)
-    if (b.closest('.addf')) return;
+    // the add-friend and find-player forms handle their own submit (Enter fires a synthetic click on the button)
+    if (b.closest('.addf') || b.closest('.findp')) return;
+    if (b.dataset.profile) return this.m.viewPlayer({ id: b.dataset.profile });
     audio.ui();
     const d = b.dataset;
     let r;
@@ -391,7 +398,7 @@ export class OnlineUI {
           ${r.myOrders.length ? `<h4>Your orders</h4><table class="mk-table small">${r.myOrders.map(o => `<tr><td>${CR(o.price)}</td><td>${orderWhat(o)}</td><td>${o.qty} waiting</td><td><button data-cancel-order="${o.id}">Cancel</button></td></tr>`).join('')}</table>` : ''}
           ${own.length ? `<h4>Sell yours <small>to the highest buy order that takes it</small></h4><table class="mk-table small">${own.map(it => { const best = r.orders.find(o => orderAccepts({ ...o, defId }, it)); return `<tr><td>${it.kind === 'skin' ? `${condition(it.float).name}<small class="mono"> ${it.float.toFixed(6)}</small>` : 'Sticker'}</td><td>${best ? `<button class="pri" data-sell="${it.uid}">Sell now · ${fmt(Math.floor(best.price * 0.9))}</button>` : '<small>no order takes this copy</small>'}</td></tr>`; }).join('')}</table>` : ''}
           <h4>Listings <small>${r.listings.length}</small></h4>
-          <table class="mk-table">${r.listings.map(l => `<tr><td><img data-l="${l.id}" ${l.item.kind === 'skin' ? `data-insp-l="${l.id}" title="Inspect this one" class="insp"` : ''} alt=""></td><td>${l.item.kind === 'skin' ? `${condition(l.item.float).name}<small class="mono"> ${l.item.float.toFixed(6)} · #${l.item.seed}</small>${(() => { const pt = patternInfo(SKINS[l.item.defId], l.item.seed); return pt.special ? ` <b class="pat-special">${h(pt.name)}</b>` : ''; })()}${l.item.stickers?.length ? `<small> · ${l.item.stickers.length} stickers</small>` : ''}` : ''}<small> · ${h(l.seller)}</small></td><td>${CR(l.price)}</td><td>${l.sellerId === me ? `<button data-cancel="${l.id}">Cancel</button>` : `<button class="pri" data-buy="${l.id}" data-price="${l.price}">Buy</button>`}</td></tr>`).join('') || '<tr><td>No one is selling this right now.</td></tr>'}</table>
+          <table class="mk-table">${r.listings.map(l => `<tr><td><img data-l="${l.id}" ${l.item.kind === 'skin' ? `data-insp-l="${l.id}" title="Inspect this one" class="insp"` : ''} alt=""></td><td>${l.item.kind === 'skin' ? `${condition(l.item.float).name}<small class="mono"> ${l.item.float.toFixed(6)} · #${l.item.seed}</small>${(() => { const pt = patternInfo(SKINS[l.item.defId], l.item.seed); return pt.special ? ` <b class="pat-special">${h(pt.name)}</b>` : ''; })()}${l.item.stickers?.length ? `<small> · ${l.item.stickers.length} stickers</small>` : ''}` : ''}<small> · ${l.sellerId ? `<button class="pname" data-seller="${l.sellerId}">${h(l.seller)}</button>` : h(l.seller)}</small></td><td>${CR(l.price)}</td><td>${l.sellerId === me ? `<button data-cancel="${l.id}">Cancel</button>` : `<button class="pri" data-buy="${l.id}" data-price="${l.price}">Buy</button>`}</td></tr>`).join('') || '<tr><td>No one is selling this right now.</td></tr>'}</table>
         </section>
       </div>`;
     for (const img of page.querySelectorAll('img[data-l]')) { const l = r.listings.find(x => x.id === img.dataset.l); itemImg(l.item, img, true); }
@@ -437,6 +444,7 @@ export class OnlineUI {
     };
     page.querySelector('.mk-item').onclick = async (e) => {
       const b = e.target.closest('button'); if (!b || b.type === 'submit') return;
+      if (b.dataset.seller) return this.m.viewPlayer({ id: b.dataset.seller });
       let res, msg;
       if (b.dataset.buy) { if (!confirm(`Buy for ${fmt(+b.dataset.price)} credits?`)) return; res = await net.rpc('market.buy', { id: b.dataset.buy }); msg = 'Purchased: it is in your inventory'; }
       if (b.dataset.cancel) { res = await net.rpc('market.cancel', { id: b.dataset.cancel }); msg = 'Listing cancelled'; }
@@ -476,7 +484,8 @@ export class OnlineUI {
   // a slider for the float (across the finish's wear range) and the pattern.
   // While the slider moves the finish is repainted at half resolution so it
   // keeps up, then at full resolution when it is let go.
-  inspectSkin(defId, base = null) {
+  // onClose: what to show again afterwards (a player's profile it was opened from)
+  inspectSkin(defId, base = null, onClose = null) {
     const d = SKINS[defId]; if (!d) return;
     const [lo, hi] = d.floatRange;
     const it = { kind: 'skin', defId, float: base?.float ?? +(lo + (hi - lo) * 0.25).toFixed(4), seed: base?.seed ?? 1, stickers: base?.stickers || [], tally: base?.tally ?? null };
@@ -530,7 +539,7 @@ export class OnlineUI {
     slider.addEventListener('input', onInput);
     seedIn.addEventListener('change', () => { it.seed = Math.max(0, Math.min(999, Math.round(+seedIn.value || 0))); seedIn.value = it.seed; repaint(1024); info(); });
     info();
-    const close = () => { cancelAnimationFrame(queued); clearTimeout(fine); v.dispose(); layer.innerHTML = ''; layer.onclick = null; };
+    const close = () => { cancelAnimationFrame(queued); clearTimeout(fine); v.dispose(); layer.innerHTML = ''; layer.onclick = null; onClose?.(); };
     layer.onclick = (e) => {
       const b = e.target.closest('button');
       if (!b) { if (e.target === layer.firstElementChild) close(); return; }

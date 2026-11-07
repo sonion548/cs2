@@ -216,15 +216,7 @@ export class Menu {
   // ------------------------------------------------------------- inventory
   render_inventory(page) {
     const p = P.getProfile();
-    const cats = [['all', 'All'], ['rifle', 'Rifles'], ['smg', 'SMGs'], ['pistol', 'Pistols'], ['sniper', 'Snipers'], ['heavy', 'Heavy'], ['knife', 'Knives'], ['gloves', 'Gloves'], ['sticker', 'Stickers'], ['case', 'Containers']];
-    const catOf = (it) => {
-      if (it.kind !== 'skin') return it.kind;
-      const d = SKINS[it.defId];
-      if (d.knife) return 'knife';
-      if (d.gloves) return 'gloves';
-      const c = WEAPONS[d.weapon]?.cls || 'pistol';
-      return c === 'shotgun' || c === 'lmg' ? 'heavy' : c;
-    };
+    const cats = INV_CATS, catOf = categoryOf;
     let items = p.items.filter(it => this.invFilter === 'all' || catOf(it) === this.invFilter);
     const sorters = {
       newest: (a, b) => b.acquired - a.acquired,
@@ -267,6 +259,68 @@ export class Menu {
       ${it.stickers?.length ? `<i class="stk">${it.stickers.map(s => `<img src="${stickerThumb(s.defId)}" alt="">`).join('')}</i>` : ''}
       <span class="w">${h(t.weapon)}</span><span class="n">${h(t.name)}</span>
     </button>`;
+  }
+
+  // Another player's public profile (online): level, ranks, match stats and
+  // their whole inventory with what it's worth today. who: { id } or { name }.
+  async viewPlayer(who) {
+    const r = await net.rpc('profile.view', who);
+    if (r.error) return this.toast(r.error);
+    const layer = this.$('.modal-layer');
+    const eq = new Set(Object.values(r.equipped || {}));
+    const byUid = new Map(r.items.map(it => [it.uid, it]));
+    let cat = 'all', sort = 'value';
+    const sorters = {
+      value: (a, b) => b.value - a.value,
+      rarity: (a, b) => (rarityOf(b)?.tier ?? -1) - (rarityOf(a)?.tier ?? -1) || b.value - a.value,
+      newest: (a, b) => b.acquired - a.acquired,
+    };
+    const st = r.stats || {}, kd = st.deaths ? (st.kills / st.deaths).toFixed(2) : String(st.kills || 0);
+    const status = { online: 'Online', 'in-match': 'In a match', searching: 'Searching', offline: 'Offline' }[r.status] || '';
+    const ranks = Object.entries(R.LADDERS).filter(([k]) => r.ladders?.[k]?.rank != null)
+      .map(([k, l]) => `<div class="pv-rank"><img src="${R.rankEmblem(r.ladders[k].rank, 48)}" alt=""><span><small>${h(l.label)}</small>${R.rankName(r.ladders[k].rank)}</span></div>`).join('');
+    const tile = (it) => {
+      const rr = rarityOf(it), t = itemTitle(it);
+      const img = it.kind === 'case' ? caseThumb(it.defId) : it.kind === 'sticker' ? stickerThumb(it.defId) : '';
+      return `<button class="tile ${it.kind}" data-uid="${it.uid}" style="--rc:${rr ? rr.color : '#6d6a62'}">
+        <img ${img ? `src="${img}"` : ''} alt="" ${it.kind === 'skin' ? 'data-pthumb="1"' : ''}>
+        ${eq.has(it.uid) ? '<i class="eq">Equipped</i>' : ''}${it.listed ? '<i class="eq listed">Listed</i>' : ''}
+        ${it.kind === 'skin' ? `<i class="cond">${condition(it.float).id}</i>` : ''}
+        <i class="pv-price">${CR(it.value)}</i>
+        <span class="w">${h(t.weapon)}</span><span class="n">${h(t.name)}</span>
+      </button>`;
+    };
+    const render = () => {
+      const items = r.items.filter(it => cat === 'all' || categoryOf(it) === cat).sort(sorters[sort]);
+      layer.innerHTML = `<div class="modal pview">
+        <div class="ch"><div><small>${r.you ? 'Your public profile' : 'Player profile'}</small><h2>${h(r.name)} <span class="pv-status ${r.status}">${status}</span></h2></div><button class="x" data-act="close">Close</button></div>
+        <div class="pv-top">
+          <div class="pv-val"><small>Inventory value</small><b>${CR(r.value)}</b><span>${r.items.length} items</span></div>
+          <div class="pv-s"><small>Level</small><b>${r.level?.level ?? 1}</b></div>
+          <div class="pv-s"><small>Matches</small><b>${st.matches || 0}</b><span>${st.wins || 0} wins</span></div>
+          <div class="pv-s"><small>K/D</small><b>${kd}</b><span>${st.kills || 0} kills</span></div>
+          ${ranks}
+        </div>
+        <div class="pv-body">
+          <aside class="filters">
+            ${INV_CATS.map(([id, l]) => { const n = id === 'all' ? r.items.length : r.items.filter(i => categoryOf(i) === id).length; return n || id === 'all' ? `<button data-cat="${id}" class="${cat === id ? 'on' : ''}">${l}<span>${n}</span></button>` : ''; }).join('')}
+            <label class="sort">Sort <select>${[['value', 'Value'], ['rarity', 'Rarity'], ['newest', 'Newest']].map(([v, l]) => `<option value="${v}" ${sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+          </aside>
+          <section class="grid">${items.length ? items.map(tile).join('') : '<p class="empty">Nothing here.</p>'}</section>
+        </div>
+      </div>`;
+      layer.querySelector('select').onchange = (e) => { sort = e.target.value; render(); };
+      for (const el of layer.querySelectorAll('img[data-pthumb]')) { const it = byUid.get(el.closest('[data-uid]').dataset.uid); if (it) thumbnail(it, url => { el.src = url; }); }
+    };
+    render();
+    layer.onclick = (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.act === 'close') { layer.innerHTML = ''; layer.onclick = null; return; }
+      if (b.dataset.cat) { cat = b.dataset.cat; render(); return; }
+      const it = b.dataset.uid && byUid.get(b.dataset.uid);
+      // a closer look at one of their skins (read-only)
+      if (it?.kind === 'skin') this.online.inspectSkin(it.defId, it, () => this.viewPlayer(who));
+    };
   }
 
   loadThumbs(scope) {
@@ -722,10 +776,13 @@ export class Menu {
         <h3>Distribution</h3>
         <div class="dist">${R.TIERS.map((t, i) => `<div class="${i === myTier ? 'me' : ''}"><img src="${R.rankEmblem(R.RANKS.findIndex(r => r.tier === i && r.sub === 1), 40)}" alt=""><span>${t.name}</span><i style="width:${(dist[i] * 260).toFixed(1)}%;background:${t.color}"></i><em>${(dist[i] * 100).toFixed(1)}%</em></div>`).join('')}</div>
         <h3>Leaderboard</h3>
-        <table class="lb">${pop.slice(0, 25).map((p, i) => `<tr><td>${i + 1}</td><td><img src="${R.rankEmblem(p.rank, 24)}" alt="">${h(p.name)}</td><td>${Math.round(p.mmr)}</td></tr>`).join('')}
+        <table class="lb">${pop.slice(0, 25).map((p, i) => `<tr><td>${i + 1}</td><td><img src="${R.rankEmblem(p.rank, 24)}" alt="">${P.isOnline() && R.LADDERS[id]?.online ? `<button class="pname" data-player="${h(p.name)}">${h(p.name)}</button>` : h(p.name)}</td><td>${Math.round(p.mmr)}</td></tr>`).join('')}
           ${L.rank != null ? `<tr class="me"><td>${pos.position}</td><td><img src="${R.rankEmblem(L.rank, 24)}" alt="">${h(P.getProfile().name)}</td><td>${Math.round(L.mmr)}</td></tr>` : ''}</table>
       </aside>`;
-    page.onclick = (e) => { const b = e.target.closest('[data-l]'); if (b) { this.state.ladder = b.dataset.l; this.go('ranked'); } };
+    page.onclick = (e) => {
+      const pl = e.target.closest('[data-player]'); if (pl) return this.viewPlayer({ name: pl.dataset.player });
+      const b = e.target.closest('[data-l]'); if (b) { this.state.ladder = b.dataset.l; this.go('ranked'); }
+    };
   }
 
   showResult(r) {
@@ -747,4 +804,16 @@ export class Menu {
 }
 
 // Stock (unskinned) weapon model for the showcase.
+// Inventory filters, shared by your inventory and other players' profiles.
+const INV_CATS = [['all', 'All'], ['rifle', 'Rifles'], ['smg', 'SMGs'], ['pistol', 'Pistols'], ['sniper', 'Snipers'], ['heavy', 'Heavy'], ['knife', 'Knives'], ['gloves', 'Gloves'], ['sticker', 'Stickers'], ['case', 'Containers']];
+function categoryOf(it) {
+  if (it.kind !== 'skin') return it.kind;
+  const d = SKINS[it.defId];
+  if (!d) return 'skin';
+  if (d.knife) return 'knife';
+  if (d.gloves) return 'gloves';
+  const c = WEAPONS[d.weapon]?.cls || 'pistol';
+  return c === 'shotgun' || c === 'lmg' ? 'heavy' : c;
+}
+
 function stockModel(slot) { return buildGun(slot === 'knife' ? 'knife:standard' : slot); }

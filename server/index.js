@@ -401,6 +401,20 @@ const handlers = {
     db.dirty();
     return friendList(u);
   },
+  // Anyone's public profile, looked up by id or account name: level, ranks,
+  // match stats and the whole inventory with what it's worth today.
+  'profile.view'(ws, { id, name }) {
+    const u = id ? D.users[String(id)] : name ? userByName(String(name).trim()) : null;
+    if (!u) return { error: 'No player with that name' };
+    const items = u.items.map(it => ({ ...it, value: E.marketPrice(it) }));
+    const ladders = {};
+    for (const [k, L] of Object.entries(u.ladders || {})) ladders[k] = { rank: L.rank ?? null, rp: L.rp ?? 0, placements: L.placements ?? 0 };
+    return {
+      id: u.id, name: u.name, xp: u.xp, level: E.level(u), stats: u.stats, ladders, status: presence(u.id),
+      items, equipped: u.equipped, value: items.reduce((t, it) => t + it.value, 0),
+      friend: ws.user.friends.includes(u.id), you: u.id === ws.user.id,
+    };
+  },
   'social.inventory'(ws, { id }) {
     const f = D.users[id];
     if (!f || !ws.user.friends.includes(id)) return { error: 'Not a friend' };
