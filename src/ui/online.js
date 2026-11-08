@@ -7,6 +7,7 @@ import { orderAccepts, typicalCopy, marketPrice } from '../shared/economy.js';
 import { KNIFE_TYPES } from '../shared/knives.js';
 import { thumbnail, Viewer } from './studio.js';
 import { applySkin } from '../items/render.js';
+import { attachKillscribe } from '../items/killscribe.js';
 import { patternInfo } from '../items/patterns.js';
 import * as THREE from 'three';
 import { ViewModel } from '../viewmodel.js';
@@ -16,6 +17,26 @@ import { audio } from '../audio.js';
 import { ask } from './confirm.js';
 
 const h = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// The market's inspect views can show any skin with a Killscribe: a box to
+// turn it on and the count to show (up to 99999, what the readout holds).
+// Not for gloves, which never carry one.
+const KS_MAX = 99999;
+const ksRow = (d, tally) => (d.gloves ? '' : `<dt>Killscribe</dt><dd class="ksrow"><label><input type="checkbox" class="ks-on"${tally != null ? ' checked' : ''}> Show</label>`
+  + `<input class="ks-n mono" type="number" min="0" max="${KS_MAX}" step="1" value="${tally ?? 0}" aria-label="Killscribe count"${tally == null ? ' disabled' : ''}></dd>`);
+// it: the item shown (its tally is set to the count, or null when off);
+// apply: put it on the model; toggled(on): after the box changes
+function ksControls(root, it, apply, toggled = () => {}) {
+  const on = root.querySelector('.ks-on'), num = root.querySelector('.ks-n');
+  if (!on || !num) return;
+  let wait = 0;
+  const count = () => Math.max(0, Math.min(KS_MAX, Math.round(+num.value || 0)));
+  const set = () => { clearTimeout(wait); it.tally = on.checked ? count() : null; num.disabled = !on.checked; apply(); };
+  on.addEventListener('change', () => { set(); toggled(on.checked); if (on.checked) num.focus(); });
+  // typing: put on shortly after the last key (a knife's etching is worked
+  // out afresh for each count), and tidied when the box is left
+  num.addEventListener('input', () => { if (!on.checked) return; clearTimeout(wait); wait = setTimeout(set, 150); });
+  num.addEventListener('change', () => { num.value = count(); if (on.checked) set(); });
+}
 const fmt = (n) => Math.round(n).toLocaleString('en-US');
 const CR = (n) => `<span class="cr">${fmt(n)}</span>`;
 // today's move against yesterday, e.g. ▲ 3.1%
@@ -517,6 +538,7 @@ export class OnlineUI {
           <dl>
             <dt>Condition</dt><dd class="cn"></dd>
             <dt>Pattern</dt><dd><input class="seedin mono" type="number" min="0" max="999" step="1" value="${it.seed}"> <span class="pn"></span></dd>
+            ${ksRow(d, it.tally)}
             <dt>Value today</dt><dd class="vt"></dd>
             ${it.stickers.length ? `<dt>Stickers</dt><dd>${it.stickers.length}</dd>` : ''}
           </dl>
@@ -548,6 +570,13 @@ export class OnlineUI {
     };
     slider.addEventListener('input', onInput);
     seedIn.addEventListener('change', () => { it.seed = Math.max(0, Math.min(999, Math.round(+seedIn.value || 0))); seedIn.value = it.seed; repaint(1024); info(); });
+    // Killscribe on or off and its count: the readout (a gun, turned to show
+    // its side) or the etching (a knife) put on the model, and the value
+    // with it
+    ksControls(layer, it, () => {
+      attachKillscribe(gun(), it, d);
+      info();
+    }, (on) => { if (on && !d.knife) v.target = { x: 0.15, y: Math.PI / 2 - 0.35 }; });
     info();
     const close = () => { cancelAnimationFrame(queued); clearTimeout(fine); v.dispose(); layer.innerHTML = ''; layer.onclick = null; onClose?.(); };
     layer.onclick = (e) => {
@@ -563,7 +592,7 @@ export class OnlineUI {
   inspectAnimation(defId, base = null) {
     const d = SKINS[defId]; if (!d) return;
     const [lo, hi] = d.floatRange;
-    const item = { defId, float: base?.float ?? +(lo + (hi - lo) * 0.25).toFixed(4), seed: base?.seed ?? 1, stickers: base?.stickers || [] };
+    const item = { defId, float: base?.float ?? +(lo + (hi - lo) * 0.25).toFixed(4), seed: base?.seed ?? 1, stickers: base?.stickers || [], tally: base?.tally ?? null };
     // gloves are shown on the hands holding the default knife
     const weapon = d.knife || d.gloves ? 'knife' : d.weapon, type = d.knife || d.gloves ? 'melee' : WEAPONS[weapon]?.type || 'rifle';
     const t = defTitle(defId), r = RARITY[d.rarity];
@@ -577,6 +606,7 @@ export class OnlineUI {
           <button class="x" data-act="close">Close</button>
           <div class="rar"><i></i>${r.name}${d.knife ? ' · Knife' : d.gloves ? ' · Gloves' : ''}</div>
           <h2><small>${h(t.weapon)}</small>${h(t.name)}</h2>
+          ${d.gloves ? '' : `<dl>${ksRow(d, item.tally)}</dl>`}
           <p class="note">How it looks in your hands in a match. The inspect plays on its own every few seconds; switch arms to see it with either side's gloves.</p>
         </div>
       </div>`;
@@ -590,6 +620,8 @@ export class OnlineUI {
     let team = 'CT', vm = null;
     const build = () => { vm = new ViewModel(team, renderer); vm.setWeapon(weapon, type, 0.4, d.gloves ? null : item); if (d.gloves) vm.setGloves(item); };
     build();
+    // (both push daggers carry it)
+    if (!d.gloves) ksControls(layer, item, () => { attachKillscribe(vm.gun, item, d); if (vm.dual) attachKillscribe(vm.dual.gun, item, d); });
     const cam = new THREE.Matrix4();
     let last = performance.now(), running = true, nextInspect = performance.now() + 900;
     const loop = () => {

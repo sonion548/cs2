@@ -403,6 +403,11 @@ dropped them.
   bid. A bot's bid stays under the least a copy it takes can be worth (its most worn float and its
   plainest pattern, such as a low fade or the cheapest Doppler phase) and always at least a credit under
   what any bot lists such a copy for, so nothing can be bought and sold straight back to a bot at a profit.
+- **Killscribe preview on the market**: the market's 3D inspect and its inspect animation have a
+  Killscribe box. Tick it and type a count (up to 99999, what the readout holds) to see the skin with a
+  kill counter: the readout on a gun (the 3D view turns to show it) or the count etched into a knife's
+  blade, in your hands too in the inspect animation, and what such a copy is worth. A listed copy with a
+  Killscribe opens with its own count; gloves don't have the option, as they never carry one.
 - **Balisong tricks**: the balisong's inspect is now a run of real flipping tricks. Up with the flat of the
   blade to you and let slide out to the ends of the handles; a basic close, the closed knife turned to you
   (blade hidden), a basic open; fanning (four flips run straight into each other); back into the fist for
