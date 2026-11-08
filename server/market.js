@@ -77,7 +77,8 @@ export class Market {
   copyFor(o) {
     if (!SKINS[o.defId]) return this.E.makeSticker(o.defId);
     for (let k = 0; k < 40; k++) {
-      const c = this.E.makeSkin(o.defId);
+      // a plain copy: an order pays for the finish, not a Killscribe
+      const c = { ...this.E.makeSkin(o.defId), tally: null };
       if (o.cond) { const [lo, hi] = this.E.condRange(o.defId, o.cond); c.float = +(lo + Math.random() * (hi - lo)).toFixed(9); }
       if (o.pattern) {
         const seeds = this.patternSeeds(o.defId, o.pattern);

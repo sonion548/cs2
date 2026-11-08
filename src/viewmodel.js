@@ -530,6 +530,8 @@ export class ViewModel {
     }
     this.inspectT = 0;
   }
+  // the count on the weapon's Killscribe (the readout on a gun, the etching on a knife)
+  setKillscribe(n) { this.gun?.userData?.killscribe?.set(n); this.dual?.gun?.userData?.killscribe?.set(n); }
   look(dx, dy) { this.swayVel.x += dx * 0.00012; this.swayVel.y += dy * 0.00012; }
   windup() { this.windT = 0; this.inspectT = -1; }
   throwNade() { this.throwT = 0; this.windT = -1; }

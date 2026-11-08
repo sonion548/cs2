@@ -100,7 +100,7 @@ nginx) so browsers can use `wss://`. Set `DATABASE_URL` to keep accounts in Neon
   Battle-Scarred) and how much paint has chipped off. A pattern seed from 0 to 999 makes each item unique.
 - 112 stickers (28 designs × paper/holo/foil/gold), applied to four slots per gun and scraped off over time
 - Five cases and a sticker capsule, with a case-opening reel, odds table and contents preview
-- Inventory with filters, sorting, a rotatable 3D inspect view, equipping, quick-sell and Tally kill counters
+- Inventory with filters, sorting, a rotatable 3D inspect view, equipping, quick-sell and Killscribe kill counters
 - Credits and case drops earned from matches; equipped skins show in first person and on bots
 - New client menu (Play, Inventory, Cases, Career, Settings)
 
@@ -377,6 +377,19 @@ dropped them.
   stepping the inspects at 120 fps (no jumps or jolts in the gun, either hand or either elbow; the
   shooting arm never past 90% of its reach) and by measuring which face of each knife is toward the
   camera (every knife holds the other face in view for at least 0.7 s).
+- **Killscribe** (was Tally): about one drop in ten comes with a Killscribe, a counter of confirmed kills
+  made with the weapon while it's equipped (team-mates don't count). It's on the weapon itself now: a gun
+  has a readout clipped to the left of its receiver, the side you see in your hands, with the Killscribe
+  name over amber seven-segment digits that glow in a dark window; a knife has the count etched into the
+  flat of its blade near the guard, on both faces, frosted into the steel with a dark groove round each
+  figure so it reads on any finish (worked out from each blade's shape, so it sits on the flat and follows
+  a ground edge or ridge). The number goes up in your hands as you get kills during a match, the count shows
+  under the weapon's name in the HUD (and jumps when it goes up), and your kills with it are tagged in the
+  kill feed. In the inventory a Killscribe item has an amber edge, its count on a glowing badge and
+  "Killscribe" in its name; its inspect page shows the count as a readout and opens on the side with the
+  counter; market listings and trades are tagged, and unboxing one says so. A Killscribe copy is worth
+  three times a plain one for a gun and twice for a knife, and a bot filling your buy order hands over a
+  plain copy.
 - **Smooth inspects**: the knife no longer flips half a turn once per revolution in ring spins (the side
   of the ring the finger goes through is settled once per spin, and the knife blends onto the finger along
   a fixed path with the spin on top); every inspect pose is softened over a few hundredths of a second and

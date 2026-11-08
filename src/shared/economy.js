@@ -102,6 +102,10 @@ export function priceIndex(defId, day = dayOf()) {
 
 // ---------------------------------------------------------------- pricing
 const COND_MULT = { FN: 1.65, MW: 1.2, FT: 1.0, WW: 0.82, BS: 0.72 };
+// A copy with a Killscribe (the kill counter on the weapon, item.tally) is
+// worth far more than a plain one: three times for a gun, twice for a knife
+// (already the dearest thing in a case).
+export const killscribeMult = (d) => (d?.knife ? 2 : 3);
 
 // Reference price on a given day (today by default): quick-sell, inventory
 // values, and what market bots buy and sell around.
@@ -113,7 +117,7 @@ export function marketPrice(item, day = dayOf()) {
   let p = d.basePrice * priceIndex(item.defId, day) * COND_MULT[condition(item.float).id];
   if (item.float < 0.01) p *= 1.4;
   p *= patternInfo(d, item.seed).mult;   // blue gems, full fades, gem phases (patterns.js)
-  if (item.tally != null) p *= 1.35;
+  if (item.tally != null) p *= killscribeMult(d);
   for (const s of item.stickers || []) p += (STICKERS[s.defId]?.basePrice || 0) * priceIndex(s.defId, day) * 0.12 * (1 - (s.wear || 0));
   return Math.max(1, Math.round(p));
 }
@@ -286,7 +290,7 @@ export function scrapeSticker(state, skinUid, slot) {
   return { ok: true };
 }
 
-// Credits, xp, tally counters and drops after a match.
+// Credits, xp, Killscribe counts (item.tally) and drops after a match.
 // Every match pays. Finishing adds a win or loss bonus on top of kills,
 // assists and rounds won; leaving early keeps only what you earned. Against
 // bots, harder bots pay more: botSkill 0.05 (Recruit) is about 0.7x, 0.3

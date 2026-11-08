@@ -120,7 +120,7 @@ function thumbSetup() {
   thumbCam = new THREE.PerspectiveCamera(22, 320 / 200, 0.01, 50);
 }
 
-function thumbKey(item) { return `${item.defId}|${item.float}|${item.seed}|${(item.stickers || []).map(s => s.defId + s.slot + s.wear).join()}`; }
+function thumbKey(item) { return `${item.defId}|${item.float}|${item.seed}|${(item.stickers || []).map(s => s.defId + s.slot + s.wear).join()}${item.tally != null ? '|ks' + item.tally : ''}`; }
 
 // The look used for case contents and the opening reel: one image per skin.
 export function previewItem(defId) { return { defId, float: 0.05, seed: 1, stickers: [] }; }
@@ -208,7 +208,7 @@ function pump() {
   if (!next) { busy = false; return; }
   const [item, k] = next;
   if (!thumbCache.has(k)) {
-    const url = renderThumb({ ...item, stickers: item.stickers });
+    const url = renderThumb({ ...item, stickers: item.stickers, tally: item.tally ?? null });
     deliver(k, url);
     idbPut(k, url);
   }

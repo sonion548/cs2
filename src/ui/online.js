@@ -234,7 +234,7 @@ export class OnlineUI {
     const layer = this.m.$('.modal-layer');
     const col = (items, side) => items.map(it => {
       const t = itemTitle(it), r = it.kind !== 'case' ? RARITY[itemDef(it).rarity] : null;
-      return `<button class="ti ${sel[side].has(it.uid) ? 'on' : ''}" data-side="${side}" data-uid="${it.uid}" style="--rc:${r ? r.color : '#6d6a62'}"><img data-u="${it.uid}" alt=""><span class="w">${h(t.weapon)}</span><span class="n">${h(t.name)}</span>${it.kind === 'skin' ? `<i>${condition(it.float).id}</i>` : ''}</button>`;
+      return `<button class="ti ${sel[side].has(it.uid) ? 'on' : ''}" data-side="${side}" data-uid="${it.uid}" style="--rc:${r ? r.color : '#6d6a62'}"><img data-u="${it.uid}" alt=""><span class="w">${h(t.weapon)}</span><span class="n">${h(t.name)}</span>${it.kind === 'skin' ? `<i>${condition(it.float).id}${it.tally != null ? ' · <b class="ks-tag">KS</b>' : ''}</i>` : ''}</button>`;
     }).join('');
     const render = () => {
       layer.innerHTML = `<div class="modal trade">
@@ -271,7 +271,7 @@ export class OnlineUI {
     const layer = this.m.$('.modal-layer');
     const list = (items) => items.map(it => {
       const tt = itemTitle(it), r = it.kind !== 'case' ? RARITY[itemDef(it).rarity] : null;
-      return `<div class="ti" style="--rc:${r ? r.color : '#6d6a62'}"><img data-u="${it.uid}" alt=""><span class="w">${h(tt.weapon)}</span><span class="n">${h(tt.name)}</span>${it.kind === 'skin' ? `<i>${condition(it.float).id} · ${it.float.toFixed(4)}</i>` : ''}<em>${CR(P.marketPrice(it))}</em></div>`;
+      return `<div class="ti" style="--rc:${r ? r.color : '#6d6a62'}"><img data-u="${it.uid}" alt=""><span class="w">${h(tt.weapon)}</span><span class="n">${h(tt.name)}</span>${it.kind === 'skin' ? `<i>${condition(it.float).id} · ${it.float.toFixed(4)}${it.tally != null ? ' · <b class="ks-tag">Killscribe</b>' : ''}</i>` : ''}<em>${CR(P.marketPrice(it))}</em></div>`;
     }).join('') || '<p class="note">Nothing</p>';
     const value = (items) => items.reduce((s, it) => s + P.marketPrice(it), 0);
     layer.innerHTML = `<div class="modal trade">
@@ -396,9 +396,9 @@ export class OnlineUI {
             <label class="pricein">Quantity <input name="qty" type="number" min="1" max="100" step="1" value="1"></label>
             <button class="pri" type="submit">Place buy order</button><p class="note mk-total"></p></form>
           ${r.myOrders.length ? `<h4>Your orders</h4><table class="mk-table small">${r.myOrders.map(o => `<tr><td>${CR(o.price)}</td><td>${orderWhat(o)}</td><td>${o.qty} waiting</td><td><button data-cancel-order="${o.id}">Cancel</button></td></tr>`).join('')}</table>` : ''}
-          ${own.length ? `<h4>Sell yours <small>to the highest buy order that takes it</small></h4><table class="mk-table small">${own.map(it => { const best = r.orders.find(o => orderAccepts({ ...o, defId }, it)); return `<tr><td>${it.kind === 'skin' ? `${condition(it.float).name}<small class="mono"> ${it.float.toFixed(6)}</small>` : 'Sticker'}</td><td>${best ? `<button class="pri" data-sell="${it.uid}">Sell now · ${fmt(Math.floor(best.price * 0.9))}</button>` : '<small>no order takes this copy</small>'}</td></tr>`; }).join('')}</table>` : ''}
+          ${own.length ? `<h4>Sell yours <small>to the highest buy order that takes it</small></h4><table class="mk-table small">${own.map(it => { const best = r.orders.find(o => orderAccepts({ ...o, defId }, it)); return `<tr><td>${it.kind === 'skin' ? `${condition(it.float).name}<small class="mono"> ${it.float.toFixed(6)}</small>${it.tally != null ? ` <b class="ks-tag">Killscribe ${it.tally}</b>` : ''}` : 'Sticker'}</td><td>${best ? `<button class="pri" data-sell="${it.uid}">Sell now · ${fmt(Math.floor(best.price * 0.9))}</button>` : '<small>no order takes this copy</small>'}</td></tr>`; }).join('')}</table>` : ''}
           <h4>Listings <small>${r.listings.length}</small></h4>
-          <table class="mk-table">${r.listings.map(l => `<tr><td><img data-l="${l.id}" ${l.item.kind === 'skin' ? `data-insp-l="${l.id}" title="Inspect this one" class="insp"` : ''} alt=""></td><td>${l.item.kind === 'skin' ? `${condition(l.item.float).name}<small class="mono"> ${l.item.float.toFixed(6)} · #${l.item.seed}</small>${(() => { const pt = patternInfo(SKINS[l.item.defId], l.item.seed); return pt.special ? ` <b class="pat-special">${h(pt.name)}</b>` : ''; })()}${l.item.stickers?.length ? `<small> · ${l.item.stickers.length} stickers</small>` : ''}` : ''}<small> · ${l.sellerId ? `<button class="pname" data-seller="${l.sellerId}">${h(l.seller)}</button>` : h(l.seller)}</small></td><td>${CR(l.price)}</td><td>${l.sellerId === me ? `<button data-cancel="${l.id}">Cancel</button>` : `<button class="pri" data-buy="${l.id}" data-price="${l.price}">Buy</button>`}</td></tr>`).join('') || '<tr><td>No one is selling this right now.</td></tr>'}</table>
+          <table class="mk-table">${r.listings.map(l => `<tr><td><img data-l="${l.id}" ${l.item.kind === 'skin' ? `data-insp-l="${l.id}" title="Inspect this one" class="insp"` : ''} alt=""></td><td>${l.item.kind === 'skin' ? `${condition(l.item.float).name}<small class="mono"> ${l.item.float.toFixed(6)} · #${l.item.seed}</small>${(() => { const pt = patternInfo(SKINS[l.item.defId], l.item.seed); return pt.special ? ` <b class="pat-special">${h(pt.name)}</b>` : ''; })()}${l.item.stickers?.length ? `<small> · ${l.item.stickers.length} stickers</small>` : ''}${l.item.tally != null ? ` <b class="ks-tag">Killscribe ${l.item.tally}</b>` : ''}` : ''}<small> · ${l.sellerId ? `<button class="pname" data-seller="${l.sellerId}">${h(l.seller)}</button>` : h(l.seller)}</small></td><td>${CR(l.price)}</td><td>${l.sellerId === me ? `<button data-cancel="${l.id}">Cancel</button>` : `<button class="pri" data-buy="${l.id}" data-price="${l.price}">Buy</button>`}</td></tr>`).join('') || '<tr><td>No one is selling this right now.</td></tr>'}</table>
         </section>
       </div>`;
     for (const img of page.querySelectorAll('img[data-l]')) { const l = r.listings.find(x => x.id === img.dataset.l); itemImg(l.item, img, true); }
@@ -516,6 +516,7 @@ export class OnlineUI {
       </div>`;
     const v = new Viewer(layer.querySelector('.vp'), { autoRotate: false });
     v.setItem(it);
+    if (it.tally != null && !SKINS[defId]?.knife) { v.rot = { x: 0.15, y: Math.PI / 2 - 0.35 }; v.target = { ...v.rot }; }
     const gun = () => v.pivot.children[0];
     const slider = layer.querySelector('input[type=range]'), seedIn = layer.querySelector('.seedin');
     const info = () => {

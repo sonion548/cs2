@@ -600,7 +600,7 @@ export function itemTitle(item) {
   const d = itemDef(item);
   if (!d) return 'Unknown item';
   if (item.kind === 'skin') {
-    return { weapon: weaponLabel(d) + (item.tally != null ? ' · Tally' : ''), name: d.name };
+    return { weapon: (item.tally != null ? 'Killscribe ' : '') + weaponLabel(d), name: d.name };
   }
   if (item.kind === 'sticker') return { weapon: 'Sticker', name: d.name };
   return { weapon: 'Container', name: d.name };

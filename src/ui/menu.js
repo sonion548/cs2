@@ -257,13 +257,14 @@ export class Menu {
     const equipped = Object.values(p.equipped).includes(it.uid);
     const cond = it.kind === 'skin' ? condition(it.float).id : '';
     const img = it.kind === 'case' ? caseThumb(it.defId) : it.kind === 'sticker' ? stickerThumb(it.defId) : '';
-    return `<button class="tile ${it.kind}" data-uid="${it.uid}" style="--rc:${r ? r.color : '#6d6a62'}">
+    const ks = it.kind === 'skin' && it.tally != null;
+    return `<button class="tile ${it.kind}${ks ? ' ks' : ''}" data-uid="${it.uid}" style="--rc:${r ? r.color : '#6d6a62'}">
       <img ${img ? `src="${img}"` : ''} alt="" ${it.kind === 'skin' ? 'data-thumb="1"' : ''}>
       ${equipped ? '<i class="eq">Equipped</i>' : ''}${it.listed ? '<i class="eq listed">Listed</i>' : ''}
       ${cond ? `<i class="cond">${cond}</i>` : ''}
-      ${it.tally != null ? `<i class="tally">${it.tally}</i>` : ''}
+      ${ks ? `<i class="ks" title="Killscribe: ${it.tally} confirmed kills">${it.tally}</i>` : ''}
       ${it.stickers?.length ? `<i class="stk">${it.stickers.map(s => `<img src="${stickerThumb(s.defId)}" alt="">`).join('')}</i>` : ''}
-      <span class="w">${h(t.weapon)}</span><span class="n">${h(t.name)}</span>
+      <span class="w">${ks ? `<em class="ksn">Killscribe</em> ${h(t.weapon.replace(/^Killscribe /, ''))}` : h(t.weapon)}</span><span class="n">${h(t.name)}</span>
     </button>`;
   }
 
@@ -353,13 +354,14 @@ export class Menu {
           </div>
           <div class="info">
             <button class="x" data-act="close">Close</button>
+            ${fromUnbox && it.tally != null ? '<div class="ks-unbox">Killscribe</div>' : ''}
             <div class="rar"><i></i>${r.name}${d.knife ? ' · Knife' : d.gloves ? ' · Gloves' : ''}</div>
-            <h2><small>${h(t.weapon)}</small>${h(t.name)}</h2>
+            <h2><small>${it.tally != null ? `<em class="ksn">Killscribe</em> ${h(t.weapon.replace(/^Killscribe /, ''))}` : h(t.weapon)}</small>${h(t.name)}</h2>
+            ${it.tally != null ? `<div class="ks-panel"><span>Killscribe</span><b>${String(it.tally).padStart(5, '0').replace(/^(0+)(?=\d)/, '<i>$1</i>')}</b><small>confirmed kills with it equipped, ${d.knife ? 'etched into the blade' : 'on the readout on its receiver'}</small></div>` : ''}
             <dl>
               <dt>Condition</dt><dd>${c.name}</dd>
               <dt>Float</dt><dd class="mono">${it.float.toFixed(9)}</dd>
               <dt>Pattern</dt><dd class="mono">${it.seed}${(() => { const pt = patternInfo(d, it.seed); return pt.name ? ` · <span class="${pt.special ? 'pat-special' : ''}">${h(pt.name)}</span>` : ''; })()}</dd>
-              ${it.tally != null ? `<dt>Tally</dt><dd class="mono">${it.tally} confirmed kills</dd>` : ''}
               <dt>Market</dt><dd>${CR(P.marketPrice(it))}</dd>
             </dl>
             <div class="wearbar">${CONDITIONS.map((cc, i) => { const lo = i ? CONDITIONS[i - 1].max : 0; return `<span style="flex:${cc.max - lo}" class="${cc === c ? 'on' : ''}">${cc.id}</span>`; }).join('')}<b style="left:${(it.float * 100).toFixed(2)}%"></b></div>
@@ -378,6 +380,8 @@ export class Menu {
         </div>`;
       const v = new Viewer(layer.querySelector('.vp'), { autoRotate: false });
       v.setItem(it);
+      // a Killscribe gun opens on its left, where the readout is
+      if (it.tally != null && !d.knife) { v.rot = { x: 0.15, y: Math.PI / 2 - 0.35 }; v.target = { ...v.rot }; }
       this.modalViewer?.dispose(); this.modalViewer = v;
     };
     render();

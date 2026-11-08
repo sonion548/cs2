@@ -417,6 +417,11 @@ export class Game {
   }
 
   skinFor(weaponId) { return this.opts.skins?.[weaponId] || null; }
+  // The kill count on your weapon's Killscribe right now (what it had going in
+  // plus this match's kills with it), or null if it hasn't got one.
+  killscribeCount(weaponId) { const it = this.skinFor(weaponId); return it?.tally != null ? it.tally + (this.weaponKills[weaponId] || 0) : null; }
+  // your weapon's skin as it looks in your hands, its Killscribe counting this match
+  vmSkin(weaponId) { const it = this.skinFor(weaponId); return it?.tally != null ? { ...it, tally: this.killscribeCount(weaponId) } : it; }
   skinOf(ch, id) { return ch === this.player ? this.skinFor(id) : ch.skins?.[id] || null; }
 
   nearOwnSpawn(ch) {
@@ -465,7 +470,7 @@ export class Game {
     if (p.switchTo(slot)) {
       if (prev !== slot && prev !== 0) this.lastWeaponSlot = prev;
       this.windup = null;
-      this.vm.setWeapon(p.weapon.id, p.weapon.def.type, p.weapon.def.deployTime, this.skinFor(p.weapon.id));
+      this.vm.setWeapon(p.weapon.id, p.weapon.def.type, p.weapon.def.deployTime, this.vmSkin(p.weapon.id));
       this.hud.setScope(0);
     }
   }
@@ -580,7 +585,7 @@ export class Game {
     p.crouch = 0; p.scoped = 0;
     p.slot = 0; p.switchTo(p.bestSlot());
     p.weapon.deploying = 0;
-    this.vm.setWeapon(p.weapon.id, p.weapon.def.type, 0.3, this.skinFor(p.weapon.id));
+    this.vm.setWeapon(p.weapon.id, p.weapon.def.type, 0.3, this.vmSkin(p.weapon.id));
     this.hud.setScope(0);
     this.deathCam = null; this.spec.target = null;
 
@@ -897,7 +902,17 @@ export class Game {
       killer.stats.kills++;
       if (headshot) killer.stats.hs++;
       if (killer.team !== victim.team) addMoney(killer, weaponDef.reward ?? 300);
-      if (killer === this.player) { const w = weaponDef.id; this.weaponKills[w] = (this.weaponKills[w] || 0) + 1; this.hud.moneyGain(weaponDef.reward ?? 300); }
+      if (killer === this.player) {
+        this.hud.moneyGain(weaponDef.reward ?? 300);
+        // a confirmed kill (not a team-mate) counts on the weapon's Killscribe
+        // after the match, and on the readout in your hands right now
+        if (killer.team !== victim.team) {
+          const w = weaponDef.id;
+          this.weaponKills[w] = (this.weaponKills[w] || 0) + 1;
+          const ks = this.killscribeCount(w);
+          if (ks != null) { if (this.vm.id === w) this.vm.setKillscribe(ks); this.hud.killscribe(ks); }
+        }
+      }
     }
     for (const [att, dmg] of victim.damageBy) if (att !== killer && dmg >= 40 && att.team !== victim.team) att.stats.assists++;
     // gear on the ground: the best gun, and the bomb
@@ -1243,7 +1258,7 @@ export class Game {
     p.reset(); p.pos.copy(pos); p.yaw = yaw; p.pitch = 0; p.crouch = 0; p.scoped = 0;
     this.deathCam = null; this.spec.target = null;
     p.slot = 0; p.switchTo(p.bestSlot());
-    this.vm.setWeapon(p.weapon.id, p.weapon.def.type, 0.3, this.skinFor(p.weapon.id));
+    this.vm.setWeapon(p.weapon.id, p.weapon.def.type, 0.3, this.vmSkin(p.weapon.id));
   }
   netDeath() {
     const p = this.player;

@@ -1,6 +1,7 @@
 // Turns an inventory item into textures/materials: paints the finish, applies
 // wear for the item's float value, and attaches sticker decals.
 import * as THREE from 'three';
+import { attachKillscribe, detachKillscribe } from './killscribe.js';
 import { SKINS, STICKERS } from './catalog.js';
 import { paintFinish } from './finishes.js';
 import { wornSticker } from './stickers.js';
@@ -195,8 +196,9 @@ export function applySkinAsync(gun, item, { size = 1024 } = {}) {
   for (const s of [...(gun.userData.stickerMeshes || [])]) s.parent.remove(s);
   gun.userData.stickerMeshes = [];
   gun.userData.skinWant = null;
-  if (!item || !SKINS[item.defId]) return gun;
+  if (!item || !SKINS[item.defId]) { detachKillscribe(gun); return gun; }
   const def = SKINS[item.defId];
+  attachKillscribe(gun, item, def);
   if (def.finish) {
     const base = keyOf(item.defId, item.float, item.seed);
     gun.userData.skinWant = base;
@@ -230,11 +232,12 @@ export function applySkin(gun, item, { size = 1024 } = {}) {
   // remove previous stickers
   for (const s of [...(gun.userData.stickerMeshes || [])]) s.parent.remove(s);
   gun.userData.stickerMeshes = [];
-  if (!item || !SKINS[item.defId]) return gun;
+  if (!item || !SKINS[item.defId]) { detachKillscribe(gun); return gun; }
   const def = SKINS[item.defId];
   if (def.finish) {
     setSkinMaterial(gun, skinTexture(item.defId, item.float, item.seed, size), def);
   }
+  attachKillscribe(gun, item, def);
   if (item.stickers?.length && !def.knife && !def.gloves) addStickers(gun, def.weapon, item.stickers);
   return gun;
 }

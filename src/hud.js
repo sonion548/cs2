@@ -45,7 +45,7 @@ export class Hud {
         <div class="ap"><span class="ico">◈</span><b></b><small class="helm"></small></div>
       </div>
       <div class="kit"></div>
-      <div class="ammo"><div class="nades"></div><div class="wname"></div><div><b class="mag"></b><span class="res"></span></div></div>
+      <div class="ammo"><div class="nades"></div><div class="wname"></div><div class="ks-hud"><span>Killscribe</span><b></b></div><div><b class="mag"></b><span class="res"></span></div></div>
       <div class="scope"><div class="scope-ring"></div></div>
       <div class="hurt"></div>
       <div class="whiteout"></div>
@@ -196,6 +196,10 @@ export class Hud {
       this.$('.hp').classList.toggle('low', shown.health <= 25);
       const w = shown.weapon, d = w.def;
       setText(this.$('.wname'), d.name);
+      // your weapon's Killscribe count, under its name
+      const ks = shown === p ? g.killscribeCount?.(w.id) : null, kh = this.$('.ks-hud');
+      kh.classList.toggle('on', ks != null);
+      if (ks != null) setText(kh.querySelector('b'), ks);
       const gun = !!d.pattern;
       setText(this.$('.mag'), gun ? w.ammo : d.type === 'grenade' ? shown.nades.filter(n => n === w.id).length : '');
       setText(this.$('.res'), gun ? ' / ' + w.reserve : '');
@@ -265,6 +269,12 @@ export class Hud {
     this.msgTimer = dur;
   }
   notice(text, dur = 2.2) { const n = this.$('.notice'); n.textContent = text; n.className = 'notice show'; this.noticeT = dur; }
+  // a kill with a Killscribe weapon: its count jumps up
+  killscribe(n) {
+    const kh = this.$('.ks-hud');
+    setText(kh.querySelector('b'), n);
+    kh.classList.remove('pop'); void kh.offsetWidth; kh.classList.add('pop');
+  }
   moneyGain(n) {
     const e = this.$('.money em');
     e.textContent = (n >= 0 ? '+$' : '-$') + Math.abs(n);
@@ -292,7 +302,8 @@ export class Hud {
     const f = this.$('.killfeed');
     const me = this.g.player;
     const e = el('div', 'kf' + (killer === me || victim === me ? ' me' : ''));
-    e.innerHTML = `${killer && killer !== victim ? `<span class="${killer.team}">${killer.name}</span>` : ''}<i>${w.name}${hs ? ' <em>⌖</em>' : ''}</i><span class="${victim.team}">${victim.name}</span>`;
+    const ks = killer === me && killer.team !== victim.team && this.g.killscribeCount?.(w.id) != null;
+    e.innerHTML = `${killer && killer !== victim ? `<span class="${killer.team}">${killer.name}</span>` : ''}<i>${ks ? '<b class="ksk">KS</b> ' : ''}${w.name}${hs ? ' <em>⌖</em>' : ''}</i><span class="${victim.team}">${victim.name}</span>`;
     f.prepend(e);
     while (f.children.length > 6) f.lastChild.remove();
     setTimeout(() => e.remove(), 7000);
