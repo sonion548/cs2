@@ -29,23 +29,28 @@ const D = db.data;
 for (const u of Object.values(D.users)) if (E.migrateProfile(u)) db.dirty();
 for (const l of D.listings) if (E.migrateItem(l.item)) db.dirty();
 
-// One-off credits for accounts that lost out to a bug, applied once each (the
-// id is kept on the account) the first time the server starts with the
-// account present.
+// One-off credits or cases for particular accounts (one that lost out to a
+// bug, or missed a gift), applied once each (the id is kept on the account)
+// the first time the server starts with the account present.
 const GRANTS = [
   // Nov 2026: a 37,000 buy order for a bayonet was filled by a market bot with
   // a 19,000 copy at the full bid (orders then took any wear). Fixed in market.js.
   { id: 'buy-order-refund-2026-11', name: 'E4X3Z2', credits: 17000, note: 'Refund: a buy order was filled with a cheaper copy' },
+  // Nov 2026: this account was made after the first two Gold Case gifts went
+  // out, so it missed them: those two now, and with the third gift (GIFTS in
+  // src/shared/economy.js, which every existing account gets) three in all
+  { id: 'gold-cases-missed-2026-11', name: 'crustylips67tung', cases: ['gold', 'gold'], note: 'Gift: the two Gold Cases you missed' },
 ];
 for (const g of GRANTS) {
   const u = Object.values(D.users).find(x => String(x.name || '').toLowerCase() === g.name.toLowerCase());
   if (!u) { console.log(`grant ${g.id}: no account named ${g.name} yet`); continue; }
   u.grants ||= [];
   if (u.grants.includes(g.id)) continue;
-  u.credits += g.credits;
+  if (g.credits) u.credits += g.credits;
+  for (const c of g.cases || []) (u.items ||= []).push(E.makeCase(c));
   u.grants.push(g.id);
-  (u.history ||= []).unshift({ t: Date.now(), type: 'refund', value: g.credits, note: g.note });
-  console.log(`grant ${g.id}: ${g.credits} credits to ${u.name}`);
+  (u.history ||= []).unshift(g.cases ? { t: Date.now(), type: 'gift', note: g.note } : { t: Date.now(), type: 'refund', value: g.credits, note: g.note });
+  console.log(`grant ${g.id}: ${[g.credits ? `${g.credits} credits` : '', g.cases ? `${g.cases.length} cases` : ''].filter(Boolean).join(' and ')} to ${u.name}`);
   db.dirty();
 }
 const MARKET_FEE = 0.1;

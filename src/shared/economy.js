@@ -15,6 +15,9 @@ export const GIFTS = [
   // Nov 2026: a Gold Case for every existing player, then one more
   { id: 'gold-case-2026-11', cases: ['gold'], note: 'Gift: a Gold Case for every player' },
   { id: 'gold-case-2026-11b', cases: ['gold'], note: 'Gift: another Gold Case for every player' },
+  // Nov 2026: and a third (an account that missed the first two gets those
+  // as well: GRANTS in server/index.js)
+  { id: 'gold-case-2026-11c', cases: ['gold'], note: 'Gift: a Gold Case for every player' },
 ];
 
 export function freshProfile(name = 'You') {

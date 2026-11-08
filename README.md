@@ -428,10 +428,12 @@ dropped them.
   part way through blends into the new one instead of snapping back to the start. Checked by stepping
   every knife's inspect at 120 fps: no frame-to-frame jumps or sudden changes of speed in the knife,
   hand or elbow.
-- **Two Gold Cases for every existing player** (Nov 2026): every account that existed when each gift went
-  live gets it once, with a "Gift" row in its history: a first Gold Case, then one more (separate gifts, so
-  players who already had the first still get the second). New accounts don't get them (they start with
-  their own Gold Case). One-off gifts like this are the `GIFTS` list in `src/shared/economy.js`.
+- **Three Gold Cases for every existing player** (Nov 2026): every account that existed when each gift went
+  live gets it once, with a "Gift" row in its history: a first Gold Case, then a second, then a third
+  (separate gifts, so players who already had the earlier ones still get the later ones). New accounts
+  don't get them (they start with their own Gold Case). One-off gifts like this are the `GIFTS` list in
+  `src/shared/economy.js`; gifts or refunds for one account are the `GRANTS` list in `server/index.js`
+  (crustylips67tung, made after the first two went out, gets those two as well: three with the third gift).
 
 ## Blender models
 
