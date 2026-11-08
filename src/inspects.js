@@ -74,22 +74,28 @@ function ringSpin(t0, p, from, turns = 2, d = 0.9) {
   ];
 }
 
-// Balisong: a close (free handle round once, blade back into the handles) or
-// an open (blade swings out the front, the handle round again), each flicked
-// from the wrist with the fingers lifting to let the handle by.
-// The knife slides out in the hand so it's held by the far end of one handle
-// and the blade swings round the pin clear of the fingers, as flippers hold it.
-const SLIDE = -0.068;
-function bali(t0, p, bb, bh, d = 0.42) {
+// Balisong: a close (the blade swings back between the handles) or an open
+// (it swings out again the same way), each driven from the wrist: it cocks
+// the other way, the forearm turns over in a flick while the free handle
+// goes once round the pin, and the palm catches the handle as it comes back.
+// The blade goes in and out on the fingers' side (never across the base of
+// the thumb, which can't get out of its way); the handle leaves past the
+// fingers and comes home into the palm from the open side. The knife slides
+// out in the hand first so it's held by the far end of one handle, as
+// flippers hold it. The fingers lifting to let the handle and blade by is
+// worked out from where those parts are (see the viewmodel), so it's always
+// in time with them.
+const SLIDE = -0.036;
+function bali(t0, p, bbFrom, bbTo, bh, d = 0.42) {
   const r = p.roll || 0, f = p.flex || 0, y = p.y || 0;
   p = { ...p, slide: SLIDE };
   return [
-    // wind up: the wrist cocks the other way
-    [t0, { ...p, bb, bh, roll: r + 0.55, flex: f + 0.15, y }],
-    // snap: the forearm turns over, the free handle and blade go round
-    [t0 + d * 0.45, { ...p, bb: bb + PI * 0.5, bh: bh - PI * 1.05, roll: r - 0.8, flex: f - 0.25, y: y + 0.014, mi: 0.6, ix: 0.3, th: 0.25 }],
-    // catch: the handle slaps back into the palm
-    [t0 + d, { ...p, bb: bb + PI, bh: bh - TAU, roll: r + 0.1, flex: f, y: y - 0.006, ...GRIP }],
+    // wind up: the wrist cocks the other way and the grip eases
+    [t0, { ...p, bb: bbFrom, bh, roll: r + 0.42, flex: f + 0.14, y, ix: 0.12, mi: 0.1, th: 0.12 }],
+    // snap: the forearm turns over, the free handle and blade swing round
+    [t0 + d * 0.5, { ...p, bb: bbFrom + (bbTo - bbFrom) * 0.55, bh: bh + PI * 1.1, roll: r - 0.62, flex: f - 0.2, y: y + 0.012, ix: 0.18, th: 0.18 }],
+    // catch: the handle slaps back into the palm, the wrist gives a little
+    [t0 + d, { ...p, bb: bbTo, bh: bh + TAU, roll: r + 0.06, flex: f + 0.04, y: y - 0.005, ...GRIP }],
   ];
 }
 
@@ -130,16 +136,26 @@ export const KNIFE_INSPECTS = {
       [3.9, show({ roll: 0.32, flex: 0.95, y: 0.055, ring: 3 * TAU })],
       [4.45, show({ roll: 0.38, flex: 1.02, y: 0.052, ring: 3 * TAU, th: 0.08 })]],
   ) },
-  butterfly: { len: 4.6, end: { bb: 6 * PI, bh: -12 * PI, twirl: TAU }, keys: seq(
-    [[0.35, show({ flex: -0.3, y: 0.03 })]],
-    bali(0.45, show({ flex: -0.25, y: 0.035 }), 0, 0),                    // close
-    bali(0.95, show({ flex: -0.25, y: 0.035 }), PI, -TAU),                // open
-    twirl(1.45, show({ flex: -0.35, bb: TAU, bh: -2 * TAU, slide: SLIDE }), 0, TAU, 0.45),
-    bali(2.4, show({ flex: -0.25, y: 0.035, twirl: TAU }), TAU, -2 * TAU, 0.34),       // fast close,
-    bali(2.78, show({ flex: -0.25, y: 0.035, twirl: TAU }), 3 * PI, -3 * TAU, 0.34),  // open,
-    bali(3.16, show({ flex: -0.25, y: 0.035, twirl: TAU }), 4 * PI, -4 * TAU, 0.34),  // close,
-    bali(3.54, show({ flex: -0.25, y: 0.035, twirl: TAU }), 5 * PI, -5 * TAU, 0.34),  // open
-    [[4.15, show({ flex: -0.55, bb: 6 * PI, bh: -12 * PI, twirl: TAU })]],
+  // Balisong: shown open, slid out to the end of a handle, flipped closed and
+  // open again, brought back into the hand for a look at both faces of the
+  // blade, then four quick flips and a settle back to the grip.
+  // Balisong: shown open, slid out to the end of a handle, flipped closed and
+  // open again, brought back into the hand for a look at both faces of the
+  // blade, then four quick flips and a settle back to the grip.
+  butterfly: { len: 5.3, fluid: true, end: { bh: 12 * PI }, keys: seq(
+    [[0.35, show({ flex: -0.3, y: 0.03 })], [0.55, show({ flex: -0.26, y: 0.034, slide: SLIDE, ix: 0.1, mi: 0.08 })]],
+    bali(0.62, show({ flex: -0.25, y: 0.035 }), 0, -PI, 0, 0.46),                // close
+    bali(1.14, show({ flex: -0.25, y: 0.035 }), -PI, 0, TAU, 0.46),              // open
+    [[1.78, show({ flex: -0.42, y: 0.038, bb: 0, bh: 2 * TAU, slide: 0 })],
+      [2.12, show({ roll: 0.55, flex: -0.32, y: 0.04, bb: 0, bh: 2 * TAU, th: 0.08 })],
+      [2.42, show({ roll: -0.18, flex: -0.38, y: 0.037, bb: 0, bh: 2 * TAU })],
+      [2.56, show({ flex: -0.26, y: 0.035, bb: 0, bh: 2 * TAU, slide: SLIDE, ix: 0.1, mi: 0.08 })]],
+    // each wind-up starts a beat after the last catch, so the wrist has time to turn back
+    bali(2.66, show({ flex: -0.25, y: 0.035 }), 0, -PI, 2 * TAU, 0.36),          // fast close,
+    bali(3.12, show({ flex: -0.25, y: 0.035 }), -PI, 0, 3 * TAU, 0.36),          // open,
+    bali(3.58, show({ flex: -0.25, y: 0.035 }), 0, -PI, 4 * TAU, 0.36),          // close,
+    bali(4.04, show({ flex: -0.25, y: 0.035 }), -PI, 0, 5 * TAU, 0.36),          // open
+    [[4.6, show({ flex: -0.45, y: 0.033, bb: 0, bh: 12 * PI, slide: 0 })]],
   ) },
   flip: { len: 3.8, end: { twirl: TAU, flip: TAU }, keys: seq(
     [[0.4, show({ flex: -0.35 })]],

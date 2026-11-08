@@ -397,7 +397,8 @@ const KNIVES = {
   },
   butterfly() {
     const M = mats(), g = new THREE.Group();
-    g.add(blade([['M', 0.0, 0.01], ['L', 0.15, 0.01], ['Q', 0.18, 0.008, 0.2, -0.002], ['Q', 0.15, -0.015, 0.0, -0.012]], 0.005));
+    // shorter than the handles, so it hides between them when closed
+    g.add(blade([['M', 0.0, 0.01], ['L', 0.084, 0.01], ['Q', 0.102, 0.008, 0.114, -0.002], ['Q', 0.086, -0.015, 0.0, -0.012]], 0.005));
     const mkHandle = (side) => {
       const h = new THREE.Group();
       // channel handle with cut-outs
@@ -411,7 +412,7 @@ const KNIVES = {
     const B = new THREE.Group(); B.name = 'bfB'; B.add(mkHandle(-1)); B.position.set(0.0, 0.0, 0);
     g.add(A, B);
     g.add(cylZ(0.004, 0.02, 0.003, 0.0, 0, M.brass));
-    return { g, tip: 0.2, butterfly: true };
+    return { g, tip: 0.114, grip: -0.066, butterfly: true };
   },
   flip() {
     const M = mats(), g = new THREE.Group();
@@ -488,7 +489,7 @@ export { KNIFE_TYPES } from './shared/knives.js';
 
 function knife(type) {
   const k = (KNIVES[type] || KNIVES.standard)();
-  return finish(k.g, { muzzle: [k.tip, 0], grip: [-0.04, 0], knifeType: type, butterfly: !!k.butterfly, ring: !!k.ring });
+  return finish(k.g, { muzzle: [k.tip, 0], grip: [k.grip ?? -0.04, 0], knifeType: type, butterfly: !!k.butterfly, ring: !!k.ring });
 }
 
 // ---------------------------------------------------------------- grenades and the bomb

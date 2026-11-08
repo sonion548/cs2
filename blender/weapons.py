@@ -1111,8 +1111,11 @@ def karambit():
 
 @knife
 def butterfly():
+    """Balisong: the blade is shorter than the handles, as on the real thing, so
+    it hides completely between them when the knife is closed (a longer blade
+    would poke out past the handles and through the hand in a flip)."""
     M = mats()
-    blade('blade', [('M', 0.0, 0.01), ('L', 0.15, 0.01), ('Q', 0.18, 0.008, 0.2, -0.002), ('Q', 0.15, -0.015, 0.0, -0.012)], edge_below(lambda x: 0.0), 0.005, M['blade'])
+    blade('blade', [('M', 0.0, 0.01), ('L', 0.084, 0.01), ('Q', 0.102, 0.008, 0.114, -0.002), ('Q', 0.086, -0.015, 0.0, -0.012)], edge_below(lambda x: 0.0), 0.005, M['blade'])
     for name, side in (('bfA', 1), ('bfB', -1)):
         piv = empty(name, (0.003, 0, 0))
         hz = -0.0005 if side > 0 else -0.0125
@@ -1124,7 +1127,8 @@ def butterfly():
         pin = cyl(f'{name}_pin', 0.0022, 0.022, (-0.118, 0, hz + 0.0065), M['brass'], axis='Y'); pin.parent = piv
     latch = box('latch', (0.03, 0.002, 0.004), (-0.11, 0, -0.006), M['steel'], bevel=0.0005)
     cyl('pivot_pin', 0.004, 0.022, (0.003, 0, 0), M['brass'], axis='Y')
-    return 0.2
+    # the fist closes round the middle of the handles
+    return 0.114, -0.066
 
 
 @knife

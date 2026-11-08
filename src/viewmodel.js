@@ -155,6 +155,18 @@ function ringOf(gun) {
   return { c: bb.getCenter(new THREE.Vector3()).applyMatrix4(toGun), n: axis.transformDirection(toGun) };
 }
 
+// How far a balisong hand has to open (0..1) for its free handle (angle bh,
+// 0 = in the palm) and blade (bb, pi = closed between the handles) to pass:
+// most when either is swinging in close to the palm, none once it's home or
+// well away.
+const _st = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
+function balisongClearance(bh, bb) {
+  const wh = bh - TAU * Math.round(bh / TAU), wb = bb - Math.PI - TAU * Math.round((bb - Math.PI) / TAU);
+  const bump = (w, hi) => _st(0.04, 0.3, Math.abs(w)) * _st(hi, hi - 0.6, Math.abs(w));
+  // the handle passes the fingers on the + side; the blade comes and goes on the fingers' side
+  return { h: bump(wh, 2.0) * (wh > 0 ? 1 : 0.45), b: bump(wb, 2.1) * (wb > 0 ? 1 : 0.45), closed: _st(0.5, 0.0, Math.abs(wb)) };
+}
+
 // A balisong's pin: where its handles turn and the axis, in the knife's frame.
 function pinOf(gun, handle) {
   gun.updateMatrixWorld(true);
@@ -782,6 +794,22 @@ export class ViewModel {
       if (P.wave) { const ph = this.inspectT * 10; cR = [0, 1, 2, 3, 4].map(i => (i ? P.wave * Math.sin(ph - i * 0.95) : P.wave * 0.4 * Math.sin(ph))); }
       // ring spins: the index finger pumps with each turn of the knife
       if (this.ringDrive > 0) { cR ||= [0, 0, 0, 0, 0]; cR[1] += 0.38 * this.ringDrive * Math.sin(P.ring + 1.4); }
+      // balisong: the fingers lift out of the way as the free handle or the
+      // blade swings back toward the palm (the handle comes in from the
+      // fingers' side) and close on the handle as it lands
+      if (this.pin) {
+        const c = balisongClearance(P.bh || 0, P.bb || 0), need = Math.max(c.h, c.b);
+        // closed in the fist, the thumb tucks round the handles, its base clear of the blade's edge
+        R[0] -= 0.2 * c.closed;
+        if (need > 0) {
+          R[2] = Math.max(R[2], need); R[3] = Math.max(R[3], need); R[4] = Math.max(R[4], need * 0.95);
+          // the index finger makes way too (the thumb and the heel of the hand hold the handle)
+          R[1] = Math.max(R[1], need); R[0] = Math.max(R[0], need * 0.25);
+          // and lift a little past straight, clear of the swing
+          cR ||= [0, 0, 0, 0, 0];
+          cR[1] -= 0.3 * need; cR[2] -= 0.3 * need; cR[3] -= 0.32 * need; cR[4] -= 0.3 * need;
+        }
+      }
       if (this.dual) { L = R.slice(); cL = cR; }
     }
     if (gunInspect > 0) R[1] = Math.max(R[1], 0.32 * gunInspect);      // trigger finger off the gun while it's turned over

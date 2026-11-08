@@ -341,6 +341,14 @@ dropped them.
   tapped together), so the T-bars never leave the fists; the left dagger no longer copies the right
   hand's movements. The raised glove seams are bound to their own finger, so a finger moving on its own
   no longer drags a sheet of seam behind it (the "webbing" in the spins).
+- **Balisong, redone**: the blade is now shorter than the handles, as on a real balisong, so it hides
+  completely between them when closed (it used to stick 7 cm out past them, through the hand). Each flip
+  is driven from the wrist (it cocks back, the forearm turns over in a flick, the palm catches the handle),
+  the blade goes in and out on the fingers' side and the free handle comes home into the palm from the open
+  side, and the fingers lift out of the way as the handle or blade swings past and close as it lands,
+  worked out every frame from where those parts are. A frame-by-frame clipping check (the hand as capsules
+  round its bones, every knife vertex tested at 80 fps) finds no contact between the blade or the swinging
+  handle and the hand.
 - **Smooth inspects**: the knife no longer flips half a turn once per revolution in ring spins (the side
   of the ring the finger goes through is settled once per spin, and the knife blends onto the finger along
   a fixed path with the spin on top); every inspect pose is softened over a few hundredths of a second and
