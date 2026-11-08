@@ -403,6 +403,24 @@ dropped them.
   bid. A bot's bid stays under the least a copy it takes can be worth (its most worn float and its
   plainest pattern, such as a low fade or the cheapest Doppler phase) and always at least a credit under
   what any bot lists such a copy for, so nothing can be bought and sold straight back to a bot at a profit.
+- **Balisong tricks**: the balisong's inspect is now a run of real flipping tricks. Up with the flat of the
+  blade to you and let slide out to the ends of the handles; a basic close, the closed knife turned to you
+  (blade hidden), a basic open; fanning (four flips run straight into each other); back into the fist for
+  a Chaplin (the free handle swings out, the index finger straightens into the crotch between the handles
+  and the knife is spun twice round it, facing you, then caught back into the fist); then an aerial: the
+  hand turns the closed knife upright with the palm up and flicks it into the air, it turns once end over
+  end in front of you and opens on the way, and drops back along its length into the hand. One inspect in
+  twenty fumbles the catch: the knife strikes the fingers, pops up with its handles flopping open, tumbles
+  out of sight while the fist closes on nothing, and the hand goes down after it, comes back up with it
+  closed, shakes it off and flips it open.
+- **Balisong model**: each handle is now a full-height plate on its own side of the blade, rounded round
+  the pivot, with no windows through it, and the blade is a realistic 3.6 mm thick. Closed, the blade is
+  hidden from both sides (only a thin line of the spine or edge shows down the gap between the handles, as
+  on the real thing). Measured from 26 directions, the blade area showing on a closed knife went from
+  about 30% to about 6%. The spacers and latch at the pommel sit beyond the reach of the blade's tip.
+  Checked by stepping the inspect every 20 ms: the knife never visibly passes into the hand (the deepest
+  visible contact is 1.2 mm), and stepping it at 120 fps finds no jumps; the only sharp moments are the
+  flick of the throw and the catches.
 - **Smooth inspects**: the knife no longer flips half a turn once per revolution in ring spins (the side
   of the ring the finger goes through is settled once per spin, and the knife blends onto the finger along
   a fixed path with the spin on top); every inspect pose is softened over a few hundredths of a second and

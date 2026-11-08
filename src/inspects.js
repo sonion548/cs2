@@ -14,6 +14,10 @@
 //           ringW  0..1: the knife moves off the fist onto the index finger
 //           bb bh  balisong: blade and free handle angles against the hand
 //           slide  along its length in the hand (balisong flips: held by the end)
+//           free   0..1: the knife is out of the hand (in the air, falling, spun
+//                  on a finger), so the wrist doesn't pump with its flips
+//           kx ky  moved in the hand, across the flat and across the edge (an
+//                  aerial coming down clear of the palm and thumb into the hand)
 //   fingers th ix mi  open (1 = straight, negative = tighter): thumb, index,
 //                  the other three
 //           rp     added to the ring and little fingers (tucked in when a
@@ -127,12 +131,175 @@ function basic(t0, p, dir, bh0, bb0, d = 0.66, settle = true) {
   ];
 }
 
+// Fanning: basic flips run straight into one another, closing and opening in
+// turn, n of them (from open; an even n ends open).
+function fan(t0, p, n, d = 0.34) {
+  const out = [];
+  for (let i = 0, dir = -1; i < n; i++, dir = -dir) {
+    out.push(...basic(t0 + i * d, p, dir, dir < 0 ? 0 : -TAU, dir < 0 ? 0 : -PI, d, i === n - 1));
+  }
+  return out;
+}
+
+// Chaplin: a flick of the wrist throws the free handle out, the index finger
+// straightens forward into the crotch between the handles, and the knife is
+// let go onto it and spun round it `turns` times (fast, slowing), facing you;
+// then the held handle comes round into the palm, the fist closes on it and
+// the free handle swings back shut. From the fist, knife open. (The viewmodel
+// puts the crotch on the finger and keeps the spin going with the wrist.)
+const CHAP_V = -2.2;                                          // the free handle out this far: room for the finger between the handles
+function chaplin(t0, p, turns = 2, d = 0.85) {
+  const to = TAU * turns, f = p.flex || 0;
+  const SP = { ix: 0.95, mi: -0.2, th: 0.35, rp: 0 };          // the index out straight, the rest tucked in
+  // (going onto the finger, the index is straightened first and the other
+  // fingers open to let the handles out of the fist; coming back, the thumb
+  // tucks clear of the handles and the free handle comes home before the
+  // fist closes: it swings round on the palm's side of the knife)
+  const OUTF = { ix: 0.95, mi: 0.75, th: 0.3, rp: 0 }, BACK = { ix: 0.6, mi: 0.75, th: -0.35, rp: 0 };
+  return [
+    [t0, { ...knifeOnly(p), ...GRIP, bh: 0, ringW: 0, ring: 0, free: 0, slide: 0 }],
+    [t0 + 0.12, { ...p, flex: f + 0.16, ...OUTF, bh: CHAP_V * 0.85, ringW: 0, ring: 0, free: 0.3 }],
+    [t0 + 0.22, { ...p, flex: f + 0.08, ...OUTF, bh: CHAP_V, ringW: 0.6, ring: 0.3, free: 0.8 }],
+    [t0 + 0.32, { ...p, ...SP, bh: CHAP_V, ringW: 1, ring: 0.85, free: 1 }],
+    [t0 + 0.32 + d * 0.5, { ...p, ...SP, bh: CHAP_V, ringW: 1, ring: to * 0.6, free: 1 }],
+    [t0 + 0.32 + d, { ...p, ...SP, bh: CHAP_V, ringW: 1, ring: to - 0.55, free: 1 }],
+    [t0 + 0.46 + d, { ...p, ...BACK, bh: CHAP_V * 0.9, ringW: 0.4, ring: to - 0.12, free: 0.6 }],
+    [t0 + 0.56 + d, { ...p, ...BACK, bh: CHAP_V * 0.45, ringW: 0, ring: to, free: 0.2 }],
+    [t0 + 0.66 + d, { ...p, ...BACK, bh: 0, free: 0 }],
+    [t0 + 0.8 + d, { ...p, ...GRIP, flex: f + 0.06, slide: 0 }],
+  ];
+}
+
+// Aerial. The hand turns the closed knife upright, palm to you, still pinched
+// by the end of its handle; the wrist dips and flicks it straight up out of
+// the fingers; it turns once end over end in front of you (facing you) and
+// opens in the air (the free handle swings round, the blade comes out), and
+// drops back down along its length into the open hand, the fingers closing on
+// it. (Caught like that it comes down in front of the palm; with the palm
+// down, as in the flips, a falling knife could only come through the back of
+// the hand.) Returns the keys and when the catch has settled; the caller
+// turns the hand back. drop: the fingers close a moment late, the knife
+// glances off them and falls out of sight, the hand goes down after it and
+// comes back up with it, closed (it's flipped open again after).
+// (it comes down off the palm and toward the fingers, clear of the thumb,
+// tucked in out of its way, and is closed into the hand)
+const AIR_T = 0.62, AIR_H = 0.05, TH_AIR = -0.45, KX_AIR = -0.02, KY_AIR = -0.025;
+const UPRIGHT = { roll: 1.45, flex: 1.3, yaw: 0, x: -0.02, y: -0.004, z: 0.02 };
+function aerial(t0, p, drop = false) {
+  const U = UPRIGHT, uf = U.flex, uy = U.y;
+  const f = p.flex || 0, y = p.y || 0, x = p.x || 0, z = p.z || 0;
+  const tr = t0 + 0.6, tc = tr + AIR_T, S0 = BS - 0.015;
+  const late = drop ? 0.45 : 0;
+  const k = [
+    [t0, { ...knifeOnly(p), ...PINCH, lift: 0, flip: 0, free: 0, bh: -TAU, bb: -PI }],
+    [t0 + 0.36, { ...U, ...PINCH, slide: BS, lift: 0, flip: 0, bh: -TAU, bb: -PI }],
+    [t0 + 0.5, { ...U, ...PINCH, flex: uf + 0.12, y: uy - 0.012 }],
+    [tr - 0.03, { ...U, ...PINCH, ix: 0.3, th: -0.1 }],
+    [tr, { ...U, ...OPEN, rp: 0, flex: uf - 0.2, y: uy + 0.014, slide: S0, lift: 0.02, flip: -0.04, free: 1, bh: -TAU, bb: -PI }],
+    [tr + AIR_T * 0.45, { ...U, ...OPEN, th: TH_AIR, rp: 0, flex: uf - 0.08, y: uy + 0.016 }],
+    [tc - 0.1, { ...U, ...OPEN, th: TH_AIR, rp: 0, flex: uf - 0.04, y: uy + 0.012 }],
+  ];
+  // in the air: up and down on a parabola, turning steadily and opening on
+  // the way, coming down along its length into the hand (a fumbled one is
+  // turning a little late and comes down onto the fingers at an angle)
+  // (the turn is all but done as the handle reaches the fingers: it eases
+  // off over the last of the flight, so the handle comes down into the hand
+  // lined up instead of sweeping through it)
+  // The last of the drop is along the knife's own length (it stands upright
+  // then, so that's straight down too): straight down the world, which is a
+  // little off its length, would bring it in toward the palm.
+  const turn = (u) => { const v = Math.min(1, u / 0.76); return v * (1.35 - 0.35 * v * v); };
+  // It's open before it comes down near the hand, and comes down a few
+  // millimetres off the palm (kx), pressed onto it as the fingers close.
+  for (let i = 1; i <= 12; i++) {
+    const u = i / 12, v = Math.min(1, u / 0.8);
+    k.push([tr + AIR_T * u, {
+      lift: 0.02 * (1 - v) + 4 * AIR_H * v * (1 - v) + (drop ? 0.014 * u * u : 0), flip: -0.04 - (TAU - 0.04 - late) * turn(u), free: 1,
+      slide: S0 * (1 - u) ** 0.6, bh: -TAU + TAU * Math.min(1, u / 0.6), bb: -PI + PI * Math.min(1, u / 0.56),
+      kx: KX_AIR * Math.min(1, Math.max(0, (u - 0.45) / 0.3)), ky: KY_AIR * Math.min(1, Math.max(0, (u - 0.45) / 0.3)),
+    }]);
+  }
+  if (!drop) {
+    k.push([tc, { ...U, ...GRIP, rp: 0, y: uy + 0.004, lift: 0, flip: -TAU, slide: 0, bh: 0, bb: 0, free: 0, kx: 0, ky: 0 }],
+      [tc + 0.08, { ...U, ...GRIP, y: uy - 0.006, flex: uf + 0.05 }], [tc + 0.24, { ...U, ...GRIP }]);
+    return { keys: k, tc: tc + 0.24 };
+  }
+  // the fumble: its handle strikes the open fingers and it pops back up and
+  // out toward the middle, turning the other way, the free handle and blade
+  // flopping open; the fist snatches at it a moment late and closes on
+  // nothing; it tumbles down clear of the hand and out of sight, and only
+  // then does the hand go down after it (the knife falls on its own: its
+  // lift takes the hand's drop back out)
+  const tb = tc + 0.12, fall = (tau) => 2.8 * tau * tau;
+  const dive = (tau) => 0.4 * (tau < 0.25 ? 0 : Math.min(1, ((tau - 0.25) / 0.35) ** 1.5));
+  // (it bounces off away from the palm, kx, so it clears the closing fingers)
+  k.push([tc + 0.05, { lift: 0.034, flip: -TAU + late + 0.2, slide: -0.012, bh: 0.2, bb: -0.08, free: 1, kx: KX_AIR - 0.016, ky: KY_AIR }],
+    [tb, { lift: 0.05, flip: -TAU + late + 0.6, slide: -0.03, bh: 0.6, bb: -0.3, free: 1, kx: KX_AIR - 0.034, ky: KY_AIR - 0.005 }]);
+  for (let i = 1; i <= 8; i++) {
+    const tau = i * 0.07;
+    k.push([tb + tau, { lift: 0.05 - fall(tau) + dive(tau), flip: -TAU + late + 0.6 + 5 * tau, slide: -0.03 - 0.1 * tau,
+      bh: 0.6 + 1.3 * Math.min(1, tau / 0.4), bb: -0.3 - 0.8 * Math.min(1, tau / 0.45), free: 1, kx: KX_AIR - 0.034 - 0.06 * tau, ky: KY_AIR - 0.005 }]);
+  }
+  k.push([tc + 0.06, { ...U, ...OPEN, th: TH_AIR, rp: 0, flex: uf - 0.02, y: uy + 0.012 }],
+    [tc + 0.2, { ...U, ...GRIP, flex: uf + 0.1, y: uy + 0.002, x: U.x - 0.012 }],
+    [tb + 0.25, { ...U, ...GRIP, flex: uf + 0.16, y: uy - 0.008, x: U.x - 0.01 }],
+    [tb + 0.6, { ...p, ...LOOSE, flex: f + 0.3, y: y - 0.4, x: x + 0.02, z: z + 0.04 }]);
+  // out of sight: picked up, back in the fist, closed
+  const tp = tb + 0.78;
+  k.push([tp, { ...p, ...GRIP, flex: f + 0.2, y: y - 0.42, x: x + 0.03, z: z + 0.04, lift: 0, flip: 0, slide: 0, bh: -TAU, bb: -PI, free: 0, kx: 0, ky: 0 }],
+    [tp + 0.12, { ...p, ...GRIP, flex: f + 0.2, y: y - 0.42, x: x + 0.03, z: z + 0.04 }],
+    // up again with it, a shake to brush it off
+    [tp + 0.6, { ...p, ...GRIP, y: y + 0.004 }],
+    [tp + 0.74, { ...p, ...GRIP, roll: (p.roll || 0) + 0.14 }],
+    [tp + 0.86, { ...p, ...GRIP, roll: (p.roll || 0) - 0.08 }],
+    [tp + 0.98, { ...p, ...GRIP }]);
+  return { keys: k, tc: tp + 0.98 };
+}
+
 const seq = (...parts) => parts.flat();
 // A move's opening key, minus the hand's own channels: the wrist keeps flowing
 // from wherever the last move left it instead of being yanked to this move's
 // pose within a few hundredths of a second.
 const HAND_KEYS = ['roll', 'flex', 'yaw', 'x', 'y', 'z'];
 const knifeOnly = (o) => Object.fromEntries(Object.entries(o).filter(([k]) => !HAND_KEYS.includes(k)));
+
+// Balisong: real flipping tricks, in a row. Up with the flat of the blade to
+// you and let slide out to the ends of the handles; a basic close, the closed
+// knife turned to you (the blade hidden between the handles), a basic open;
+// fanning (four flips run into each other); back into the fist for a Chaplin
+// (spun round the index finger); out again, closed, and an aerial (tossed up,
+// turning once and opening in the air, caught in the fist); the open knife
+// shown and back to the grip. One inspect in twenty (the viewmodel picks)
+// fumbles the catch: the knife falls, the hand goes down after it and comes
+// back up with it closed, shakes it off and flips it open.
+function balisong(drop) {
+  const F = show({ flex: -0.28, y: 0.036 });                  // the pose the flips are done in
+  const EASE = { ix: 0.2, mi: 0.24, th: -0.6, rp: 0.08 };     // the grip loosened to let the knife slide (the thumb tucked clear of the handles' ends)
+  const CH = { roll: 0, flex: 0, yaw: 0, x: -0.012, y: 0.032, z: 0 };   // for the Chaplin: the index finger points away, the spin faces you
+  // slid out to the ends of the handles (every channel is held up to a move:
+  // a key far back would otherwise have it drift across the moves between)
+  const out = (t) => [[t, show({ flex: -0.24, y: 0.038, ...EASE, slide: 0 })], [t + 0.2, { ...F, ...PINCH }]];
+  const into = (t, pose) => [[t, { slide: BS }], [t + 0.1, show({ flex: -0.36, y: 0.038, ...EASE })], [t + 0.28, { ...pose, slide: 0, ...GRIP, rp: 0 }]];
+  const air = aerial(7.4, F, drop);
+  const keys = seq(
+    [[0.36, show({ flex: -0.32, y: 0.03 })], [0.46, { slide: 0 }]], out(0.6),
+    basic(0.9, F, -1, 0, 0),
+    // shut: the wrist turns it to you and back
+    [[1.75, show({ roll: 0.3, flex: -0.42, y: 0.04, ...PINCH })], [1.98, show({ roll: 0.06, flex: -0.3, y: 0.038, ...PINCH })]],
+    basic(2.08, F, 1, -TAU, -PI, 0.66, false),
+    fan(2.78, F, 4, 0.34),
+    into(4.24, CH),
+    chaplin(4.62, CH, 2, 0.85),
+    out(6.4),
+    basic(6.78, F, -1, 0, 0, 0.6, false),
+    air.keys,
+  );
+  const tc = air.tc;
+  if (drop) keys.push(...out(tc + 0.1), ...basic(tc + 0.42, F, 1, -TAU, -PI), ...into(tc + 1.2, show({ flex: -0.42, y: 0.036 })));
+  // caught: the hand turns back over, the open knife shown flat to you
+  else keys.push([tc + 0.42, show({ flex: -0.44, y: 0.036, ...GRIP })], [tc + 0.72, show({ roll: 0.1, flex: -0.46, y: 0.037, ...GRIP })]);
+  return { len: tc + (drop ? 1.95 : 1.12), fluid: true, end: { flip: drop ? 0 : -TAU, ring: 2 * TAU }, keys };
+}
 
 export const KNIFE_INSPECTS = {
   standard: { len: 3.9, end: { twirl: TAU }, keys: seq(
@@ -164,32 +331,8 @@ export const KNIFE_INSPECTS = {
       [3.9, show({ roll: 0.32, flex: 0.95, y: 0.055, ring: 3 * TAU })],
       [4.45, show({ roll: 0.38, flex: 1.02, y: 0.052, ring: 3 * TAU, th: 0.08 })]],
   ) },
-  // Balisong: brought up with the flat of the blade to you, let slide out to
-  // the ends of the handles, flipped closed, a turn of the wrist to show it
-  // shut, flipped open, taken back into the fist for a look along both faces,
-  // then out again for a quick close and open and back into the grip.
-  butterfly: { len: 7.0, fluid: true, keys: (() => {
-    const F = show({ flex: -0.28, y: 0.036 });                  // the pose the flips are done in
-    const EASE = { ix: 0.2, mi: 0.24, th: -0.6, rp: 0.08 };     // the grip loosened to let the knife slide (the thumb tucked clear of the handles' ends)
-    return seq(
-      // up, the flat to you; a little flick lets the knife slide out to the ends of the handles
-      [[0.36, show({ flex: -0.32, y: 0.03 })], [0.46, { slide: 0 }],
-        [0.6, show({ flex: -0.24, y: 0.038, ...EASE })], [0.8, { ...F, ...PINCH }]],
-      basic(0.9, F, -1, 0, 0),
-      // shut: the wrist turns it to you and back
-      [[1.8, show({ roll: 0.28, flex: -0.4, y: 0.04, ...PINCH })], [1.98, show({ roll: 0.08, flex: -0.3, y: 0.038, ...PINCH })]],
-      basic(2.1, F, 1, -TAU, -PI),
-      // back into the fist, then the wrist turned right over to show the other face
-      [[2.95, { slide: BS }], [3.06, show({ flex: -0.36, y: 0.038, ...EASE })],
-        [3.24, show({ flex: -0.45, y: 0.04, slide: 0, ...GRIP, rp: 0 })],
-        [3.68, over({ th: 0.06 })], [4.08, over(OVER2)],
-        [4.5, show({ flex: -0.3, y: 0.038, slide: 0, ...EASE })], [4.7, { ...F, ...PINCH }]],
-      // a quick close and open, one straight into the other
-      basic(4.8, F, -1, 0, 0, 0.58, false),
-      basic(5.5, F, 1, -TAU, -PI, 0.58),
-      [[6.32, show({ flex: -0.34, y: 0.036, ...EASE })], [6.52, show({ flex: -0.4, y: 0.034, slide: 0, ...GRIP, rp: 0 })]],
-    );
-  })() },
+  butterfly: balisong(false),
+  butterflyDrop: balisong(true),
   flip: { len: 4.5, end: { twirl: TAU, flip: TAU }, keys: seq(
     [[0.4, show({ flex: -0.35 })]],
     twirl(0.45, show({ flex: -0.35 }), 0, TAU, 0.42),

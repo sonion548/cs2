@@ -1111,22 +1111,42 @@ def karambit():
 
 @knife
 def butterfly():
-    """Balisong: the blade is shorter than the handles, as on the real thing, so
-    it hides completely between them when the knife is closed (a longer blade
-    would poke out past the handles and through the hand in a flip)."""
+    """Balisong. Each handle is a full-height plate on its own side of the
+    blade, rounded round the pivot, so a closed knife hides the blade
+    completely between them: from either side you see only steel, and down the
+    gap between the handles only a thin line of the spine (or the edge, set
+    deeper). No windows through the handles. The blade is shorter than the
+    handles; the spacers that close the gap at the pommel and the latch sit
+    further from the pivot than the blade's tip ever reaches, so it swings past
+    them in a flip. Open, the two plates come together as the grip."""
     M = mats()
-    blade('blade', [('M', 0.0, 0.01), ('L', 0.084, 0.01), ('Q', 0.102, 0.008, 0.114, -0.002), ('Q', 0.086, -0.015, 0.0, -0.012)], edge_below(lambda x: 0.0), 0.005, M['blade'])
+    # (3.6 mm thick, as real balisong blades are, so the gap between the handles is narrow)
+    blade('blade', [('M', 0.0, 0.01), ('L', 0.084, 0.01), ('Q', 0.102, 0.008, 0.114, -0.002), ('Q', 0.086, -0.015, 0.0, -0.012)], edge_below(lambda x: 0.0), 0.0036, M['blade'])
+    # pivot, handle half-height (the closed blade spans -0.010..0.0122), pommel
+    # end, plate thickness and the gap from the blade's middle to each plate
+    PX, H, END, T, Y0 = 0.003, 0.0134, -0.132, 0.008, 0.0023
+    outline = [('M', END + 0.006, -H), ('L', PX, -H), ('A', PX, 0, H, -PI / 2, PI / 2), ('L', END + 0.006, H),
+               ('Q', END, H, END, H - 0.006), ('L', END, -H + 0.006), ('Q', END, -H, END + 0.006, -H)]
     for name, side in (('bfA', 1), ('bfB', -1)):
-        piv = empty(name, (0.003, 0, 0))
-        hz = -0.0005 if side > 0 else -0.0125
-        h = extrude(f'{name}_handle', [('M', 0.0, hz), ('L', -0.125, hz), ('Q', -0.132, hz + 0.007, -0.125, hz + 0.013), ('L', 0.0, hz + 0.013)], 0.008, M['steel'], y=side * 0.0065, bevel=0.002)
-        for k, (a, bnd) in enumerate(((-0.02, -0.05), (-0.065, -0.1))):
-            cut(h, cutter_box((abs(bnd - a), 0.02, 0.005), ((a + bnd) / 2, side * 0.0065, hz + 0.0065)))
-        h.parent = piv
-        h.location.x -= 0.003
-        pin = cyl(f'{name}_pin', 0.0022, 0.022, (-0.118, 0, hz + 0.0065), M['brass'], axis='Y'); pin.parent = piv
-    latch = box('latch', (0.03, 0.002, 0.004), (-0.11, 0, -0.006), M['steel'], bevel=0.0005)
-    cyl('pivot_pin', 0.004, 0.022, (0.003, 0, 0), M['brass'], axis='Y')
+        piv = empty(name, (PX, 0, 0))
+        parts = []
+        h = extrude(f'{name}_handle', outline, T, M['steel'], y=side * (Y0 + T / 2), bevel=0.0012)
+        # two slots milled down the outside, not through
+        for a, b2 in ((-0.118, -0.073), (-0.063, -0.027)):
+            cut(h, cutter_box((b2 - a, 0.003, 0.0084), ((a + b2) / 2, side * (Y0 + T), 0)))
+        parts.append(h)
+        # a spacer closing the gap at the pommel (each handle fills its own half of it)
+        parts.append(box(f'{name}_spacer', (0.007, Y0 - 0.0003, 0.016), (-0.1235, side * (Y0 + 0.0003) / 2, 0), M['dark'], bevel=0.0006))
+        for k, x in enumerate((-0.123, -0.068)):
+            parts.append(cyl(f'{name}_screw{k}', 0.0021, 0.0016, (x, side * (Y0 + T + 0.0002), 0), M['brass'], axis='Y', segs=16))
+        for o in parts:
+            o.parent = piv
+            o.location.x -= PX
+    # the latch, on the held handle's pommel end in the gap between the handles
+    latch = box('latch', (0.006, 0.0022, 0.007), (-0.1315, 0, -0.007), M['dark'], bevel=0.0006)
+    latch.parent = bpy.data.objects['bfA']
+    latch.location.x -= PX
+    cyl('pivot_pin', 0.0042, 0.0216, (PX, 0, 0), M['brass'], axis='Y', segs=24)
     # the fist closes round the middle of the handles
     return 0.114, -0.066
 

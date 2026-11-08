@@ -396,22 +396,24 @@ const KNIVES = {
     return { g: pivot, tip: 0.17, ring: true };
   },
   butterfly() {
+    // (the fallback for the Blender model): each handle a full-height plate on
+    // its own side of the blade, rounded round the pivot, no windows through
+    // them, so a closed knife hides its blade completely
     const M = mats(), g = new THREE.Group();
-    // shorter than the handles, so it hides between them when closed
-    g.add(blade([['M', 0.0, 0.01], ['L', 0.084, 0.01], ['Q', 0.102, 0.008, 0.114, -0.002], ['Q', 0.086, -0.015, 0.0, -0.012]], 0.005));
+    g.add(blade([['M', 0.0, 0.01], ['L', 0.084, 0.01], ['Q', 0.102, 0.008, 0.114, -0.002], ['Q', 0.086, -0.015, 0.0, -0.012]], 0.0036));
+    const PX = 0.003, H = 0.0134, END = -0.132, T = 0.008, Y0 = 0.0023;
     const mkHandle = (side) => {
       const h = new THREE.Group();
-      // channel handle with cut-outs
-      h.add(profile([['M', 0.0, 0.0], ['L', -0.125, 0.0], ['Q', -0.132, 0.007, -0.125, 0.013], ['L', 0.0, 0.013]], 0.008, M.steel, 'detail',
-        { bevel: 0.002, holes: [[['M', -0.02, 0.004], ['L', -0.05, 0.004], ['L', -0.05, 0.009], ['L', -0.02, 0.009]], [['M', -0.065, 0.004], ['L', -0.1, 0.004], ['L', -0.1, 0.009], ['L', -0.065, 0.009]]] }));
-      h.position.set(0.003, side > 0 ? -0.0005 : -0.0125, side * 0.0065);
-      h.children[0].position.y = side > 0 ? 0 : 0;
+      const plate = profile([['M', END + 0.006 - PX, -H], ['L', 0, -H], ['A', 0, 0, H, -Math.PI / 2, Math.PI / 2], ['L', END + 0.006 - PX, H],
+        ['Q', END - PX, H, END - PX, H - 0.006], ['L', END - PX, -H + 0.006], ['Q', END - PX, -H, END + 0.006 - PX, -H]], T, M.steel, 'detail', { bevel: 0.0012 });
+      plate.position.z = side * (Y0 + T / 2);
+      h.add(plate);
       return h;
     };
-    const A = new THREE.Group(); A.name = 'bfA'; A.add(mkHandle(1)); A.position.set(0.0, 0.0, 0);
-    const B = new THREE.Group(); B.name = 'bfB'; B.add(mkHandle(-1)); B.position.set(0.0, 0.0, 0);
+    const A = new THREE.Group(); A.name = 'bfA'; A.add(mkHandle(1)); A.position.set(PX, 0, 0);
+    const B = new THREE.Group(); B.name = 'bfB'; B.add(mkHandle(-1)); B.position.set(PX, 0, 0);
     g.add(A, B);
-    g.add(cylZ(0.004, 0.02, 0.003, 0.0, 0, M.brass));
+    g.add(cylZ(0.0042, 0.0216, PX, 0.0, 0, M.brass));
     return { g, tip: 0.114, grip: -0.066, butterfly: true };
   },
   flip() {

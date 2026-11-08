@@ -152,6 +152,9 @@ function pinOf(gun, handle) {
   return { p: handle.position.clone().applyMatrix4(toGun), n: V3(0, 0, 1).applyQuaternion(handle.quaternion).transformDirection(toGun) };
 }
 
+// how far out from a balisong's pivot the index finger sits between its
+// handles in a Chaplin (knife units)
+const CROTCH = 0.04;
 const ease = (x) => x * x * (3 - 2 * x);
 const bump = (x, a, b) => (x <= a || x >= b ? 0 : Math.sin((x - a) / (b - a) * Math.PI));
 
@@ -483,6 +486,12 @@ export class ViewModel {
     this.gunPivot = type === 'melee' ? null : this.gunWrist();
     this.ringInfo = type === 'melee' ? ringOf(this.gun) : null;
     this.pin = this.bfA ? pinOf(this.gun, this.bfA) : null;
+    // a balisong spun round the index finger (a Chaplin): its "ring" is the
+    // crotch between the handles, a little out from the pivot, worked out each
+    // frame from where the handles are (applyKnifePose); balisongA: the held
+    // handle's direction from the pivot
+    this.balisongA = this.pin ? (this.gun.userData.grip || DEF_GRIP).clone().sub(this.pin.p).projectOnPlane(this.pin.n).normalize() : null;
+    if (!this.ringInfo && this.pin) this.ringInfo = { c: new THREE.Vector3(), n: this.pin.n.clone(), crotch: true };
     // the balisong's latch belongs on a handle, not the blade (it would float off in a flip)
     if (this.bfA && part('latch')) this.bfA.attach(part('latch'));
     this.balance = (this.gun.userData.grip || DEF_GRIP).clone().add(V3(0, 0, -0.04));
@@ -514,9 +523,11 @@ export class ViewModel {
       // a balisong mid-flip (or held out by the ends of its handles) finishes
       // what it's doing: easing it back would swing the handle home through
       // the fingers
+      // (or in the air, spinning on a finger, or dropped)
       if (this.pin && this.pose) {
-        const off = (a) => Math.abs(a - TAU * Math.round(a / TAU));
-        if ((this.pose.slide || 0) < -0.002 || off(this.pose.bh || 0) > 0.02 || off(this.pose.bb || 0) > 0.02) return;
+        const off = (a) => Math.abs(a - TAU * Math.round(a / TAU)), P = this.pose;
+        if ((P.slide || 0) < -0.002 || off(P.bh || 0) > 0.02 || off(P.bb || 0) > 0.02) return;
+        if ((P.free || 0) > 0.01 || Math.abs(P.lift || 0) > 0.002 || (P.ringW || 0) > 0.01 || (P.y || 0) < -0.05) return;
       }
       // pressed again mid-inspect: a knife starts over from the pose it's in
       // (blended, so nothing jumps back to the start); a gun finishes its turn
@@ -527,6 +538,12 @@ export class ViewModel {
         this._insFrom = from; this._insBlend = 0;
       }
       else if (this.gunIns && this.inspectT < this.gunIns.len - 0.3) return;
+    }
+    // one balisong inspect in twenty drops the knife (and picks it up);
+    // balisongVariant ('drop' / 'normal') forces one
+    if (this.knifeType === 'butterfly' && (this.ins === inspectFor('butterfly') || this.ins === inspectFor('butterflyDrop'))) {
+      const v = this.balisongVariant || (Math.random() < 1 / 20 ? 'drop' : 'normal');
+      this.ins = inspectFor(v === 'drop' ? 'butterflyDrop' : 'butterfly');
     }
     this.inspectT = 0;
   }
@@ -698,9 +715,10 @@ export class ViewModel {
         // faces along the pin) a moment ahead of them, one way to throw the
         // handle round and back the other way to send the blade over, the
         // forearm rocking and the hand bobbing with it
+        // (none while the knife is out of the hand: in the air, falling or on a finger)
         if (this.pin) {
           const w = channelRateSmooth(this.ins, 'bh', Tc + 0.04) - 0.8 * channelRateSmooth(this.ins, 'bb', Tc + 0.04);
-          const k = Math.tanh(w / 20);
+          const k = Math.tanh(w / 20) * (1 - Math.min(1, Math.max(0, P.free || 0)));
           P.yaw = (P.yaw || 0) - 0.25 * k;
           P.roll = (P.roll || 0) + 0.11 * k;
           pos.y += 0.0035 * k;
@@ -824,21 +842,30 @@ export class ViewModel {
     const grip = g.userData.grip || DEF_GRIP;
     const m = _km.identity();
     if (P) {
-      if (P.flip) m.premultiply(_kt.makeTranslation(-this.balance.x, -this.balance.y, -this.balance.z)).premultiply(_kr.makeRotationX(P.flip)).premultiply(_kt.makeTranslation(this.balance.x, this.balance.y, this.balance.z));
-      // (the pin is in the knife's own frame, so its turn goes on before the twirl)
+      // (the pin is in the knife's own frame, so its turn goes on first: a
+      // balisong's blade and handles are set against each other, then the
+      // whole knife is tossed end over end, twirled or slid as one piece)
       if (this.pin) {
         const bb = P.bb || 0, bh = P.bh || 0, pv = this.pin.p;
         if (bb) m.premultiply(_kt.makeTranslation(-pv.x, -pv.y, -pv.z)).premultiply(_kr.makeRotationAxis(this.pin.n, bb)).premultiply(_kt.makeTranslation(pv.x, pv.y, pv.z));
         this.bfA.rotation.z = -bb; this.bfB.rotation.z = bh - bb;
       }
+      if (P.flip) m.premultiply(_kt.makeTranslation(-this.balance.x, -this.balance.y, -this.balance.z)).premultiply(_kr.makeRotationX(P.flip)).premultiply(_kt.makeTranslation(this.balance.x, this.balance.y, this.balance.z));
       if (P.twirl) m.premultiply(_kt.makeTranslation(-grip.x, -grip.y, -grip.z)).premultiply(_kr.makeRotationZ(P.twirl)).premultiply(_kt.makeTranslation(grip.x, grip.y, grip.z));
       if (P.slide) m.premultiply(_kt.makeTranslation(0, 0, P.slide));
+      if (P.kx || P.ky) m.premultiply(_kt.makeTranslation(P.kx || 0, P.ky || 0, 0));
       if (P.lift) {
         const up = V3(0, P.lift / this.holder.scale.x, 0).applyQuaternion(this.holder.getWorldQuaternion(_kq).invert());
         m.premultiply(_kt.makeTranslation(up.x, up.y, up.z));
       }
     } else if (this.bfA) { this.bfA.rotation.z = 0; this.bfB.rotation.z = 0; }
     m.decompose(g.position, g.quaternion, g.scale);
+    if (P && this.ringInfo?.crotch && (P.ringW || 0) > 0.001) {
+      // the balisong's crotch: on the line halving the angle between its
+      // handles, CROTCH out from the pivot (the finger fits between them there)
+      const a = this.balisongA, n = this.pin.n;
+      this.ringInfo.c.copy(this.pin.p).addScaledVector(a.clone().applyAxisAngle(n, (P.bh || 0) / 2 - (P.bb || 0)), CROTCH);
+    }
     if (P && this.ringInfo && ((P.ringW || 0) > 0.001)) this.ringAttach(P);
     else this._ringSide = 0;
   }
