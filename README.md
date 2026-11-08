@@ -361,6 +361,22 @@ dropped them.
   look along both faces, then a quick close and open. Pressing inspect again mid-flip lets the flip
   finish. Checked frame by frame: the blade and the swinging handle never touch the hand (every vertex
   tested at 100 fps), and stepping it at 120 fps finds no jolts.
+- **Smoother balisong**: the free handle never stops dead mid-flip (it slows as it meets the blade and
+  drifts on while the blade swings over, then slaps shut), the blade lands hard in the held handle, the
+  hand rides every throw in a wave with a stronger wrist pump, and a little flick lets the knife slide out
+  to the ends of the handles.
+- **Every inspect turns the weapon over**: each one now shows the weapon's other side, not just a tilt.
+  Guns (each kind has its own routine): up to show the near side, then rolled right over toward you to
+  show the far side, and back down. The roll turns about the wrist of the shooting hand, so it's all
+  forearm and the arm never has to reach further for it; the support hand goes round with the handguard
+  (a pistol's lets go), a scoped rifle rolls a little less so its scope stays out of your face, and a
+  grenade rolls over to show it lying in the palm. Knives that didn't already show both faces of the
+  blade (bayonet, combat, balisong, flip, bowie, stiletto, kukri, survival, skeleton, trench, cord) now
+  turn the wrist right over to show the other face, and the push daggers each turn their fist palm up.
+  Gun inspects flow through their poses instead of stopping at each one. Checked for every weapon by
+  stepping the inspects at 120 fps (no jumps or jolts in the gun, either hand or either elbow; the
+  shooting arm never past 90% of its reach) and by measuring which face of each knife is toward the
+  camera (every knife holds the other face in view for at least 0.7 s).
 - **Smooth inspects**: the knife no longer flips half a turn once per revolution in ring spins (the side
   of the ring the finger goes through is settled once per spin, and the knife blends onto the finger along
   a fixed path with the spin on top); every inspect pose is softened over a few hundredths of a second and

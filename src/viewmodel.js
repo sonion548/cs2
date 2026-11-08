@@ -11,7 +11,7 @@ import { radialTexture } from './textures.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { assets } from './assets.js';
-import { inspectFor, samplePose, channelRate, channelRateSmooth } from './inspects.js';
+import { inspectFor, gunInspectFor, samplePose, channelRate, channelRateSmooth, BLUR_TAIL } from './inspects.js';
 
 const POSE = {
   rifle: new THREE.Vector3(0.1, -0.105, -0.2),
@@ -113,23 +113,13 @@ const GRIP_L = {
   bomb: [V3(0, -0.2, -1), V3(1, 0, 0)],
 };
 
-// Gun inspect keyframes: [t, rotX, rotY, rotZ, dx, dy, dz], turns of the gun
-// in view space, kept inside what a wrist and forearm can do.
-const INSPECT = {
-  default: [
-    [0, 0, 0, 0, 0, 0, 0],
-    [0.45, 0.06, 0.5, 0.55, -0.075, 0.04, 0.05],
-    [1.5, 0.1, 0.58, 0.62, -0.08, 0.045, 0.055],
-    [2.05, 0.08, 0.2, -0.6, -0.05, 0.03, 0.035],
-    [2.9, 0.1, 0.24, -0.66, -0.05, 0.035, 0.035],
-    [3.5, 0, 0, 0, 0, 0, 0],
-  ],
-};
+// Gun inspects (a turn of the gun to each side) are in inspects.js too.
 // Knives have their own inspects, with the hand and fingers moving (inspects.js).
 const DEF_GRIP = new THREE.Vector3(0, -0.04, 0.03);
 const AXIS_Z = new THREE.Vector3(0, 0, 1);
 const MIRROR = new THREE.Matrix4().makeScale(-1, 1, 1), ONE = new THREE.Vector3(1, 1, 1);
 const _km = new THREE.Matrix4(), _kt = new THREE.Matrix4(), _kr = new THREE.Matrix4(), _kq = new THREE.Quaternion();
+const _ge = new THREE.Euler();
 
 // A turn of a knife hand about its own axes (h: the hold): roll about the
 // knuckle line, flex about the axis across the hand, yaw about the palm's.
@@ -162,14 +152,6 @@ function pinOf(gun, handle) {
   return { p: handle.position.clone().applyMatrix4(toGun), n: V3(0, 0, 1).applyQuaternion(handle.quaternion).transformDirection(toGun) };
 }
 
-function sampleKeys(keys, t) {
-  if (t >= keys[keys.length - 1][0]) return keys[keys.length - 1].slice(1);
-  let i = 0; while (keys[i + 1][0] < t) i++;
-  const a = keys[i], b = keys[i + 1];
-  let f = (t - a[0]) / (b[0] - a[0]);
-  f = f * f * (3 - 2 * f);
-  return a.slice(1).map((v, k) => v + (b[k + 1] - v) * f);
-}
 const ease = (x) => x * x * (3 - 2 * x);
 const bump = (x, a, b) => (x <= a || x >= b ? 0 : Math.sin((x - a) / (b - a) * Math.PI));
 
@@ -497,6 +479,8 @@ export class ViewModel {
     // knives: their own inspect, the finger ring a karambit or skeleton knife
     // spins on, the pin a balisong's handles turn on, its balance point for tosses
     this.ins = type === 'melee' ? inspectFor(knifeType) : null;
+    this.gunIns = type === 'melee' ? null : gunInspectFor(type);
+    this.gunPivot = type === 'melee' ? null : this.gunWrist();
     this.ringInfo = type === 'melee' ? ringOf(this.gun) : null;
     this.pin = this.bfA ? pinOf(this.gun, this.bfA) : null;
     // the balisong's latch belongs on a handle, not the blade (it would float off in a flip)
@@ -542,7 +526,7 @@ export class ViewModel {
         if (this._insFrom) for (const k in from) from[k] = this.pose?.[k] ?? from[k];
         this._insFrom = from; this._insBlend = 0;
       }
-      else if (this.inspectT < INSPECT.default[INSPECT.default.length - 1][0] - 0.3) return;
+      else if (this.gunIns && this.inspectT < this.gunIns.len - 0.3) return;
     }
     this.inspectT = 0;
   }
@@ -665,6 +649,7 @@ export class ViewModel {
     // inspect
     let dropL = 0, P = null, gunInspect = 0;
     const iq = (this._iq ||= new THREE.Quaternion()).identity();
+    const gq = (this._gq ||= new THREE.Quaternion()).identity();
     if (this.inspectT >= 0) {
       this.inspectT += dt;
       const T = this.inspectT;
@@ -672,7 +657,7 @@ export class ViewModel {
         // the hand turns about its own axes through the grip; the knife and
         // fingers follow the same pose after the arms are placed
         const Tc = Math.min(T, this.ins.len);
-        P = this.pose = samplePose(this.ins, Tc, this.pose || {});
+        P = this.pose = samplePose(this.ins, Math.min(T, this.ins.len + BLUR_TAIL), this.pose || {});
         // the second push dagger moves with the view but not with the right hand
         if (this.dual) (this._posL ||= new THREE.Vector3()).copy(pos);
         // restarted mid-inspect: ease from the old pose into the new one (spins
@@ -714,33 +699,44 @@ export class ViewModel {
         if (this.pin) {
           const w = channelRateSmooth(this.ins, 'bh', Tc + 0.04) - 0.8 * channelRateSmooth(this.ins, 'bb', Tc + 0.04);
           const k = Math.tanh(w / 20);
-          P.yaw = (P.yaw || 0) - 0.22 * k;
-          P.roll = (P.roll || 0) + 0.09 * k;
-          pos.y += 0.003 * k;
+          P.yaw = (P.yaw || 0) - 0.25 * k;
+          P.roll = (P.roll || 0) + 0.11 * k;
+          pos.y += 0.0035 * k;
         }
         iq.copy(handTurn(this.knifeHold, P.roll, P.flex, P.yaw));
         pos.x += P.x || 0; pos.y += P.y || 0; pos.z += P.z || 0;
-        if (T > this.ins.len) { this.inspectT = -1; P = null; iq.identity(); }
+        if (T > this.ins.len + BLUR_TAIL) { this.inspectT = -1; P = null; iq.identity(); }
       } else {
-        const keys = INSPECT.default, k = sampleKeys(keys, T), end = keys[keys.length - 1][0];
-        rot.x += k[0]; rot.y += k[1]; rot.z += k[2];
-        pos.x += k[3] * 0.6; pos.y += k[4] * 0.6; pos.z += k[5] * 0.6;
-        gunInspect = bump(T, 0, end);
-        // pistols: the support hand lets go while the gun is turned over
-        if (this.type === 'pistol') dropL = ease(Math.max(0, Math.min(1, T / 0.35, (end - T) / 0.45)));
-        if (T > end) { this.inspectT = -1; dropL = 0; gunInspect = 0; }
+        const gi = this.gunIns || gunInspectFor(this.type), end = gi.len;
+        const G = this._gpose = samplePose(gi, Math.min(T, end + BLUR_TAIL), this._gpose || {});
+        // turned about the grip in the shooting hand (below), so the hand stays
+        // where it is and only the moves take it anywhere
+        gq.setFromEuler(_ge.set(G.rx || 0, G.ry || 0, G.rz || 0));
+        pos.x += G.dx || 0; pos.y += G.dy || 0; pos.z += G.dz || 0;
+        // the trigger finger comes off while the gun is turned about
+        gunInspect = ease(Math.max(0, Math.min(1, T / 0.3, (end - T) / 0.4)));
+        dropL = Math.max(0, Math.min(1, G.drop || 0));
+        if (T > end + BLUR_TAIL) { this.inspectT = -1; dropL = 0; gunInspect = 0; }
       }
     }
     if (!P) this.pose = null;
 
     this.root.position.copy(pos);
     this.root.quaternion.setFromEuler(rot).multiply(this.baseQ || new THREE.Quaternion());
-    if (iq.w < 0.999999) {
+    if (iq.w < 1) {
       // a turn of the hand pivots on the grip, so the fist stays where it is
       const g = (this.gun.userData.grip || DEF_GRIP).clone().multiplyScalar(this.holder.scale.x);
       const before = g.clone().applyQuaternion(this.root.quaternion);
       this.root.quaternion.multiply(iq);
       this.root.position.add(before.sub(g.applyQuaternion(this.root.quaternion)));
+    }
+    if (gq.w < 1) {
+      // a gun inspect's turns are in view space, about the shooting hand's
+      // wrist: turning the gun over is all forearm, and the arm reaches no
+      // further for it (only the inspect's moves take the hand anywhere)
+      const g = (this.gunPivot || DEF_GRIP).clone().multiplyScalar(this.holder.scale.x).applyQuaternion(this.root.quaternion);
+      this.root.quaternion.premultiply(gq);
+      this.root.position.add(g.clone().sub(g.applyQuaternion(gq)));
     }
     if (this.dual) this.placeDual(P && this._posL ? this._posL : pos, rot, P);
     this.solveArms(handR, magReach, dropL);
@@ -883,6 +879,21 @@ export class ViewModel {
     this._ringCom = (this._ringCom || new THREE.Vector3()).copy(com).addScaledVector(fy, -com.dot(fy));
     mw.premultiply(this.holder.matrixWorld.clone().invert());
     mw.decompose(g.position, g.quaternion, g.scale);
+  }
+
+  // The shooting hand's wrist, in gun units, where solveArms puts it (the
+  // grip, the hand's fitted offset, then back along the hand and out from the
+  // palm, as in SkinnedArm.solve).
+  gunWrist() {
+    const t = this.type, grip = this.gun.userData.grip || DEF_GRIP;
+    const at = (this.handAt || HAND_AT)[t];
+    const fit = this.skinned ? (this.handFit || HAND_FIT)[this.id] : null;
+    const off = fit?.R ? V3(fit.R[0], fit.R[1], fit.R[2]) : (at?.R || V3(0, 0, 0));
+    const [k0, p0] = GRIP_R[t] || GRIP_R.rifle;
+    const fd = pitched(k0, fit?.R?.[3]).clone().normalize();
+    const pl = pitched(p0, fit?.R?.[3]).clone();
+    pl.sub(fd.clone().multiplyScalar(pl.dot(fd))).normalize();
+    return grip.clone().add(off).addScaledVector(fd, -0.066).addScaledVector(pl, -0.025);
   }
 
   // Hands go where the weapon is this frame; shoulders stay fixed to the camera.
