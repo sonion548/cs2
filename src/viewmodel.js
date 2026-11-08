@@ -11,7 +11,7 @@ import { radialTexture } from './textures.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { assets } from './assets.js';
-import { inspectFor, samplePose, channelRate } from './inspects.js';
+import { inspectFor, samplePose, channelRate, channelRateSmooth } from './inspects.js';
 
 const POSE = {
   rifle: new THREE.Vector3(0.1, -0.105, -0.2),
@@ -153,18 +153,6 @@ function ringOf(gun) {
   const axis = size.x <= size.y && size.x <= size.z ? V3(1, 0, 0) : size.y <= size.z ? V3(0, 1, 0) : V3(0, 0, 1);
   const toGun = gun.matrixWorld.clone().invert().multiply(ring.matrixWorld);
   return { c: bb.getCenter(new THREE.Vector3()).applyMatrix4(toGun), n: axis.transformDirection(toGun) };
-}
-
-// How far a balisong hand has to open (0..1) for its free handle (angle bh,
-// 0 = in the palm) and blade (bb, pi = closed between the handles) to pass:
-// most when either is swinging in close to the palm, none once it's home or
-// well away.
-const _st = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
-function balisongClearance(bh, bb) {
-  const wh = bh - TAU * Math.round(bh / TAU), wb = bb - Math.PI - TAU * Math.round((bb - Math.PI) / TAU);
-  const bump = (w, hi) => _st(0.04, 0.3, Math.abs(w)) * _st(hi, hi - 0.6, Math.abs(w));
-  // the handle passes the fingers on the + side; the blade comes and goes on the fingers' side
-  return { h: bump(wh, 2.0) * (wh > 0 ? 1 : 0.45), b: bump(wb, 2.1) * (wb > 0 ? 1 : 0.45), closed: _st(0.5, 0.0, Math.abs(wb)) };
 }
 
 // A balisong's pin: where its handles turn and the axis, in the knife's frame.
@@ -539,6 +527,13 @@ export class ViewModel {
   inspect() {
     if (this.deployT < 1 || this.reloadT >= 0 || this.throwT >= 0) return;
     if (this.inspectT >= 0) {
+      // a balisong mid-flip (or held out by the ends of its handles) finishes
+      // what it's doing: easing it back would swing the handle home through
+      // the fingers
+      if (this.pin && this.pose) {
+        const off = (a) => Math.abs(a - TAU * Math.round(a / TAU));
+        if ((this.pose.slide || 0) < -0.002 || off(this.pose.bh || 0) > 0.02 || off(this.pose.bb || 0) > 0.02) return;
+      }
       // pressed again mid-inspect: a knife starts over from the pose it's in
       // (blended, so nothing jumps back to the start); a gun finishes its turn
       if (this.type === 'melee' && this.ins) {
@@ -711,6 +706,18 @@ export class ViewModel {
             this.ringDrive = k;
           }
         }
+        // a balisong's flips come from the wrist, pumping once for each swing:
+        // it turns in the plane the parts swing in (about the palm, which
+        // faces along the pin) a moment ahead of them, one way to throw the
+        // handle round and back the other way to send the blade over, the
+        // forearm rocking and the hand bobbing with it
+        if (this.pin) {
+          const w = channelRateSmooth(this.ins, 'bh', Tc + 0.04) - 0.8 * channelRateSmooth(this.ins, 'bb', Tc + 0.04);
+          const k = Math.tanh(w / 20);
+          P.yaw = (P.yaw || 0) - 0.22 * k;
+          P.roll = (P.roll || 0) + 0.09 * k;
+          pos.y += 0.003 * k;
+        }
         iq.copy(handTurn(this.knifeHold, P.roll, P.flex, P.yaw));
         pos.x += P.x || 0; pos.y += P.y || 0; pos.z += P.z || 0;
         if (T > this.ins.len) { this.inspectT = -1; P = null; iq.identity(); }
@@ -789,27 +796,11 @@ export class ViewModel {
     if (!this.skinned || !this.armR.fingers?.length) return;
     let R = [0, 0, 0, 0, 0], L = [0, 0, 0, 0, 0], cR = null, cL = null;
     if (P) {
-      const th = P.th || 0, ix = P.ix || 0, mi = P.mi || 0;
-      R = [th, ix, mi, mi * 0.95, mi * 0.9];
+      const th = P.th || 0, ix = P.ix || 0, mi = P.mi || 0, rp = P.rp || 0;
+      R = [th, ix, mi, mi * 0.95 + rp, mi * 0.9 + rp];
       if (P.wave) { const ph = this.inspectT * 10; cR = [0, 1, 2, 3, 4].map(i => (i ? P.wave * Math.sin(ph - i * 0.95) : P.wave * 0.4 * Math.sin(ph))); }
       // ring spins: the index finger pumps with each turn of the knife
       if (this.ringDrive > 0) { cR ||= [0, 0, 0, 0, 0]; cR[1] += 0.38 * this.ringDrive * Math.sin(P.ring + 1.4); }
-      // balisong: the fingers lift out of the way as the free handle or the
-      // blade swings back toward the palm (the handle comes in from the
-      // fingers' side) and close on the handle as it lands
-      if (this.pin) {
-        const c = balisongClearance(P.bh || 0, P.bb || 0), need = Math.max(c.h, c.b);
-        // closed in the fist, the thumb tucks round the handles, its base clear of the blade's edge
-        R[0] -= 0.2 * c.closed;
-        if (need > 0) {
-          R[2] = Math.max(R[2], need); R[3] = Math.max(R[3], need); R[4] = Math.max(R[4], need * 0.95);
-          // the index finger makes way too (the thumb and the heel of the hand hold the handle)
-          R[1] = Math.max(R[1], need); R[0] = Math.max(R[0], need * 0.25);
-          // and lift a little past straight, clear of the swing
-          cR ||= [0, 0, 0, 0, 0];
-          cR[1] -= 0.3 * need; cR[2] -= 0.3 * need; cR[3] -= 0.32 * need; cR[4] -= 0.3 * need;
-        }
-      }
       if (this.dual) { L = R.slice(); cL = cR; }
     }
     if (gunInspect > 0) R[1] = Math.max(R[1], 0.32 * gunInspect);      // trigger finger off the gun while it's turned over
@@ -836,12 +827,13 @@ export class ViewModel {
     const m = _km.identity();
     if (P) {
       if (P.flip) m.premultiply(_kt.makeTranslation(-this.balance.x, -this.balance.y, -this.balance.z)).premultiply(_kr.makeRotationX(P.flip)).premultiply(_kt.makeTranslation(this.balance.x, this.balance.y, this.balance.z));
-      if (P.twirl) m.premultiply(_kt.makeTranslation(-grip.x, -grip.y, -grip.z)).premultiply(_kr.makeRotationZ(P.twirl)).premultiply(_kt.makeTranslation(grip.x, grip.y, grip.z));
+      // (the pin is in the knife's own frame, so its turn goes on before the twirl)
       if (this.pin) {
         const bb = P.bb || 0, bh = P.bh || 0, pv = this.pin.p;
         if (bb) m.premultiply(_kt.makeTranslation(-pv.x, -pv.y, -pv.z)).premultiply(_kr.makeRotationAxis(this.pin.n, bb)).premultiply(_kt.makeTranslation(pv.x, pv.y, pv.z));
         this.bfA.rotation.z = -bb; this.bfB.rotation.z = bh - bb;
       }
+      if (P.twirl) m.premultiply(_kt.makeTranslation(-grip.x, -grip.y, -grip.z)).premultiply(_kr.makeRotationZ(P.twirl)).premultiply(_kt.makeTranslation(grip.x, grip.y, grip.z));
       if (P.slide) m.premultiply(_kt.makeTranslation(0, 0, P.slide));
       if (P.lift) {
         const up = V3(0, P.lift / this.holder.scale.x, 0).applyQuaternion(this.holder.getWorldQuaternion(_kq).invert());

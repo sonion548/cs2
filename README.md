@@ -349,6 +349,18 @@ dropped them.
   worked out every frame from where those parts are. A frame-by-frame clipping check (the hand as capsules
   round its bones, every knife vertex tested at 80 fps) finds no contact between the blade or the swinging
   handle and the hand.
+- **Balisong inspect, re-animated**: the open-hand flips are gone. For the flips the knife slides out
+  through the fist until only the ends of the handles are held (thumb and index finger pinching the held
+  handle, the ring and little fingers tucked into the palm), so the swinging parts never pass through the
+  hand and it stays a natural fist. Each close and open is the real three-swing basic: the free handle
+  swings round until it stops against the blade, the blade swings over to the other side, and the handle
+  carries on round and slaps shut (a whole turn of the handle and half a turn of the blade, all the same
+  way round, as a real balisong's stops allow). The wrist pumps once for each swing, a moment ahead of
+  it, and the index finger lifts to let the handle go on an open and to take it on a close, curling back
+  round it as it lands. The routine: flip it closed, show it shut, flip it open, back into the fist for a
+  look along both faces, then a quick close and open. Pressing inspect again mid-flip lets the flip
+  finish. Checked frame by frame: the blade and the swinging handle never touch the hand (every vertex
+  tested at 100 fps), and stepping it at 120 fps finds no jolts.
 - **Smooth inspects**: the knife no longer flips half a turn once per revolution in ring spins (the side
   of the ring the finger goes through is settled once per spin, and the knife blends onto the finger along
   a fixed path with the spin on top); every inspect pose is softened over a few hundredths of a second and
