@@ -390,6 +390,19 @@ dropped them.
   counter; market listings and trades are tagged, and unboxing one says so. A Killscribe copy is worth
   three times a plain one for a gun and twice for a knife, and a bot filling your buy order hands over a
   plain copy.
+- **Buy button on market listings works**: clicking Buy on a listing did nothing. The item page ignored
+  every button without a `type` attribute (the browser treats those as submit buttons), so Buy, Sell now,
+  Cancel on your own listing and order, and seller names were all dead; only the buy order form worked.
+  Asking before a purchase, sale or reset now uses a box drawn in the page instead of the browser's own
+  confirm dialog, which some browsers and embedded pages block (a blocked dialog answers no).
+- **A deeper market**: the bot traders keep about three times as many listings (12 for each common
+  finish down to 3 for each knife and glove finish, about 4,400 in all) and four times as many buy
+  orders (10 for each common finish down to 4 for each knife and glove finish, about 4,400 in all). A
+  fifth of the orders take any copy, so anything you own has an order to sell into; the rest name a
+  condition and are spread across every condition the finish comes in, so a better copy gets a better
+  bid. A bot's bid stays under the least a copy it takes can be worth (its most worn float and its
+  plainest pattern, such as a low fade or the cheapest Doppler phase) and always at least a credit under
+  what any bot lists such a copy for, so nothing can be bought and sold straight back to a bot at a profit.
 - **Smooth inspects**: the knife no longer flips half a turn once per revolution in ring spins (the side
   of the ring the finger goes through is settled once per spin, and the knife blends onto the finger along
   a fixed path with the spin on top); every inspect pose is softened over a few hundredths of a second and

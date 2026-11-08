@@ -217,6 +217,11 @@ input[type=range] { width: 260px; accent-color: var(--accent); }
 input[type=color] { width: 44px; height: 28px; border: 1px solid var(--line2); background: none; padding: 0; }
 input[type=checkbox] { accent-color: var(--accent); width: 18px; height: 18px; }
 output { color: var(--muted); font-size: 13px; }
+/* the page's own yes/no box (see ui/confirm.js) */
+.confirm-layer { position: fixed; inset: 0; z-index: 60; background: rgba(8,8,7,.72); display: flex; align-items: center; justify-content: center; }
+.confirm-box { background: var(--panel); border: 1px solid var(--line2); border-top: 3px solid var(--accent); padding: 20px 22px 18px; width: min(420px, 92vw); box-shadow: 0 18px 50px rgba(0,0,0,.55); }
+.confirm-box p { margin: 0 0 18px; font: 500 16px var(--body); line-height: 1.4; color: var(--text); }
+.confirm-box .btns { display: flex; justify-content: flex-end; gap: 8px; }
 .toast { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 18px; font: 600 15px var(--cond); letter-spacing: .5px; z-index: 40; }
 
 @media (max-width: 860px) {

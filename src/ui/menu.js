@@ -16,6 +16,7 @@ import { WEAPONS } from '../weapons.js';
 import { ACTIONS, DEFAULT_BINDS, bindsFrom, keyLabel } from '../input.js';
 import { GAME_TYPES } from '../match/modes.js';
 import { DEFAULT_CROSSHAIR, crosshairFrom, drawCrosshair } from '../crosshair.js';
+import { ask } from './confirm.js';
 
 const h = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const fmt = (n) => n.toLocaleString('en-US');
@@ -393,7 +394,7 @@ export class Menu {
       if (b.dataset.act === 'close') return close();
       if (b.dataset.act === 'equip') { const r = await P.equip(it.uid); if (r?.error) this.toast(r.error); return render(); }
       if (b.dataset.act === 'sell') {
-        if (!confirm(`Sell ${itemTitle(it).name} for ${Math.floor(P.marketPrice(it) * 0.87)} credits?`)) return;
+        if (!await ask(`Sell ${itemTitle(it).name} for ${Math.floor(P.marketPrice(it) * 0.87)} credits?`, { ok: 'Sell' })) return;
         const r = await P.sellItem(it.uid); if (r?.error) return this.toast(r.error); return close();
       }
       if (b.dataset.scrape != null) { await P.scrapeSticker(it.uid, +b.dataset.scrape); return render(); }
@@ -618,7 +619,7 @@ export class Menu {
         s.save();
       };
     }
-    page.querySelector('[data-reset]').onclick = () => { if (confirm('Reset your inventory, credits and stats?')) { P.resetProfile(); this.go('settings'); } };
+    page.querySelector('[data-reset]').onclick = async () => { if (await ask('Reset your inventory, credits and stats?', { ok: 'Reset', danger: true })) { P.resetProfile(); this.go('settings'); } };
     this.crosshairEditor(page);
     this.bindEditor(page);
   }

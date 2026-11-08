@@ -13,6 +13,7 @@ import { ViewModel } from '../viewmodel.js';
 import { WEAPONS } from '../weapons.js';
 import { stickerCanvas } from '../items/stickers.js';
 import { audio } from '../audio.js';
+import { ask } from './confirm.js';
 
 const h = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const fmt = (n) => Math.round(n).toLocaleString('en-US');
@@ -193,7 +194,7 @@ export class OnlineUI {
     if (d.dropInvite) { this.invites = this.invites.filter(i => i.partyId !== d.dropInvite); }
     if (d.acceptFriend) { r = await net.rpc('social.accept', { id: d.acceptFriend }); if (!r.error) this.social = r; }
     if (d.declineFriend) { r = await net.rpc('social.decline', { id: d.declineFriend }); if (!r.error) this.social = r; }
-    if (d.remove && confirm('Remove this friend?')) { r = await net.rpc('social.remove', { id: d.remove }); if (!r.error) this.social = r; }
+    if (d.remove && await ask('Remove this friend?', { ok: 'Remove', danger: true })) { r = await net.rpc('social.remove', { id: d.remove }); if (!r.error) this.social = r; }
     if (d.tradeWith) return this.openTrade(d.tradeWith, d.name);
     if (d.trade) return this.viewTrade(this.trades.find(t => t.id === d.trade));
     if (r?.error) this.m.toast(r.error);
@@ -289,7 +290,7 @@ export class OnlineUI {
     layer.onclick = async (e) => {
       const b = e.target.closest('button'); if (!b) return;
       if (b.dataset.act === 'close') { layer.innerHTML = ''; layer.onclick = null; return; }
-      if (b.dataset.act === 'accept' && !confirm('Accept this trade? This cannot be undone.')) return;
+      if (b.dataset.act === 'accept' && !await ask('Accept this trade? This cannot be undone.', { ok: 'Accept trade' })) return;
       const r = await net.rpc('trade.respond', { id: t.id, accept: b.dataset.act === 'accept' });
       if (r.error) return this.m.toast(r.error);
       this.trades = r.trades; this.renderDrawer();
@@ -443,15 +444,23 @@ export class OnlineUI {
       this.renderItem(page, defId);
     };
     page.querySelector('.mk-item').onclick = async (e) => {
-      const b = e.target.closest('button'); if (!b || b.type === 'submit') return;
+      // (the buy order form's own button submits the form; every other button
+      // here is an action. A button with no type attribute is type "submit"
+      // too, so checking the type skipped them all: Buy did nothing.)
+      const b = e.target.closest('button'); if (!b || b.form) return;
       if (b.dataset.seller) return this.m.viewPlayer({ id: b.dataset.seller });
       let res, msg;
-      if (b.dataset.buy) { if (!confirm(`Buy for ${fmt(+b.dataset.price)} credits?`)) return; res = await net.rpc('market.buy', { id: b.dataset.buy }); msg = 'Purchased: it is in your inventory'; }
+      if (b.dataset.buy) {
+        if (!await ask(`Buy this copy for ${fmt(+b.dataset.price)} credits?`, { ok: `Buy · ${fmt(+b.dataset.price)}` })) return;
+        b.disabled = true;
+        res = await net.rpc('market.buy', { id: b.dataset.buy });
+        msg = 'Purchased: it is in your inventory';
+      }
       if (b.dataset.cancel) { res = await net.rpc('market.cancel', { id: b.dataset.cancel }); msg = 'Listing cancelled'; }
       if (b.dataset.cancelOrder) { res = await net.rpc('market.cancelOrder', { id: b.dataset.cancelOrder }); msg = `Order cancelled, ${fmt(res?.refunded || 0)} credits returned`; }
       if (b.dataset.sell) { res = await net.rpc('market.sellToOrder', { uid: b.dataset.sell }); msg = `Sold for ${fmt(res?.price || 0)} credits (you receive ${fmt(res?.received || 0)})`; }
       if (!res) return;
-      if (res.error) return this.m.toast(res.error);
+      if (res.error) { b.disabled = false; return this.m.toast(res.error); }
       if (res.profile) P.setRemote(res.profile);
       this.m.toast(msg);
       this.renderItem(page, defId);

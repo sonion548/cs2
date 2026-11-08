@@ -26,8 +26,10 @@ import { patternInfo } from '../src/items/patterns.js';
 
 const BOT_NAMES = ['Kestrel Trading', 'Dune Exchange', 'Souk Supply', 'Mirage Goods', 'Oasis Market', 'Atlas Traders', 'Sable & Co', 'Harbor Arms'];
 const TICK_MS = 30000;
-// bot listings kept per item, by rarity (knives are most of the catalogue, one each is plenty)
-const STOCK = { standard: 4, superior: 3, exotic: 3, mythic: 2, legendary: 1, sticker: 2 };
+// bot listings kept per item, by rarity (knives and gloves are most of the
+// catalogue, so fewer each), and bot buy orders per item
+const STOCK = { standard: 12, superior: 10, exotic: 8, mythic: 6, legendary: 3, sticker: 8 };
+const BIDS = { standard: 10, superior: 9, exotic: 8, mythic: 7, legendary: 4, sticker: 6 };
 // how often an item changes hands between bots, relative (commons trade most)
 const ACTIVITY = { standard: 6, superior: 4, exotic: 3, mythic: 2, legendary: 1, sticker: 3 };
 
@@ -64,11 +66,34 @@ export class Market {
   reference(defId) {
     return SKINS[defId] ? this.E.marketPrice({ kind: 'skin', defId, float: 0.2, seed: 1, tally: null, stickers: [] }) : this.E.marketPrice({ kind: 'sticker', defId });
   }
-  // the most worn copy anyone could sell (what bots bid against)
-  floor(defId) {
+  // The least a copy can be worth, in one condition or in any: its most worn
+  // float and its plainest pattern. Bots bid under this, so no copy a bot
+  // lists can be bought and sold straight back into a bot's order at a profit.
+  floor(defId, cond = null) {
     const s = SKINS[defId];
     if (!s) return this.E.marketPrice({ kind: 'sticker', defId });
-    return this.E.marketPrice({ kind: 'skin', defId, float: Math.min(0.99, s.floatRange[1]), seed: 1, tally: null, stickers: [] });
+    const hi = cond ? this.E.condRange(defId, cond)[1] : s.floatRange[1];
+    return this.E.marketPrice({ kind: 'skin', defId, float: Math.min(0.99, hi - 1e-6), seed: this.plainSeed(defId), tally: null, stickers: [] });
+  }
+  // A bot's bid at k times that least value, and always at least a credit
+  // under the cheapest price a bot lists any copy it takes at (a bot lists at
+  // 1.03x value or more), so whole-credit rounding on cheap items can't make
+  // a bid equal a listing.
+  botBid(defId, cond, k) {
+    const v = this.floor(defId, cond);
+    return Math.max(1, Math.min(Math.round(v * k), Math.round(v * 1.03) - 1));
+  }
+  // the pattern number with the lowest price multiplier (a 73% fade, the
+  // cheapest Doppler phase, or any pattern of a plain finish)
+  plainSeed(defId) {
+    this._plain ||= new Map();
+    let seed = this._plain.get(defId);
+    if (seed === undefined) {
+      let low = Infinity;
+      for (let i = 0; i < 1000; i++) { const m = patternInfo(SKINS[defId], i).mult; if (m < low) { low = m; seed = i; } }
+      this._plain.set(defId, seed);
+    }
+    return seed;
   }
   makeItem(defId) { return SKINS[defId] ? this.E.makeSkin(defId) : this.E.makeSticker(defId); }
   // What a bot asks for a copy: its value and a little on top.
@@ -348,9 +373,10 @@ export class Market {
     const t = this.now();
     this.botListings = this.botListings.filter(l => l.expires > t);
     this.botOrders = this.botOrders.filter(o => o.expires > t);
-    const have = new Map(), bids = new Map();
-    for (const l of this.botListings) have.set(l.item.defId, (have.get(l.item.defId) || 0) + 1);
-    for (const o of this.botOrders) bids.set(o.defId, (bids.get(o.defId) || 0) + 1);
+    const have = new Map(), bids = new Map(), perCond = new Map();
+    const tally = (map, k) => map.set(k, (map.get(k) || 0) + 1);
+    for (const l of this.botListings) tally(have, l.item.defId);
+    for (const o of this.botOrders) { tally(bids, o.defId); tally(perCond, o.defId + '|' + (o.cond || '*')); }
     for (const defId of this.defs) {
       const want = STOCK[this.tierOf(defId)] ?? 1;
       for (let n = have.get(defId) || 0; n < want; n++) {
@@ -363,19 +389,34 @@ export class Market {
         if (bid && bid.price >= price) { this.fillOrder(bid, item, null, price); continue; }
         this.botListings.push(l);
       }
-      const wantBids = this.tierOf(defId) === 'legendary' ? 1 : 2;
+      // buy orders: a fifth take any copy, bidding under the least any copy
+      // is worth (so every copy has an order to sell to); the rest name a
+      // condition, spread so each condition the finish comes in gets bids,
+      // and bid under the least a copy in that condition is worth (so better
+      // conditions get better bids)
+      const wantBids = BIDS[this.tierOf(defId)] ?? 2;
+      const conds = SKINS[defId] ? this.E.conditionsFor(defId) : [];
+      const count = (c) => perCond.get(defId + '|' + (c || '*')) || 0;
       for (let n = bids.get(defId) || 0; n < wantBids; n++) {
-        const price = Math.max(1, Math.round(this.floor(defId) * rand(0.72, 0.88)));
-        this.botOrders.push({ id: this.id('q'), bot: pick(BOT_NAMES), defId, price, qty: 1 + Math.floor(Math.random() * 5), day: this.day, created: t, expires: t + rand(3, 12) * 3600000 });
+        if (!initial && Math.random() < 0.6) break;
+        let cond = null;
+        if (conds.length && count(null) >= Math.ceil(wantBids * 0.2)) {
+          const least = Math.min(...conds.map(count));
+          cond = pick(conds.filter(c => count(c) === least));
+        }
+        tally(perCond, defId + '|' + (cond || '*'));
+        const price = this.botBid(defId, cond, rand(0.72, 0.93));
+        this.botOrders.push({ id: this.id('q'), bot: pick(BOT_NAMES), defId, cond, pattern: null, price, qty: 1 + Math.floor(Math.random() * 8), day: this.day, created: t - (initial ? rand(0, 10) * 3600000 : 0), expires: t + rand(3, 12) * 3600000 });
       }
     }
   }
 
-  // A new day: bots move what they have listed and bid with the day's values.
+  // A new day: bots move what they have listed and bid with the day's values
+  // (listings stay at 1.03x value or more and bids under that, as when placed)
   newDay(day) {
     const move = (defId, price, from) => Math.max(1, Math.round(price * this.E.priceIndex(defId, day) / this.E.priceIndex(defId, from ?? this.day)));
-    for (const l of this.botListings) { l.price = move(l.item.defId, l.price, l.day); l.day = day; }
-    for (const o of this.botOrders) { o.price = move(o.defId, o.price, o.day); o.day = day; }
+    for (const l of this.botListings) { l.price = Math.max(move(l.item.defId, l.price, l.day), this.ask(l.item, 1.03)); l.day = day; }
+    for (const o of this.botOrders) { o.price = Math.min(move(o.defId, o.price, o.day), this.botBid(o.defId, o.cond, 1)); o.day = day; }
     this.day = day;
   }
 
