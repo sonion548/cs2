@@ -234,11 +234,41 @@ function attachEtching(gun, n) {
     const bb = o.geometry.boundingBox.clone().applyMatrix4(toBlade.multiplyMatrices(fromWorld, o.matrixWorld));
     if (bb.max.x > pr.x0 + (pr.x1 - pr.x0) * 0.15 && bb.min.x < pr.x1 && bb.max.z > pr.zmax * 0.9 && bb.max.y - bb.min.y < 0.012) over.push(bb);
   });
-  // the clear band in a column: all of it, or above / below whatever lies across it
+  // holes through the blade (a skeleton knife's): which parts of each column
+  // are solid, found by looking straight through the blade at points up it
+  // (only where the figures might go)
+  const probe = new THREE.Mesh(blade.geometry); probe.updateMatrixWorld(true);
+  probe.material.side = THREE.DoubleSide;
+  const NS = 12, solid = [];
+  for (let k = 0; k < pr.N; k++) {
+    const col = [];
+    if (k >= pr.N * 0.1 && k <= pr.N * 0.85 && pr.hi[k] > pr.lo[k]) {
+      const x = pr.x0 + (k + 0.5) * bw;
+      for (let j = 0; j < NS; j++) {
+        const y = pr.lo[k] + (pr.hi[k] - pr.lo[k]) * (j + 0.5) / NS;
+        ray.set(new THREE.Vector3(x, y, 0.2), new THREE.Vector3(0, 0, -1));
+        col.push([y, ray.intersectObject(probe, false).length > 0]);
+      }
+    }
+    solid.push(col);
+  }
+  // the clear band in a column: all of it, or above / below whatever lies
+  // across it, and the longest unbroken stretch of it where there's a hole
   const band = (k, side) => {
     let lo = pr.lo[k], hi = pr.hi[k];
     const x = pr.x0 + (k + 0.5) * bw;
     for (const bb of over) if (x >= bb.min.x && x <= bb.max.x) { if (side > 0) lo = Math.max(lo, bb.max.y + 0.001); else hi = Math.min(hi, bb.min.y - 0.001); }
+    const col = solid[k];
+    if (col?.length && col.some(([, s]) => !s)) {
+      const step = (pr.hi[k] - pr.lo[k]) / NS;
+      let best = [lo, lo], run = null;
+      for (const [y, s] of col) {
+        if (y < lo || y > hi) continue;
+        if (s) { run ||= [Math.max(lo, y - step / 2), y]; run[1] = Math.min(hi, y + step / 2); if (run[1] - run[0] > best[1] - best[0]) best = run.slice(); }
+        else run = null;
+      }
+      return best;
+    }
     return [lo, hi];
   };
   // the figures' height: about half the blade's (or the larger clear band's),
@@ -272,8 +302,6 @@ function attachEtching(gun, n) {
   // project onto the blade itself (in its own space) so the figures follow a
   // ground edge or a ridge. Each face's box runs from the blade's middle out
   // past its surface, so neither face's figures reach the other face.
-  const probe = new THREE.Mesh(blade.geometry); probe.updateMatrixWorld(true);
-  probe.material.side = THREE.DoubleSide;
   const surf = (side) => {
     ray.set(new THREE.Vector3(place.x, place.y, side * 0.2), new THREE.Vector3(0, 0, -side));
     const h = ray.intersectObject(probe, false)[0];

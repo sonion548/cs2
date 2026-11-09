@@ -286,47 +286,139 @@ function revFlip(t0, p, from, by, d = 0.5, h = 0) {
   ];
 }
 
-// The skeleton knife let go onto the index finger by its ring, hanging from
-// it and swinging (a pendulum dying away), then swung up and over the finger
-// once and caught back in the fist.
-function pendulum(t0, p, d = 1.7) {
-  const SP = { ix: 0.92, mi: -0.15, th: 0.3, rp: 0 };
+// ---------------------------------------------------------------- tricks
+// What the knife inspects are made of: tricks, each thrown from the wrist the
+// way the karambit's spin is (it cocks one way as the grip eases and flicks
+// the other to send the knife off, and gives a little with the catch) and,
+// once the knife is moving, moving the way it would by itself: tossed, it
+// turns at a steady rate on a parabola; spun in the fingers or round the
+// hand, it starts fast and slows. Each takes its start time, the pose the
+// hand does it in and where the knife's turn starts from, and returns its
+// keys, when the hand has settled (t) and where the turn ended up, so tricks
+// chain one into the next.
+
+// A half-turn toss lands this far back along the knife's length (it turns
+// about its balance point, which sits this far out from the grip, halved).
+const TOSS_SLIDE = 0.08;
+// in the air: keyed densely enough to move steadily
+const flightKeys = (air) => Math.max(8, Math.round(air / 0.045));
+
+// Tossed up end over end about its balance point and caught: `turns` turns,
+// up `h` metres and back down in `air` seconds. half: an extra half turn, so
+// it's caught the other way round (into a reverse grip, or back out of one);
+// its handle then comes down where its blade went up, so it drifts back along
+// its length in the air to land in the hand (slide).
+function tossT(t0, p, { turns = 1, half = false, h = 0.08, air = 0.62, from = 0, slide0 = 0 } = {}) {
+  const f = p.flex || 0, y = p.y || 0, r = p.roll || 0;
+  const by = TAU * turns + (half ? PI : 0), s1 = half ? (slide0 ? 0 : TOSS_SLIDE) : slide0;
+  const tr = t0 + 0.22, tc = tr + air;
   const k = [
-    [t0, { ...knifeOnly(p), ...GRIP, ring: 0, ringW: 0, hang: 0 }],
-    [t0 + 0.18, { ...p, ix: 0.6, mi: 0.55, th: 0.35, ring: 0.2, ringW: 0.5, hang: 0.4 }],
-    [t0 + 0.36, { ...p, ...SP, ring: 0.9, ringW: 1, hang: 1 }],
+    [t0, { ...knifeOnly(p), flip: from, lift: 0, slide: slide0 }],
+    [t0 + 0.14, { ...p, ...LOOSE, flex: f + 0.22, roll: r - 0.04, y: y - 0.01 }],        // the wrist cocks down, the grip eases
+    [tr, { ...p, ...OPEN, flex: f - 0.12, roll: r + 0.05, y: y + 0.012 }],               // the flick, letting go
+    [tr + air * 0.5, { ...p, ...OPEN, flex: f - 0.04, y: y + 0.006 }],
+    [tc - 0.06, { ...p, ix: 0.6, mi: 0.7, th: 0.5, flex: f - 0.02, y: y + 0.008 }],      // up a touch to meet it
+    [tc, { ...p, ...GRIP, flex: f + 0.03, y: y + 0.002 }],                               // caught,
+    [tc + 0.09, { ...p, ...GRIP, flex: f + 0.1, y: y - 0.008 }],                         // the wrist giving with it
+    [tc + 0.28, { ...p, ...GRIP }],
   ];
-  // the swing, out and back, smaller each time: three swings of a damped
-  // pendulum, keyed densely so it moves like one (keyed only at the ends of
-  // each swing, it lurched as it turned)
-  const n = 36;
-  for (let i = 1; i <= n; i++) { const u = i / n; k.push([t0 + 0.36 + d * u, { ring: 0.9 * Math.pow(0.72, 6 * u) * Math.cos(6 * PI * u) }]); }
-  const t1 = t0 + 0.36 + d;
-  k.push([t1 + 0.18, { ...p, ...SP, ring: -0.65, hang: 1 }],                             // drawn back for the throw (any further and the forearm hides it)
-    [t1 + 0.5, { ...p, ...SP, flex: (p.flex || 0) - 0.15, ring: TAU * 0.55, hang: 0.4 }], // round over the finger
-    [t1 + 0.72, { ...p, ix: 0.55, mi: 0.3, th: 0.3, ring: TAU - 0.15, ringW: 0.45, hang: 0 }],
-    [t1 + 0.88, { ...p, ...GRIP, ring: TAU, ringW: 0, hang: 0 }]);
-  return { keys: k, t: t1 + 0.88 };
+  const n = flightKeys(air);
+  for (let i = 0; i <= n; i++) {
+    const u = i / n;
+    k.push([tr + air * u, { flip: from + by * u, lift: 4 * h * u * (1 - u), slide: slide0 + (s1 - slide0) * u }]);
+  }
+  return { keys: k, t: tc + 0.28, flip: from + by, slide: s1 };
 }
 
-// The talon flicked round the index finger through its front ring: half a
-// turn back into a reverse hold (the claw hanging down and back), held, half
-// a turn forward again, and a full turn the other way, caught in the fist.
-function ringFlicks(t0, p) {
-  const SP = { ix: 0.4, mi: 0.75, th: 0.35, rp: 0 };
-  return [
-    [t0, { ...knifeOnly(p), ...GRIP, ring: 0, ringW: 0 }],
-    [t0 + 0.14, { ...p, ...SP, flex: (p.flex || 0) + 0.15, ring: -0.15, ringW: 0.9 }],
-    [t0 + 0.36, { ...p, ...SP, flex: (p.flex || 0) - 0.1, ring: PI, ringW: 1 }],
-    // it swings on a little past and settles back (stopped dead, it jarred)
-    [t0 + 0.46, { ring: PI + 0.22 }], [t0 + 0.62, { ring: PI - 0.07 }],
-    [t0 + 0.8, { ...p, ...SP, roll: (p.roll || 0) + 0.2, ring: PI + 0.05, ringW: 1 }],
-    [t0 + 1.04, { ...p, ...SP, ring: 0.05, ringW: 1 }],
-    [t0 + 1.2, { ...p, ...SP, flex: (p.flex || 0) + 0.12, ring: 0.2, ringW: 1 }],
-    [t0 + 1.62, { ...p, ...SP, ring: -TAU + 0.5, ringW: 1 }],
-    [t0 + 1.8, { ...p, ix: 0.3, mi: 0.3, th: 0.2, ring: -TAU + 0.08, ringW: 0.4 }],
-    [t0 + 1.95, { ...p, ...GRIP, ring: -TAU, ringW: 0 }],
+// Stood upright in the fist and tossed straight up spinning about its own
+// length (both faces flashing by as it turns), caught as it comes down.
+const UPR = { roll: 1.6, flex: 1.3, yaw: 0, x: -0.04, y: 0.03, z: 0.02 };   // upright, point up, the flat to you
+function spiralToss(t0, { turns = 2, h = 0.07, air = 0.6, from = 0 } = {}) {
+  const U = UPR, uf = U.flex, uy = U.y, by = TAU * turns;
+  const t1 = t0 + 0.42, tr = t1 + 0.18, tc = tr + air;
+  const k = [
+    [t0, { twirl: from, lift: 0 }],
+    [t1, { ...U, ...GRIP }],                                             // turned upright
+    [t1 + 0.12, { ...U, ...LOOSE, flex: uf + 0.1, y: uy - 0.01 }],       // dipped
+    [tr, { ...U, ...OPEN, flex: uf - 0.1, y: uy + 0.012 }],              // the flick up, letting go
+    [tc - 0.06, { ...U, ix: 0.6, mi: 0.7, th: 0.5, y: uy + 0.008 }],
+    [tc, { ...U, ...GRIP, y: uy + 0.002 }],
+    [tc + 0.09, { ...U, ...GRIP, flex: uf + 0.08, y: uy - 0.008 }],
+    [tc + 0.26, { ...U, ...GRIP }],
   ];
+  const n = flightKeys(air);
+  for (let i = 0; i <= n; i++) { const u = i / n; k.push([tr + air * u, { twirl: from + by * u, lift: 4 * h * u * (1 - u) }]); }
+  return { keys: k, t: tc + 0.26, twirl: from + by };
+}
+
+// Spun round the hand end over end about the grip (let go across the face of
+// the palm, pushed off it so the blade clears it): `turns` turns, fast off
+// the flick and slowing, the fist closing on it as it comes round.
+function windmill(t0, p, { turns = 1, from = 0, d = 0.55 } = {}) {
+  const f = p.flex || 0, r = p.roll || 0, y = p.y || 0, by = TAU * turns;
+  // (the fingers stay out straight while it goes round, clear of the blade,
+  // and only close on the handle as it comes home)
+  const t1 = t0 + 0.2, t2 = t1 + d, SP = { ix: 0.82, mi: 0.86, th: 0.55 }, KX = KX_REV * 1.25;
+  return { keys: [
+    [t0, { ...knifeOnly(p), rev: from, kx: 0 }],
+    [t0 + 0.12, { ...p, ...LOOSE, flex: f + 0.2, roll: r - 0.06, y: y - 0.004, rev: from - 0.12, kx: KX * 0.5 }],   // cocked
+    [t1, { ...p, ...SP, flex: f - 0.16, roll: r + 0.06, y: y + 0.006, rev: from + 0.9, kx: KX }],                   // the flick
+    [t1 + d * 0.45, { ...p, ...SP, flex: f - 0.05, rev: from + by * 0.6, kx: KX }],
+    [t2 - 0.05, { ...p, ...SP, rev: from + by - 0.28, kx: KX * 0.8 }],
+    [t2, { ...p, ...GRIP, flex: f + 0.06, y: y - 0.004, rev: from + by, kx: 0 }],                                   // caught
+    [t2 + 0.2, { ...p, ...GRIP }],
+  ], t: t2 + 0.2, rev: from + by };
+}
+
+// Walked round in the fingers about its own length, like a pen: the wrist
+// rolls against it to start it and the fingers roll it on (a wave across
+// them), fast and slowing; `turns` turns.
+function penSpin(t0, p, { turns = 1, from = 0, d = 0.6 } = {}) {
+  const r = p.roll || 0, f = p.flex || 0, by = TAU * turns;
+  const t1 = t0 + 0.16, t2 = t1 + d;
+  return { keys: [
+    [t0, { ...knifeOnly(p), twirl: from }],
+    [t0 + 0.1, { ...p, ...LOOSE, roll: r - 0.12, twirl: from - 0.08 }],
+    [t1, { ...p, ...LOOSE, wave: 0.5, roll: r + 0.08, twirl: from + Math.min(1.1, by * 0.22) }],
+    [t1 + d * 0.45, { ...p, ...LOOSE, wave: 0.42, roll: r + 0.04, twirl: from + by * 0.62 }],
+    [t2, { ...p, ...LOOSE, wave: 0.2, twirl: from + by }],
+    [t2 + 0.14, { ...p, ...GRIP, flex: f + 0.04 }],
+    [t2 + 0.3, { ...p, ...GRIP }],
+  ], t: t2 + 0.3, twirl: from + by };
+}
+
+// Round the index finger through the knife's ring, either way (dir -1:
+// backwards), driven from the wrist like the karambit's spin.
+function ringSpinDir(t0, p, from, turns = 2, d = 0.9, dir = 1) {
+  const to = from + TAU * turns * dir, r = p.roll || 0, f = p.flex || 0, y = p.y || 0;
+  return { keys: [
+    [t0, { ...knifeOnly(p), ring: from, ringW: 0 }],
+    [t0 + 0.16, { ...p, roll: r - 0.25 * dir, flex: f + 0.32 * dir, y: y - 0.004, ix: 0.3, mi: 0.1, th: 0.2, ring: from - 0.12 * dir, ringW: 0 }],
+    [t0 + 0.32, { ...p, roll: r + 0.15 * dir, flex: f - 0.18 * dir, y: y + 0.008, ix: 0.95, mi: -0.1, th: 0.35, ring: from + 1.1 * dir, ringW: 1 }],
+    [t0 + 0.32 + d * 0.5, { ...p, roll: r + 0.05 * dir, flex: f - 0.05 * dir, ix: 0.95, mi: -0.2, th: -0.05, ring: from + (to - from) * 0.56, ringW: 1 }],
+    [t0 + 0.32 + d, { ...p, ix: 0.95, mi: -0.2, th: -0.05, ring: to - 0.7 * dir, ringW: 1 }],
+    [t0 + 0.46 + d, { ...p, flex: f - 0.14 * dir, y: y - 0.004, ix: 0.55, mi: 0.25, th: 0.3, ring: to - 0.12 * dir, ringW: 0.55 }],
+    [t0 + 0.6 + d, { ...p, ...GRIP, flex: f + 0.06, y: y - 0.006, ring: to, ringW: 0 }],
+    [t0 + 0.8 + d, { ...p, ...GRIP, ring: to, ringW: 0 }],
+  ], t: t0 + 0.8 + d, ring: to };
+}
+
+// The wrist turns the knife over to show its other face, and back to the grip.
+function showFaces(t0) {
+  return { keys: [[t0, show({ flex: -0.42, y: 0.036 })], [t0 + 0.5, over()], [t0 + 0.95, over(OVER2)], [t0 + 1.4, show({ roll: 0.15 })]], t: t0 + 1.4 };
+}
+
+// A knife's inspect from tricks in a row: all their keys, its length (a little
+// past the last), and where each turn ends up (end), so nothing unwinds.
+function routine(parts, tail = 0.4) {
+  const keys = parts.flatMap(q => (Array.isArray(q) ? q : q.keys));
+  const t = Math.max(...keys.map(k => k[0]));
+  const end = {};
+  for (const ch of ['flip', 'rev', 'twirl', 'ring', 'ltwirl']) {
+    let at = -1;
+    for (const [kt, o] of keys) if (ch in o && kt >= at) { at = kt; end[ch] = o[ch]; }
+  }
+  return { len: t + tail, fluid: true, end, keys };
 }
 
 // The cord knife spun on the palm: the hand turns palm up and opens flat, the
@@ -377,226 +469,179 @@ function balisong(drop) {
 }
 
 export const KNIFE_INSPECTS = {
-  // Field knife: brought up in a salute, tip up and the flat to you; turned a
-  // half turn in the fingers to show the other face, still upright, and the
-  // rest of the way round; lowered.
-  standard: { len: 4.5, fluid: true, end: { twirl: TAU }, keys: (() => {
-    const S = { roll: 1.6, flex: 1.3, yaw: 0, x: -0.04, y: 0.03, z: 0.02 }, S2 = { ...S, roll: 1.64, y: 0.033 };
-    return seq(
-      [[0.4, show({ flex: -0.4 })], [1.0, S], [1.4, S2]],
-      twirl(1.45, S2, 0, PI, 0.45),
-      [[2.55, { ...S, twirl: PI }], [2.9, { ...S2, roll: 1.58, twirl: PI }]],
-      twirl(2.95, S, PI, PI, 0.45),
-      [[4.0, show({ roll: 0.15, flex: -0.42, twirl: TAU })]],
-    );
-  })() },
-  // Bayonet: a flick of the wrist turns it end over end into a reverse grip;
-  // the fist turned to show it, the blade standing out from the little-finger
-  // side; flicked back round into the normal grip (the turn across the view),
-  // then the other face.
-  bayonet: { len: 4.6, fluid: true, end: { rev: TAU }, keys: (() => {
+  // Field knife: tossed once end over end and caught, walked once round in the
+  // fingers, the other face.
+  standard: (() => {
+    const P = show({ flex: -0.3, y: 0.032 });
+    const a = tossT(0.38, P, { turns: 1, h: 0.075, air: 0.58 });
+    const b = penSpin(a.t + 0.04, P, { turns: 1, d: 0.6 });
+    return routine([[[0.33, P]], a, b, showFaces(b.t + 0.06)]);
+  })(),
+  // Bayonet: spun twice round the hand, flipped into a reverse grip (the
+  // blade shown standing out of the fist), flipped back across the view.
+  bayonet: (() => {
+    const P = show({ flex: -0.35, y: 0.034 });
     const R1 = show({ roll: -1.05, flex: -0.6, yaw: -0.3, x: -0.08, y: 0.055 }), R2 = show({ roll: -1.2, flex: -0.55, yaw: -0.25, x: -0.078, y: 0.057 });
-    return seq(
-      [[0.4, show({ flex: -0.35, y: 0.032 })]],
-      revFlip(0.45, show({ flex: -0.35, y: 0.032 }), 0, PI, 0.42, 0.02),
-      [[1.45, { ...R1, rev: PI }], [1.95, { ...R2, rev: PI }]],
-      revFlip(2.0, R2, PI, PI, 0.42, 0.02),
-      [[3.1, over({ rev: TAU })], [3.6, over({ ...OVER2, rev: TAU })], [4.1, show({ roll: 0.15, rev: TAU })]],
-    );
-  })() },
-  // Combat bayonet: a drill: a slash across, a stab straight out, then the
-  // wrist turned to put the saw back toward you, and the other face.
-  combat: { len: 4.3, fluid: true, keys: [
-    [0.35, show({ flex: -0.3, y: 0.03 })],
-    [0.62, show({ yaw: 0.35, flex: -0.15, x: 0.02, y: 0.04, z: 0.01 })],          // wound up to the right
-    [0.82, show({ yaw: -0.55, flex: -0.35, x: -0.075, y: 0.026, z: -0.02 })],     // the slash across
-    [1.08, show({ yaw: -0.2, flex: -0.3, x: -0.05, y: 0.03 })],
-    [1.3, show({ flex: -0.05, x: -0.04, y: 0.034, z: 0.03, mi: -0.1 })],           // drawn back
-    [1.46, show({ flex: 0.1, x: -0.035, y: 0.036, z: -0.06, mi: -0.12 })],         // the stab
-    [1.72, show({ flex: -0.3, x: -0.05, y: 0.035 })],
-    [2.25, show({ roll: 1.05, flex: -0.6, y: 0.05 })],                             // the saw back toward you
-    [2.7, show({ roll: 1.12, flex: -0.65, y: 0.052 })],
-    [3.2, over()], [3.65, over(OVER2)], [4.0, show({ roll: 0.15 })],
-  ] },
-  // Flip knife: tossed high, turning twice end over end, caught; a half turn
-  // in the fingers shows the other face, and back round.
-  flip: { len: 4.6, fluid: true, end: { flip: 2 * TAU, twirl: TAU }, keys: seq(
-    [[0.35, show({ flex: -0.25, y: 0.026 })]],
-    toss(0.4, show({ flex: -0.25, y: 0.026 }), 0, 2, 0.11, 0.86),
-    [[1.75, show({ flex: -0.45, y: 0.034, flip: 2 * TAU })]],
-    twirl(1.8, show({ flex: -0.45, y: 0.034, flip: 2 * TAU }), 0, PI, 0.42),
-    [[2.95, show({ roll: 0.4, flex: -0.4, y: 0.036, flip: 2 * TAU, twirl: PI })]],
-    twirl(3.05, show({ roll: 0.2, flip: 2 * TAU }), PI, PI, 0.42),
-  ) },
-  // Gut hook: the wrist turns the hook on the spine up toward you, and it's
-  // pulled back twice as if catching something on it; the other face.
-  gut: { len: 4.3, fluid: true, keys: [
-    [0.4, show({ flex: -0.4 })],
-    [0.95, show({ roll: 0.95, flex: -0.55, y: 0.05 })],                            // the hook to you
-    [1.25, show({ roll: 0.95, flex: -0.4, y: 0.052, z: -0.02 })],
-    [1.45, show({ roll: 1.0, flex: -0.75, y: 0.046, z: 0.024, mi: -0.12 })],       // pull
-    [1.7, show({ roll: 0.95, flex: -0.42, y: 0.052, z: -0.018 })],
-    [1.9, show({ roll: 1.0, flex: -0.78, y: 0.046, z: 0.026, mi: -0.12 })],        // pull
-    [2.25, show({ roll: 0.9, flex: -0.55, y: 0.05 })],
-    [2.8, over()], [3.3, over(OVER2)], [3.85, show({ roll: 0.15 })],
-  ] },
-  // Bowie: weighed in the hand (the grip eases and it bounces in the palm
-  // twice), then a slow, heavy chop down and back up, and the long blade
-  // turned over slowly.
-  bowie: { len: 4.8, fluid: true, keys: [
-    [0.4, show({ flex: -0.3, y: 0.028 })],
-    [0.62, show({ flex: -0.3, y: 0.02, ...LOOSE, lift: 0.012 })], [0.78, show({ flex: -0.3, y: 0.03, ...GRIP, lift: 0 })],
-    [0.98, show({ flex: -0.3, y: 0.022, ...LOOSE, lift: 0.012 })], [1.14, show({ flex: -0.3, y: 0.031, ...GRIP, lift: 0 })],
-    [1.6, show({ flex: 0.25, yaw: 0.35, y: 0.06, x: -0.03 })],                     // raised for the chop
-    [1.92, show({ flex: -0.75, yaw: -0.25, y: 0.006, x: -0.05, z: -0.02 })],        // down
-    [2.35, show({ flex: -0.4, y: 0.034 })],
-    [3.0, over()], [3.6, over(OVER2)], [4.2, show({ roll: 0.15 })],
-  ] },
-  // Push daggers, one in each fist: up into a boxer's guard; a jab with the
-  // left, a cross with the right, an uppercut with the left; the blades
-  // crossed in front of the face and the right drawn along the left with a
-  // scrape; apart, each fist turned palm up to show the blade's other face,
-  // and back down.
-  push: { len: 5.2, fluid: true, keys: (() => {
+    const a = windmill(0.38, P, { turns: 2, d: 0.85 });
+    const t1 = a.t + 0.02, t2 = t1 + 0.68, t3 = t2 + 0.82, t4 = t3 + 0.68;
+    return routine([[[0.33, P]], a,
+      revFlip(t1, P, a.rev, PI, 0.42, 0.02),
+      [[t2 + 0.3, { ...R1, rev: a.rev + PI }], [t2 + 0.76, { ...R2, rev: a.rev + PI }]],
+      revFlip(t3, R2, a.rev + PI, PI, 0.42, 0.02),
+      showFaces(t4 + 0.5)]);
+  })(),
+  // Combat bayonet: tossed one and a half turns and caught in a reverse
+  // grip, shown that way, tossed back out of it the same way.
+  combat: (() => {
+    const P = show({ flex: -0.3, y: 0.032 });
+    const R2 = show({ roll: -1.2, flex: -0.55, yaw: -0.25, x: -0.078, y: 0.057 });
+    const a = tossT(0.38, P, { turns: 1, half: true, h: 0.085, air: 0.66 });
+    const b = tossT(a.t + 0.72, R2, { turns: 1, half: true, h: 0.085, air: 0.66, from: a.flip, slide0: a.slide });
+    return routine([[[0.33, P]], a, [[a.t + 0.32, R2]], b, showFaces(b.t + 0.5)]);
+  })(),
+  // Flip knife: tossed high, twice end over end, caught; walked twice round
+  // in the fingers; the other face.
+  flip: (() => {
+    const P = show({ flex: -0.25, y: 0.028 }), P2 = show({ flex: -0.42, y: 0.034 });
+    const a = tossT(0.38, P, { turns: 2, h: 0.115, air: 0.82 });
+    const b = penSpin(a.t + 0.04, P2, { turns: 2, d: 0.85 });
+    return routine([[[0.33, P]], a, b, showFaces(b.t + 0.06)]);
+  })(),
+  // Gut hook: spun fast three times round in the fingers, flicked up once and
+  // caught, the hook turned to you.
+  gut: (() => {
+    const P = show({ flex: -0.38, y: 0.034 });
+    const a = penSpin(0.38, P, { turns: 3, d: 0.95 });
+    const b = tossT(a.t + 0.04, P, { turns: 1, h: 0.06, air: 0.52 });
+    return routine([[[0.33, P]], a, b, [[b.t + 0.4, show({ roll: 0.95, flex: -0.55, y: 0.05 })], [b.t + 0.8, show({ roll: 0.95, flex: -0.5, y: 0.052 })]],
+      showFaces(b.t + 1.0)]);
+  })(),
+  // Bowie: stood on end and tossed up spinning about its length, caught; then
+  // swung once round the hand, heavily; the other face.
+  bowie: (() => {
+    const P = show({ flex: -0.32, y: 0.03 });
+    const a = spiralToss(0.38, { turns: 2, h: 0.07, air: 0.64 });
+    const b = windmill(a.t + 0.5, P, { turns: 1, d: 0.75 });
+    return routine([[[0.33, P]], a, [[a.t + 0.45, P]], b, showFaces(b.t + 0.06)]);
+  })(),
+  // Push daggers: each walked twice round in its fist (the left a beat behind
+  // the right), up into a guard, both twirled once more together, and both
+  // fists turned palm up to show the blades' other faces.
+  push: (() => {
     const R0 = { roll: 0, flex: -0.15, yaw: 0, x: -0.02, y: 0.05, z: 0.01 };
     const L0 = { lroll: 0, lflex: -0.15, lyaw: 0, lx: 0.02, ly: 0.05, lz: 0.01 };
     const L = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => ['l' + k, k === 'x' ? -v : v]));
     const pose = (r = {}, l = {}, f = {}) => ({ ...R0, ...r, ...L0, ...L(l), ...f });
-    const punch = { z: -0.065, flex: 0.35, y: 0.056 }, cocked = { z: 0.02, flex: -0.25 };
-    const upper = { z: -0.03, y: 0.085, flex: -0.6, roll: 0.4 };
-    const cross = { x: -0.07, y: 0.07, z: -0.02, yaw: -0.8, roll: -0.25 }, cross2 = { ...cross, x: -0.035, y: 0.074 };
-    return [
-      [0.4, pose()],
-      [0.62, pose({}, cocked, { mi: -0.1 })], [0.78, pose({}, punch, { mi: -0.12 })], [0.98, pose({}, {})],           // jab
-      [1.12, pose(cocked, {}, { mi: -0.1 })], [1.3, pose({ ...punch, x: -0.045, yaw: -0.3 }, {}, { mi: -0.12 })], [1.52, pose({}, {})],   // cross
-      [1.68, pose({}, { y: 0.03, z: 0.02 })], [1.86, pose({}, upper, { mi: -0.12 })], [2.1, pose({}, {})],              // uppercut
-      [2.5, pose(cross, cross)],
-      [2.95, pose(cross2, { ...cross, x: -0.085 }, { th: -0.1 })],                     // the scrape
-      [3.15, pose(cross, cross)],
-      [3.55, pose({ roll: 1.7, flex: -0.15, y: 0.06 }, { roll: 1.7, flex: -0.15, y: 0.06 }, { th: 0.06 })],
-      [4.15, pose({ roll: 1.78, flex: -0.12, y: 0.062 }, { roll: 1.78, flex: -0.12, y: 0.062 })],
-      [4.6, pose()],
-    ];
-  })() },
-  // Navaja: snapped out from the wrist as if flicking it open, then a long
-  // look down the curve of the edge (the wrist turned to sight along it), and
+    const OPENW = { ix: 0.8, mi: 0.88, th: 0.6, rp: 0 };
+    const spin = (ch, t0, from, by, d) => [[t0, { [ch]: from }], [t0 + 0.1, { [ch]: from - 0.08 }], [t0 + 0.16, { [ch]: from + 1.0 }],
+      [t0 + 0.16 + d * 0.45, { [ch]: from + by * 0.62 }], [t0 + 0.16 + d, { [ch]: from + by }]];
+    return routine([
+      // (the fists open wide while the daggers spin: the blade comes out
+      // between the fingers, and turning in a closed fist it would cut them)
+      [[0.4, pose()], [0.55, pose({ roll: -0.1 }, {}, OPENW)], [1.0, pose({ roll: 0.06 }, { roll: -0.1 }, { ...OPENW, wave: 0.3 })],
+       [1.6, pose({}, { roll: 0.06 }, { ...OPENW, wave: 0.25 })], [1.85, pose({}, {}, GRIP)]],
+      spin('twirl', 0.5, 0, 2 * TAU, 0.75), spin('ltwirl', 0.78, 0, 2 * TAU, 0.75),
+      // both up into a guard and twirled once more together
+      [[2.25, pose({ y: 0.07, z: -0.01, flex: -0.3 }, { y: 0.07, z: -0.01, flex: -0.3 }, OPENW)], [2.95, pose({ y: 0.072, z: -0.01, flex: -0.3 }, { y: 0.072, z: -0.01, flex: -0.3 }, { ...OPENW, wave: 0.25 })],
+       [3.15, pose({ y: 0.07 }, { y: 0.07 }, GRIP)]],
+      spin('twirl', 2.3, 2 * TAU, TAU, 0.6), spin('ltwirl', 2.3, 2 * TAU, TAU, 0.6),
+      // palms up, the other faces, and back
+      [[3.6, pose({ roll: 1.7, flex: -0.15, y: 0.06 }, { roll: 1.7, flex: -0.15, y: 0.06 }, { th: 0.06 })],
+       [4.15, pose({ roll: 1.78, flex: -0.12, y: 0.062 }, { roll: 1.78, flex: -0.12, y: 0.062 })], [4.6, pose()]],
+    ]);
+  })(),
+  // Navaja: swung once round the hand off a quick flick, walked twice round in
+  // the fingers, the other face.
+  navaja: (() => {
+    const P = show({ flex: -0.3, y: 0.03 });
+    const a = windmill(0.38, P, { turns: 1, d: 0.5 });
+    const b = penSpin(a.t + 0.04, P, { turns: 2, d: 0.75 });
+    return routine([[[0.33, P]], a, b, showFaces(b.t + 0.06)]);
+  })(),
+  // Stiletto: spun three times round in the fingers like a pen, stood on end
+  // and tossed up spinning about its length, caught point up; the other face.
+  stiletto: (() => {
+    const P = show({ flex: -0.42 });
+    const a = penSpin(0.38, P, { turns: 3, d: 0.85 });
+    const b = spiralToss(a.t + 0.04, { turns: 3, h: 0.08, air: 0.64, from: a.twirl });
+    return routine([[[0.33, P]], a, b, showFaces(b.t + 0.5)]);
+  })(),
+  // Kukri: the heavy blade swung once round the hand, then tossed once end
+  // over end and caught; the other face.
+  kukri: (() => {
+    const P = show({ flex: -0.3, y: 0.03 });
+    const a = windmill(0.38, P, { turns: 1, d: 0.78 });
+    const b = tossT(a.t + 0.04, P, { turns: 1, h: 0.065, air: 0.6 });
+    return routine([[[0.33, P]], a, b, showFaces(b.t + 0.06)]);
+  })(),
+  // Tanto: flipped into a reverse grip, spun twice about its length there,
+  // flipped back; the other face.
+  tanto: (() => {
+    const P = show({ flex: -0.35, y: 0.032 });
+    const R2 = show({ roll: -1.2, flex: -0.55, yaw: -0.25, x: -0.078, y: 0.057 });
+    const b = penSpin(1.42, R2, { turns: 2, d: 0.72 });
+    const t3 = b.t + 0.04;
+    return routine([[[0.33, P]], revFlip(0.38, P, 0, PI, 0.42, 0.02), [[1.36, { ...R2, rev: PI }]], b,
+      revFlip(t3, R2, PI, PI, 0.42, 0.02), showFaces(t3 + 1.15)]);
+  })(),
+  // Survival knife: stood on end and tossed up spinning about its length,
+  // caught; tossed high twice end over end; the other face.
+  survival: (() => {
+    const P = show({ flex: -0.3, y: 0.03 });
+    const a = spiralToss(0.38, { turns: 2, h: 0.07, air: 0.62 });
+    const b = tossT(a.t + 0.5, P, { turns: 2, h: 0.1, air: 0.76 });
+    return routine([[[0.33, P]], a, [[a.t + 0.45, P]], b, showFaces(b.t + 0.06)]);
+  })(),
+  // Skeleton knife: spun twice round the index finger through its ring, then
+  // twice back the other way; the other face.
+  skeleton: (() => {
+    const P = show({ roll: -0.1, flex: -0.12, y: 0.048 });
+    const a = ringSpinDir(0.32, P, 0, 2, 0.95, 1);
+    const b = ringSpinDir(a.t + 0.06, P, a.ring, 2, 0.95, -1);
+    return routine([[[0.28, P]], a, b, showFaces(b.t + 0.06)]);
+  })(),
+  // Hawkbill: walked twice round in the fingers, swung once round the hand;
   // the other face.
-  navaja: { len: 4.4, fluid: true, keys: [
-    [0.35, show({ flex: -0.2, y: 0.026 })],
-    [0.55, show({ flex: 0.35, yaw: 0.3, y: 0.02, z: 0.02, ...LOOSE })],          // cocked back
-    [0.7, show({ flex: -0.55, yaw: -0.35, y: 0.04, z: -0.015, ...GRIP })],        // the snap
-    [0.86, show({ flex: -0.42, yaw: -0.15, y: 0.036 })],
-    [1.5, show({ roll: -0.35, flex: -0.15, yaw: -0.9, x: -0.02, y: 0.055, z: 0.03 })],   // sighting along the edge
-    [2.15, show({ roll: -0.4, flex: -0.12, yaw: -0.95, x: -0.018, y: 0.057, z: 0.032 })],
-    [2.6, show({ flex: -0.45, y: 0.036 })],
-    [3.1, over()], [3.55, over(OVER2)], [3.95, show({ roll: 0.15 })],
-  ] },
-  // Stiletto: spun fast in the fingers three times like a pen, stopped dead
-  // with the point out toward the middle, then the other face.
-  stiletto: { len: 4.2, fluid: true, end: { twirl: 3 * TAU }, keys: seq(
-    [[0.35, show({ flex: -0.42 })]],
-    twirl(0.4, show({ flex: -0.42 }), 0, 3 * TAU, 0.95),
-    [[1.75, show({ flex: -0.15, yaw: -0.4, x: -0.06, y: 0.04, z: -0.025, twirl: 3 * TAU })],     // the point out
-     [2.2, show({ flex: -0.12, yaw: -0.42, x: -0.062, y: 0.041, z: -0.027, twirl: 3 * TAU })],
-     [2.75, over({ twirl: 3 * TAU })], [3.25, over({ ...OVER2, twirl: 3 * TAU })], [3.7, show({ roll: 0.15, twirl: 3 * TAU })]],
-  ) },
-  // Kukri: the grip eases and the heavy blade swings loose from the fingers
-  // like a pendulum, back and forth; the fist closes on it with a chop, and
-  // the curved blade is turned over.
-  kukri: { len: 4.7, fluid: 'all', keys: [
-    [0.4, show({ flex: -0.3, y: 0.03 })],
-    [0.6, show({ flex: -0.2, y: 0.032, ix: 0.38, mi: 0.4, th: 0.3, rev: 0.25 })],
-    [0.92, show({ flex: -0.2, y: 0.034, ix: 0.42, mi: 0.4, th: 0.3, rev: -0.42 })],
-    [1.24, show({ flex: -0.2, y: 0.034, ix: 0.38, mi: 0.4, th: 0.3, rev: 0.45 })],
-    [1.54, show({ flex: -0.2, y: 0.034, ix: 0.38, mi: 0.4, th: 0.3, rev: -0.3 })],
-    [1.8, show({ flex: -0.2, y: 0.033, ix: 0.2, mi: 0.3, th: 0.25, rev: 0.12 })],
-    [2.05, show({ flex: 0.3, y: 0.055, ...GRIP, rev: 0 })],                        // up for the chop
-    [2.3, show({ flex: -0.7, y: 0.012, z: -0.015, rev: 0 })],                      // the chop
-    [2.65, show({ flex: -0.4, y: 0.032 })],
-    [3.2, over()], [3.7, over(OVER2)], [4.15, show({ roll: 0.15 })],
-  ] },
-  // Tanto: held level across the view at eye height, edge up, and drawn
-  // slowly sideways as if sighting along the edge to its angled point;
-  // lowered and turned over.
-  tanto: { len: 4.6, fluid: true, keys: [
-    [0.4, show({ flex: -0.35 })],
-    [1.0, show({ roll: 2.2, flex: -0.35, yaw: 0.35, x: -0.01, y: 0.075, z: 0.0 })],    // level, edge up
-    [1.95, show({ roll: 2.25, flex: -0.35, yaw: 0.38, x: -0.07, y: 0.078, z: 0.0 })],  // drawn across
-    [2.4, show({ roll: 2.2, flex: -0.35, yaw: 0.35, x: -0.06, y: 0.076 })],
-    [2.95, show({ flex: -0.45, y: 0.036 })],
-    [3.45, over()], [3.9, over(OVER2)], [4.25, show({ roll: 0.15 })],
-  ] },
-  // Survival knife: turned to put the saw back toward you and sawn back and
-  // forth three times; the other face.
-  survival: { len: 4.4, fluid: true, keys: [
-    [0.4, show({ flex: -0.35 })],
-    [0.95, show({ roll: 1.0, flex: -0.6, y: 0.05 })],
-    [1.15, show({ roll: 1.0, flex: -0.6, y: 0.05, x: -0.07, z: -0.02 })],
-    [1.38, show({ roll: 1.0, flex: -0.6, y: 0.048, x: -0.035, z: 0.015 })],
-    [1.6, show({ roll: 1.0, flex: -0.6, y: 0.05, x: -0.072, z: -0.02 })],
-    [1.83, show({ roll: 1.0, flex: -0.6, y: 0.048, x: -0.035, z: 0.015 })],
-    [2.05, show({ roll: 1.0, flex: -0.6, y: 0.05, x: -0.072, z: -0.02 })],
-    [2.3, show({ roll: 0.95, flex: -0.55, y: 0.049, x: -0.05 })],
-    [2.85, over()], [3.35, over(OVER2)], [3.85, show({ roll: 0.15 })],
-  ] },
-  // Skeleton knife: let go onto the index finger by its ring, it hangs and
-  // swings there like a pendulum, then it's swung round over the finger and
-  // caught; the other face.
-  skeleton: { len: 5.5, fluid: true, end: { ring: TAU }, keys: (() => {
-    const P0 = show({ roll: -0.1, flex: -0.15, x: -0.045, y: 0.105, z: -0.02 });   // up, so it hangs in view
-    const pd = pendulum(0.4, P0);
-    return seq([[0.35, P0]], pd.keys,
-      [[pd.t + 0.45, over({ ring: TAU })], [pd.t + 0.95, over({ ...OVER2, ring: TAU })], [pd.t + 1.4, show({ roll: 0.15, ring: TAU })]]);
-  })() },
-  // Hawkbill: the wrist turns the hooked point down and it rakes back twice,
-  // like a claw; the other face.
-  hawkbill: { len: 4.3, fluid: true, keys: [
-    [0.4, show({ flex: -0.35 })],
-    [0.85, show({ roll: -0.3, flex: 0.2, yaw: 0.25, y: 0.05, z: -0.03 })],
-    [1.08, show({ roll: -0.25, flex: -0.45, yaw: -0.1, y: 0.024, z: 0.02, mi: -0.12 })],   // rake
-    [1.35, show({ roll: -0.3, flex: 0.2, yaw: 0.25, y: 0.05, z: -0.03 })],
-    [1.58, show({ roll: -0.25, flex: -0.48, yaw: -0.1, y: 0.022, z: 0.022, mi: -0.12 })],  // rake
-    [1.95, show({ flex: -0.42, y: 0.036 })],
-    [2.6, over()], [3.1, over(OVER2)], [3.7, show({ roll: 0.15 })],
-  ] },
-  // Trench knife: two punches with the knuckle guard (a jab and a hook), then
-  // the fist turned to show the guard's studs, and the blade's other face.
-  trench: { len: 4.4, fluid: true, keys: [
-    [0.35, show({ flex: -0.15, y: 0.035 })],
-    [0.55, show({ flex: -0.2, y: 0.03, z: 0.02, mi: -0.1 })],
-    [0.72, show({ flex: 0.2, y: 0.045, z: -0.052, mi: -0.14 })],                   // jab
-    [0.95, show({ flex: -0.1, y: 0.036 })],
-    [1.15, show({ yaw: 0.45, x: 0.025, y: 0.04, z: 0.0, mi: -0.1 })],
-    [1.36, show({ yaw: -0.6, x: -0.07, y: 0.045, z: -0.04, mi: -0.14 })],          // hook
-    [1.65, show({ flex: -0.2, y: 0.036 })],
-    [2.2, show({ roll: -0.9, flex: 0.3, y: 0.05, x: -0.04 })],                     // the guard to you
-    [2.65, show({ roll: -0.95, flex: 0.32, y: 0.052, x: -0.042 })],
-    [3.15, over()], [3.6, over(OVER2)], [4.0, show({ roll: 0.15 })],
-  ] },
-  // Cord knife: the hand turns palm up and the knife spins twice flat on the
-  // open palm, caught as it comes round; turned back over to show the other
-  // face.
-  cord: { len: 4.7, fluid: true, end: { flip: 2 * TAU }, keys: seq(
-    [[0.35, show({ flex: -0.3 })]],
-    palmSpin(0.4, show({ flex: -0.3 }), 2, 1.05),
-    [[2.6, show({ flex: -0.4, y: 0.036, flip: 2 * TAU })], [3.1, over({ flip: 2 * TAU })], [3.6, over({ ...OVER2, flip: 2 * TAU })], [4.15, show({ roll: 0.15, flip: 2 * TAU })]],
-  ) },
-  // Falchion: the forearm rolls out to show the broad blade, then it's spun
-  // end over end in the hand like a windmill, all the way round, and the
-  // fist closes on it; the other face.
-  falchion: { len: 4.7, fluid: true, end: { rev: TAU }, keys: seq(
-    [[0.4, show({ flex: -0.3 })], [0.95, show({ roll: 0.9, flex: -0.45, y: 0.05 })], [1.35, show({ roll: 0.95, flex: -0.48, y: 0.052 })]],
-    revFlip(1.45, show({ roll: 0.3, flex: -0.3, y: 0.04 }), 0, TAU, 0.6, 0.012),
-    [[2.75, show({ flex: -0.42, y: 0.036, rev: TAU })], [3.25, over({ rev: TAU })], [3.7, over({ ...OVER2, rev: TAU })], [4.15, show({ roll: 0.15, rev: TAU })]],
-  ) },
-  // Talon: flicked round the index finger through its front ring, half a turn
-  // back into a reverse hold and half a turn forward again, then a full turn
-  // the other way and caught; the other face.
-  talon: { len: 4.6, fluid: true, end: { ring: -TAU }, keys: seq(
-    [[0.35, show({ roll: -0.1, flex: -0.2, y: 0.045 })]],
-    ringFlicks(0.4, show({ roll: -0.1, flex: -0.2, y: 0.045 })),
-    [[2.75, over({ ring: -TAU })], [3.25, over({ ...OVER2, ring: -TAU })], [3.75, show({ roll: 0.15, ring: -TAU })]],
-  ) },
+  hawkbill: (() => {
+    const P = show({ flex: -0.35, y: 0.032 });
+    const a = penSpin(0.38, P, { turns: 2, d: 0.75 });
+    const b = windmill(a.t + 0.04, P, { turns: 1, d: 0.55 });
+    return routine([[[0.33, P]], a, b, showFaces(b.t + 0.06)]);
+  })(),
+  // Trench knife: let go onto the index finger through the front of its
+  // knuckle bow and spun twice round it, caught; the studs turned to you.
+  trench: (() => {
+    const P = show({ roll: -0.1, flex: -0.15, y: 0.045 });
+    const a = ringSpinDir(0.32, P, 0, 2, 1.0, 1);
+    return routine([[[0.28, P]], a,
+      [[a.t + 0.45, show({ roll: -0.9, flex: 0.3, y: 0.05, x: -0.04 })], [a.t + 0.9, show({ roll: -0.95, flex: 0.32, y: 0.052, x: -0.042 })]],
+      showFaces(a.t + 1.1)]);
+  })(),
+  // Cord knife: spun three times round the index finger through its lanyard
+  // loop, caught; spun twice flat on the open palm; the other face.
+  cord: (() => {
+    const P = show({ roll: -0.1, flex: -0.12, y: 0.048 }), P2 = show({ flex: -0.3 });
+    const a = ringSpinDir(0.32, P, 0, 3, 1.25, 1);
+    const b = palmSpin(a.t + 0.04, P2, 2, 1.05);
+    const tb = a.t + 0.04 + 0.66 + 1.05;
+    return routine([[[0.28, P]], a, b, showFaces(tb + 0.5)]);
+  })(),
+  // Falchion: swung twice round the hand, walked once round in the fingers;
+  // the other face.
+  falchion: (() => {
+    const P = show({ flex: -0.3, y: 0.032 });
+    const a = windmill(0.38, P, { turns: 2, d: 0.85 });
+    const b = penSpin(a.t + 0.04, P, { turns: 1, d: 0.6 });
+    return routine([[[0.33, P]], a, b, showFaces(b.t + 0.06)]);
+  })(),
+  // Talon: spun twice round the index finger through its ring, then once back
+  // the other way; the other face.
+  talon: (() => {
+    const P = show({ roll: -0.1, flex: -0.2, y: 0.045 });
+    const a = ringSpinDir(0.32, P, 0, 2, 0.9, 1);
+    const b = ringSpinDir(a.t + 0.06, P, a.ring, 1, 0.6, -1);
+    return routine([[[0.28, P]], a, b, showFaces(b.t + 0.06)]);
+  })(),
   // one continuous spin on the index finger (three turns), back into the fist,
   // a look down the blade, then the wrist turns it over to show the other side
   karambit: { len: 5.0, fluid: true, end: { ring: 3 * TAU }, keys: seq(
@@ -682,6 +727,62 @@ export function samplePose(ins, t, out = {}) {
     out[k] = v / 16;
   }
   return out;
+}
+
+// The pose at time t as keyed, without the softening (a knife attack's strike
+// has to stay sharp).
+export function samplePoseSharp(ins, t, out = {}) {
+  for (const k in out) out[k] = 0;
+  for (const k in ins.tracks) out[k] = sampleTrack(ins.tracks[k], Math.min(ins.len, Math.max(0, t)));
+  return out;
+}
+
+// ---------------------------------------------------------------- attacks
+// Knife attacks, as turns of the hand about the grip in view space (rx pitch,
+// ry yaw: + turns the knife's point to the left, rz roll: + takes the top over
+// to the left) and moves (dx dy dz, metres; +x right, +y up, +z back). Left
+// click slashes across the view, edge first: from the right, cutting across
+// and down to the left, and the next one back the other way from the left.
+// Right click stabs: the wrist turns the point forward as the arm draws back,
+// then drives it straight out, holds a moment and comes back.
+const ak = (t, rx, ry, rz, dx, dy, dz) => [t, { rx, ry, rz, dx, dy, dz }];
+export const KNIFE_ATTACKS = {
+  slashA: { len: 0.44, keys: [
+    ak(0.07, -0.1, -0.25, -0.75, 0.035, 0.05, 0.01),          // wound up: out to the right and up, the blade raised
+    ak(0.19, 0.12, 0.12, 0.5, -0.095, -0.012, -0.03),         // the cut, across and down to the left
+    ak(0.26, 0.14, 0.15, 0.58, -0.105, -0.018, -0.02),        // follow-through
+    ak(0.44, 0, 0, 0, 0, 0, 0),
+  ] },
+  slashB: { len: 0.44, keys: [
+    ak(0.07, 0.12, 0.3, 0.5, -0.08, 0.035, 0.0),              // wound up across to the left
+    ak(0.19, -0.15, -0.4, -0.7, 0.045, -0.01, -0.03),         // the backhand cut, up and across to the right
+    ak(0.26, -0.17, -0.45, -0.76, 0.05, -0.014, -0.02),
+    ak(0.44, 0, 0, 0, 0, 0, 0),
+  ] },
+  stab: { len: 0.8, keys: [
+    ak(0.17, -0.2, -0.9, -0.1, 0.005, 0.04, 0.05),            // drawn back and up, the point turned forward
+    ak(0.27, -0.08, -1.05, 0.0, -0.055, 0.085, -0.055),       // driven straight out at the middle
+    ak(0.42, -0.08, -1.03, 0, -0.052, 0.082, -0.05),          // held a moment
+    ak(0.8, 0, 0, 0, 0, 0, 0),
+  ] },
+  // a reverse grip (karambit) hooks the claw forward and down instead
+  stabReverse: { len: 0.8, keys: [
+    ak(0.17, -0.35, 0.1, 0.1, 0.01, 0.035, 0.04),             // the fist drawn back and up, the claw cocked
+    ak(0.27, 0.45, -0.1, -0.05, -0.035, -0.005, -0.075),      // driven forward and down
+    ak(0.42, 0.42, -0.1, -0.05, -0.032, -0.003, -0.068),
+    ak(0.8, 0, 0, 0, 0, 0, 0),
+  ] },
+  // push daggers punch straight out (both at once for the heavy)
+  stabPunch: { len: 0.7, keys: [
+    ak(0.14, 0.1, 0, 0, 0.004, -0.008, 0.035),                // drawn back
+    ak(0.23, -0.18, 0, 0, -0.018, 0.018, -0.085),             // the punch
+    ak(0.36, -0.16, 0, 0, -0.016, 0.016, -0.078),
+    ak(0.7, 0, 0, 0, 0, 0, 0),
+  ] },
+};
+const atkCache = {};
+export function attackFor(kind) {
+  return (atkCache[kind] ||= compileInspect(KNIFE_ATTACKS[kind]));
 }
 
 // How fast a channel is changing at time t (per second).

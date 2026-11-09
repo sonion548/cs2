@@ -502,6 +502,33 @@ dropped them.
   is spun round the index finger), then goes out to the ends of the handles for a basic close and the
   aerial, and shows the open knife. The opening slide-out, the first close and open and the fanning are
   gone, so the inspect is about 5.9 seconds instead of 9.7 (the 1-in-20 fumble still happens on the aerial).
+- **Knife inspects, rebuilt around real tricks**: every knife but the balisong and karambit now does tricks
+  with the knife moving in the hand, each thrown from the wrist and caught. Tossed knives turn at a
+  steady rate on a proper arc; spins round the hand or in the fingers start fast and slow down. Field
+  knife: tossed once end over end and caught, walked once round in the fingers. Bayonet: spun twice round
+  the hand, flipped into a reverse grip and back. Combat bayonet: tossed one and a half turns into a
+  reverse grip and tossed back out of it. Flip knife: a high double toss, then two turns in the fingers.
+  Gut hook: three fast turns in the fingers and a flick toss. Bowie: stood on end and tossed up spinning
+  about its length, then swung round the hand. Push daggers: both twirled in open fists, then together
+  in a guard. Navaja: a quick spin round the hand and two turns in the fingers. Stiletto: three pen
+  spins, then a spinning upright toss. Kukri: swung round the hand, then tossed. Tanto: flipped into a
+  reverse grip, spun about its length there, flipped back. Survival knife: a spinning upright toss and a
+  high double toss. Skeleton knife and talon: spun round the index finger through the ring one way, then
+  back the other way. Hawkbill: two turns in the fingers and a spin round the hand. Trench knife: spun
+  round the index finger through the front of its knuckle bow. Cord knife: three spins round the finger
+  through its lanyard loop and a spin flat on the palm. Falchion: two spins round the hand and a pen
+  spin. Each still ends by turning the blade over. Checked by stepping every inspect every 20 ms (the
+  blade stays out of the hand, apart from a moment of contact at a reverse catch and where a push
+  dagger's blade comes out between the fingers) and at 120 fps (no jumps, and no wrist turn faster than
+  a real one).
+- **Knife attacks**: left click is now a slash across the view, edge first: from the upper right down
+  to the left, and the next one back up from the left. Right click is a stab: the wrist turns the point
+  forward as the arm draws back, then drives it straight out at the middle of the screen. The karambit
+  hooks its claw forward and down instead, and the push daggers punch both blades straight out. The stab
+  does more damage: 85 from the front (was 65; still 180 from behind).
+- **Skeleton knife**: a round hole through the blade near the spine (was a slot), the frame as thick as
+  the blade so it reads as one piece of steel, and a tighter cord wrap. A Killscribe count now finds a
+  solid spot on the blade, so it never runs into a hole.
 
 ## Blender models
 

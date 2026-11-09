@@ -751,7 +751,7 @@ export class Game {
     if (d.type === 'melee') {
       w.nextFire = now + (heavy ? d.heavyInterval : d.fireInterval);
       this.audio.knife(isPlayer ? null : shooter.pos);
-      if (isPlayer || watched) this.vm.fire();
+      if (isPlayer || watched) this.vm.fire(heavy);
       this.swingSide = -(this.swingSide || 1);
       if (remoteClient) { if (isPlayer) this.net.melee(heavy); return; }
       const eye = shooter.eyePos(), fwd = shooter.forward();

@@ -38,7 +38,7 @@ const S = {
 export const WEAPONS = {
   knife: {
     id: 'knife', name: 'Knife', slot: 3, type: 'melee', cls: 'melee', reward: 1500,
-    damage: 40, heavyDamage: 65, range: 2.0, fireInterval: 0.42, heavyInterval: 1.0,
+    damage: 40, heavyDamage: 85, range: 2.0, fireInterval: 0.42, heavyInterval: 1.0,
     moveSpeed: 1.0, magSize: 0, reserve: 0,
   },
 

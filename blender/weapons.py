@@ -1305,19 +1305,22 @@ def survival():
 
 @knife
 def skeleton():
-    """Drop-point blade on a skeletal steel frame: an open handle with a few
-    turns of cord at the front and a finger ring at the end."""
+    """A skeleton knife in the real style: a drop-point blade with a round
+    hole through it near the spine, ground from the same flat bar as its
+    open-frame handle (a long window through the handle), a wrap of cord
+    round the front of the handle and a finger ring at the end."""
     M = mats()
     b = blade('blade', [('M', 0.012, 0.012), ('L', 0.14, 0.012), ('Q', 0.18, 0.009, 0.2, -0.002), ('Q', 0.15, -0.017, 0.012, -0.013)],
               edge_below(lambda x: 0.0 if x < 0.14 else 0.005), 0.0045, M['blade'])
-    # a long round-ended slot through the blade, up near the spine (the
-    # skeleton look carried on from the handle into the blade)
-    cut(b, extrude('cutter', [('M', 0.084, 0.0001), ('L', 0.119, 0.0001), ('A', 0.119, 0.0034, 0.0033, -PI / 2, PI / 2), ('L', 0.084, 0.0067),
-                              ('A', 0.084, 0.0034, 0.0033, PI / 2, 3 * PI / 2)], 0.03, None, bevel=0), tolerant=True)
-    fr = extrude('frame', [('M', 0.014, 0.012), ('L', -0.09, 0.01), ('Q', -0.104, 0.0, -0.09, -0.012), ('L', 0.014, -0.013)], 0.008, M['steel'], bevel=0.002)
-    cut(fr, extrude('cutter', [('M', -0.012, 0.006), ('L', -0.08, 0.005), ('Q', -0.088, 0.0, -0.08, -0.006), ('L', -0.012, -0.007)], 0.03, None, bevel=0))
-    for i in range(4):
-        box(f'cord{i}', (0.006, 0.013, 0.03), (0.004 - i * 0.0085, 0, 0), M['cord'], bevel=0.002, rot=(0, 0.35, 0))
+    # the round hole, near the base of the blade up by the spine
+    cut(b, cutter_cyl(0.0056, 0.03, (0.047, 0, 0.0035), axis='Y', segs=32), tolerant=True)
+    # the frame: as thick as the blade, so it reads as one piece of steel
+    fr = extrude('frame', [('M', 0.014, 0.012), ('L', -0.09, 0.0105), ('Q', -0.104, 0.0, -0.09, -0.0115), ('L', 0.014, -0.013)], 0.0052, M['steel'], bevel=0.0012)
+    cut(fr, extrude('cutter', [('M', -0.03, 0.0055), ('L', -0.08, 0.0048), ('Q', -0.0875, 0.0, -0.08, -0.0055), ('L', -0.03, -0.0062),
+                               ('Q', -0.024, 0.0, -0.03, 0.0055)], 0.03, None, bevel=0))
+    # the cord: wound tight round the front of the frame
+    for i in range(7):
+        box(f'cord{i}', (0.0042, 0.0098, 0.0285), (0.006 - i * 0.0048, 0, -0.0004), M['cord'], bevel=0.0018, rot=(0, 0.32, 0))
     torus('ring', 0.012, 0.0035, (-0.108, 0, 0), M['steel'], rot=(PI / 2, 0, 0))
     return 0.2
 
@@ -1388,6 +1391,9 @@ def trench():
         cyl(f'stud{i}', 0.0055, 0.018, (-0.012 - i * 0.026, 0, -0.064), M['steel'], axis='Y', bevel=0.001)
     puffy('handle', [('M', 0.014, 0.014), ('L', -0.1, 0.012), ('Q', -0.11, 0.0, -0.1, -0.012), ('L', 0.014, -0.014)], 0.022, M['wood'], r=0.008, rings=3)
     box('pommel', (0.012, 0.026, 0.03), (-0.106, 0, 0), M['steel'], bevel=0.004)
+    # where the index finger goes through the front of the bow: a ring spin goes
+    # round it there (an unseen marker: no material, hidden by the game)
+    torus('ringmark', 0.0085, 0.0012, (-0.008, 0, -0.03), None)
     return 0.205
 
 
@@ -1399,7 +1405,7 @@ def cord():
           edge_below(lambda x: 0.002 if x < 0.16 else 0.006), 0.005, M['blade'])
     extrude('tang', [('M', 0.012, 0.016), ('L', -0.104, 0.014), ('L', -0.104, -0.016), ('L', 0.012, -0.017)], 0.01, M['dark'], bevel=0.002)
     handle_wrap(M, -0.1, 0.008, 0.026, 0.022, M['cord'], M['cord'], 12)
-    torus('lanyard', 0.011, 0.003, (-0.115, 0, 0), M['cord'], rot=(PI / 2, 0, 0))
+    torus('ring', 0.011, 0.003, (-0.115, 0, 0), M['cord'], rot=(PI / 2, 0, 0))   # the lanyard loop (a ring spin goes round the finger through it)
     return 0.19
 
 

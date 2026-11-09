@@ -636,6 +636,7 @@ function fromAsset(key, lod = false) {
     detail_brass: M.brass, detail_cord: M.cord, detail_horn: M.horn, detail_wood: M.wood,
   };
   inner.traverse(o => {
+    if (o.isMesh && /^ringmark/.test(o.name)) o.visible = false;   // where a ring spin goes round the finger (no ring there to see)
     if (o.isMesh) {
       const name = (o.material?.name || '').replace(/\.\d+$/, '');
       o.userData.part = name.startsWith('skin') ? 'skin' : name.startsWith('metal') ? 'metal' : 'detail';

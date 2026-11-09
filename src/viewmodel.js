@@ -11,7 +11,7 @@ import { radialTexture } from './textures.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { assets } from './assets.js';
-import { inspectFor, gunInspectFor, samplePose, channelRate, channelRateSmooth, BLUR_TAIL, BS as BALI_END } from './inspects.js';
+import { inspectFor, gunInspectFor, samplePose, samplePoseSharp, attackFor, channelRate, channelRateSmooth, BLUR_TAIL, BS as BALI_END } from './inspects.js';
 
 const POSE = {
   rifle: new THREE.Vector3(0.1, -0.105, -0.2),
@@ -119,6 +119,7 @@ const DEF_GRIP = new THREE.Vector3(0, -0.04, 0.03);
 const AXIS_Z = new THREE.Vector3(0, 0, 1);
 const MIRROR = new THREE.Matrix4().makeScale(-1, 1, 1), ONE = new THREE.Vector3(1, 1, 1);
 const _km = new THREE.Matrix4(), _kt = new THREE.Matrix4(), _kr = new THREE.Matrix4(), _kq = new THREE.Quaternion(), _kv = new THREE.Vector3();
+const _aq = new THREE.Quaternion(), _ae = new THREE.Euler();
 const _ge = new THREE.Euler();
 
 // A turn of a knife hand about its own axes (h: the hold): roll about the
@@ -135,7 +136,7 @@ function handTurn(h, roll = 0, flex = 0, yaw = 0) {
 // the ring's thinnest side.
 function ringOf(gun) {
   let ring = null;
-  gun.traverse(o => { if (!ring && o.isMesh && /^ring(\.\d+)?$/.test(o.name)) ring = o; });
+  gun.traverse(o => { if (!ring && o.isMesh && /^ring(mark)?(\.\d+)?$/.test(o.name)) ring = o; });
   if (!ring) return null;
   gun.updateMatrixWorld(true);
   ring.geometry.computeBoundingBox();
@@ -412,7 +413,7 @@ export class ViewModel {
     this.sway = new THREE.Vector2(); this.swayVel = new THREE.Vector2();
     this.bob = 0;
     this.inspectT = -1;
-    this.swing = 0; this.swingDir = 1;
+    this.atk = null; this.slashSide = 0;
     this.deployT = 1;
     this.reloadT = -1; this.reloadDur = 1;
     this.cycleT = -1; this.throwT = -1; this.windT = -1;
@@ -511,21 +512,28 @@ export class ViewModel {
     this.shoulders = null;
   }
 
-  fire() {
-    this.kick = this.type === 'sniper' || this.type === 'shotgun' ? 1.4 : this.type === 'pistol' ? 0.8 : 0.55;
+  fire(heavy = false) {
+    this.kick = this.type === 'sniper' || this.type === 'shotgun' ? 1.4 : this.type === 'pistol' ? 0.8 : this.type === 'melee' ? 0 : 0.55;
     this.flash.visible = this.type !== 'melee';
     this.flash.material.rotation = Math.random() * 6.28;
     this.flash.scale.setScalar(0.2 + Math.random() * 0.15);
     this.flashTime = 0.04;
     this.inspectT = -1;
-    if (this.type === 'melee') { this.swing = 1; this.swingDir *= -1; }
+    // a knife slashes, from one side then the other (push daggers: one hand
+    // then the other), or stabs (both daggers at once)
+    if (this.type === 'melee') {
+      this.slashSide ^= 1;
+      const style = KNIFE_STYLE[this.knifeType] || 'forward';
+      const kind = heavy ? (style === 'reverse' ? 'stabReverse' : style === 'punch' ? 'stabPunch' : 'stab') : this.dual || this.slashSide ? 'slashA' : 'slashB';
+      this.atk = { def: attackFor(kind), t: 0, hand: !this.dual ? 'R' : heavy ? 'both' : this.slashSide ? 'R' : 'L' };
+    }
     if (this.def?.bolt || this.def?.pump) this.cycleT = 0;
     if (this.cyl) this.cylTarget += Math.PI / 3;
   }
   reload(dur) { this.reloadT = 0; this.reloadDur = dur; this.inspectT = -1; }
   cancelReload() { this.reloadT = -1; }
   inspect() {
-    if (this.deployT < 1 || this.reloadT >= 0 || this.throwT >= 0) return;
+    if (this.deployT < 1 || this.reloadT >= 0 || this.throwT >= 0 || this.atk) return;
     if (this.inspectT >= 0) {
       // a balisong mid-flip (or held out by the ends of its handles) finishes
       // what it's doing: easing it back would swing the handle home through
@@ -621,17 +629,20 @@ export class ViewModel {
       }
     }
 
-    // knife swing (push daggers stab straight out, one hand then the other)
-    if (this.dual) this.dual.stab = 0;
-    if (this.swing > 0) {
-      this.swing = Math.max(0, this.swing - dt * 3.2);
-      const s = Math.sin((1 - this.swing) * Math.PI);
-      if (this.dual) { if (this.swingDir < 0) this.dual.stab = s; else { pos.z -= s * 0.11; rot.x += s * 0.1; } }
+    // knife attack (a slash or a stab): the hand's moves now, its turn about
+    // the grip once the hand is placed (below). The second push dagger takes
+    // its own share (placeDual), so it's placed from the pose before this.
+    let atkR = null, atkL = null;
+    if (this.atk) {
+      this.atk.t += dt;
+      if (this.atk.t >= this.atk.def.len || this.type !== 'melee') this.atk = null;
       else {
-        rot.y += s * 0.9 * this.swingDir; rot.z += s * 0.6 * this.swingDir;
-        pos.x -= s * 0.08 * this.swingDir; pos.z -= s * 0.1;
+        const A = samplePoseSharp(this.atk.def, this.atk.t, this._apose || (this._apose = {}));
+        atkR = this.atk.hand !== 'L' ? A : null; atkL = this.atk.hand !== 'R' ? A : null;
       }
     }
+    const posPre = this.dual ? pos.clone() : null;
+    if (atkR) { pos.x += atkR.dx || 0; pos.y += atkR.dy || 0; pos.z += atkR.dz || 0; }
 
     // grenade: wind up (pin pulled, arm back) and throw
     if (this.windT >= 0) { this.windT += dt; const k = ease(Math.min(1, this.windT / 0.25)); pos.z += 0.08 * k; pos.y += 0.04 * k; rot.x -= 0.5 * k; }
@@ -768,7 +779,13 @@ export class ViewModel {
       this.root.quaternion.premultiply(gq);
       this.root.position.add(g.clone().sub(g.applyQuaternion(gq)));
     }
-    if (this.dual) this.placeDual(P && this._posL ? this._posL : pos, rot, P);
+    if (atkR) {
+      const aq = _aq.setFromEuler(_ae.set(atkR.rx || 0, atkR.ry || 0, atkR.rz || 0));
+      const g = (this.gun.userData.grip || DEF_GRIP).clone().multiplyScalar(this.holder.scale.x).applyQuaternion(this.root.quaternion);
+      this.root.quaternion.premultiply(aq);
+      this.root.position.add(g.clone().sub(g.applyQuaternion(aq)));
+    }
+    if (this.dual) this.placeDual(P && this._posL ? this._posL : posPre || pos, rot, P, atkL);
     this.solveArms(handR, magReach, dropL);
     this.applyHands(P, magReach, dropL, gunInspect);
     this.applyKnifePose(P);
@@ -787,12 +804,12 @@ export class ViewModel {
     if (item.defId) applySkinAsync(gun, item, { size: 1024 });
     gun.traverse(o => { if (o.isMesh) o.castShadow = false; });
     holder.add(gun);
-    this.dual = { root, holder, gun, stab: 0 };
+    this.dual = { root, holder, gun };
   }
 
   // The left dagger's place this frame: the right hand's pose with the left
   // channels, mirrored across the middle of the view.
-  placeDual(pos, rot, P) {
+  placeDual(pos, rot, P, A = null) {
     const d = this.dual, h = this.knifeHold;
     const q = new THREE.Quaternion().setFromEuler(rot).multiply(this.baseQ);
     const turn = P ? handTurn(h, P.lroll, P.lflex, P.lyaw) : null;
@@ -804,7 +821,14 @@ export class ViewModel {
       q.multiply(turn);
       p.add(before.sub(g.clone().applyQuaternion(q)));
     }
-    p.z -= d.stab * 0.11;
+    if (A) {
+      // its own attack, worked out as the right hand's and mirrored with the rest
+      const aq = _aq.setFromEuler(_ae.set(A.rx || 0, A.ry || 0, A.rz || 0));
+      const gg = g.clone().applyQuaternion(q);
+      q.premultiply(aq);
+      p.add(gg.clone().sub(gg.applyQuaternion(aq)));
+      p.x += A.dx || 0; p.y += A.dy || 0; p.z += A.dz || 0;
+    }
     const m = new THREE.Matrix4().compose(p, q, ONE);
     m.premultiply(MIRROR).multiply(MIRROR);
     m.decompose(d.root.position, d.root.quaternion, d.root.scale);
