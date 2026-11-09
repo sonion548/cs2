@@ -498,6 +498,11 @@ dropped them.
   every frame of the inspect, and of the fumbled one, the handles never pass through each other), the
   closed knife stays centred in the fist, and the thumb lifts clear as the free handle swings out for the
   Chaplin.
+- **Shorter balisong inspect**: it now starts straight into the Chaplin (the hand comes up and the knife
+  is spun round the index finger), then goes out to the ends of the handles for a basic close and the
+  aerial, and shows the open knife. The opening slide-out, the first close and open and the fanning are
+  gone, so the inspect is about 5.9 seconds instead of 9.7 (the 1-in-20 fumble still happens on the aerial).
+
 ## Blender models
 
 Weapons, knives, characters and the Dunehold map are modelled with Blender scripts in `blender/` (see

@@ -138,16 +138,6 @@ function basic(t0, p, dir, bh0, bb0, d = 0.66, settle = true) {
   ];
 }
 
-// Fanning: basic flips run straight into one another, closing and opening in
-// turn, n of them (from open; an even n ends open).
-function fan(t0, p, n, d = 0.34) {
-  const out = [];
-  for (let i = 0, dir = -1; i < n; i++, dir = -dir) {
-    out.push(...basic(t0 + i * d, p, dir, dir < 0 ? 0 : -TAU, dir < 0 ? 0 : -PI, d, i === n - 1));
-  }
-  return out;
-}
-
 // Chaplin: a flick of the wrist throws the free handle out, the index finger
 // straightens forward into the crotch between the handles, and the knife is
 // let go onto it and spun round it `turns` times (fast, slowing), facing you;
@@ -355,15 +345,13 @@ function palmSpin(t0, p, turns = 2, d = 1.05) {
   ];
 }
 
-// Balisong: real flipping tricks, in a row. Up with the flat of the blade to
-// you and let slide out to the ends of the handles; a basic close, the closed
-// knife turned to you (the blade hidden between the handles), a basic open;
-// fanning (four flips run into each other); back into the fist for a Chaplin
-// (spun round the index finger); out again, closed, and an aerial (tossed up,
-// turning once and opening in the air, caught in the fist); the open knife
-// shown and back to the grip. One inspect in twenty (the viewmodel picks)
-// fumbles the catch: the knife falls, the hand goes down after it and comes
-// back up with it closed, shakes it off and flips it open.
+// Balisong: real flipping tricks, in a row. Straight from the fist into a
+// Chaplin (spun round the index finger); out to the ends of the handles, a
+// basic close, and an aerial (tossed up, turning once and opening in the air,
+// caught in the fist); the open knife shown and back to the grip. One inspect
+// in twenty (the viewmodel picks) fumbles the catch: the knife falls, the hand
+// goes down after it and comes back up with it closed, shakes it off and flips
+// it open.
 function balisong(drop) {
   const F = show({ flex: -0.28, y: 0.036 });                  // the pose the flips are done in
   const EASE = { ix: 0.2, mi: 0.24, th: -0.6, rp: 0.08 };     // the grip loosened to let the knife slide (the thumb tucked clear of the handles' ends)
@@ -372,18 +360,13 @@ function balisong(drop) {
   // a key far back would otherwise have it drift across the moves between)
   const out = (t) => [[t, show({ flex: -0.24, y: 0.038, ...EASE, slide: 0 })], [t + 0.2, { ...F, ...PINCH }]];
   const into = (t, pose) => [[t, { slide: BS }], [t + 0.1, show({ flex: -0.36, y: 0.038, ...EASE })], [t + 0.28, { ...pose, slide: 0, ...GRIP, rp: 0 }]];
-  const air = aerial(7.4, F, drop);
+  // (the hand comes up into the Chaplin's pose first, the knife still in the fist)
+  const T0 = 0.5, air = aerial(T0 + 2.78, F, drop);
   const keys = seq(
-    [[0.36, show({ flex: -0.32, y: 0.03 })], [0.46, { slide: 0 }]], out(0.6),
-    basic(0.9, F, -1, 0, 0),
-    // shut: the wrist turns it to you and back
-    [[1.75, show({ roll: 0.3, flex: -0.42, y: 0.04, ...PINCH })], [1.98, show({ roll: 0.06, flex: -0.3, y: 0.038, ...PINCH })]],
-    basic(2.08, F, 1, -TAU, -PI, 0.66, false),
-    fan(2.78, F, 4, 0.34),
-    into(4.24, CH),
-    chaplin(4.62, CH, 2, 0.85),
-    out(6.4),
-    basic(6.78, F, -1, 0, 0, 0.6, false),
+    [[0.4, { ...CH, ...GRIP, rp: 0, slide: 0 }]],
+    chaplin(T0, CH, 2, 0.85),
+    out(T0 + 1.78),
+    basic(T0 + 2.16, F, -1, 0, 0, 0.6, false),
     air.keys,
   );
   const tc = air.tc;
