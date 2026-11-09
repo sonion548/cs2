@@ -4,4 +4,5 @@ export const KNIFE_TYPES = {
   flip: 'Flip Knife', gut: 'Gut Hook', bowie: 'Bowie Knife', push: 'Push Dagger', navaja: 'Navaja',
   stiletto: 'Stiletto', kukri: 'Kukri', tanto: 'Tanto', survival: 'Survival Knife',
   skeleton: 'Skeleton Knife', hawkbill: 'Hawkbill', trench: 'Trench Knife', cord: 'Cord Knife',
+  falchion: 'Falchion Knife', talon: 'Talon Knife',
 };

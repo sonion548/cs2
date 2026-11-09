@@ -1112,41 +1112,64 @@ def karambit():
 @knife
 def butterfly():
     """Balisong. Each handle is a full-height plate on its own side of the
-    blade, rounded round the pivot, so a closed knife hides the blade
-    completely between them: from either side you see only steel, and down the
-    gap between the handles only a thin line of the spine (or the edge, set
-    deeper). No windows through the handles. The blade is shorter than the
-    handles; the spacers that close the gap at the pommel and the latch sit
-    further from the pivot than the blade's tip ever reaches, so it swings past
+    blade, rounded round the pivot, so a closed knife hides the blade between
+    them (only a thin line of the spine or edge shows down the gap, as on the
+    real thing). Like a real one: a clip-point blade with a swedge, a choil and
+    an unsharpened ricasso, its tang rounded round the pivot; grippy inlays set
+    into pockets milled in the handles; Torx pivot and handle screws, bronze
+    washers either side of the tang, zen pins, spacers closing the pommel end
+    and a latch. The blade is shorter than the handles, and the spacers and
+    latch sit further from the pivot than its tip reaches, so it swings past
     them in a flip. Open, the two plates come together as the grip."""
     M = mats()
-    # (3.6 mm thick, as real balisong blades are, so the gap between the handles is narrow)
-    blade('blade', [('M', 0.0, 0.01), ('L', 0.084, 0.01), ('Q', 0.102, 0.008, 0.114, -0.002), ('Q', 0.086, -0.015, 0.0, -0.012)], edge_below(lambda x: 0.0), 0.0036, M['blade'])
-    # pivot, handle half-height (the closed blade spans -0.010..0.0122), pommel
+    # pivot, handle half-height (the closed blade spans -0.0105..0.012), pommel
     # end, plate thickness and the gap from the blade's middle to each plate
     PX, H, END, T, Y0 = 0.003, 0.0134, -0.132, 0.008, 0.0023
+    TR = 0.0112   # the tang, round the pivot: inside the handles' rounded ends either way round
+    a0, a1 = math.radians(112), math.radians(248)
+    blade('blade', [('M', 0.012, 0.0100), ('L', 0.068, 0.0102), ('Q', 0.093, 0.0098, 0.114, -0.0015),       # spine, clip to the point
+                    ('Q', 0.095, -0.0125, 0.034, -0.0118), ('L', 0.025, -0.0115),                            # belly and edge
+                    ('Q', 0.0195, -0.0116, 0.019, -0.0086), ('Q', 0.0185, -0.0063, 0.015, -0.0068),          # the choil
+                    ('L', PX + TR * math.cos(a1), TR * math.sin(a1)), ('A', PX, 0.0, TR, a1, a0)],           # the tang round the pivot
+          lambda x, z: (x > 0.025 and z < -0.003) or (x > 0.086 and z > -0.0016), 0.0036, M['blade'])        # the edge, and the swedge up the clip
     outline = [('M', END + 0.006, -H), ('L', PX, -H), ('A', PX, 0, H, -PI / 2, PI / 2), ('L', END + 0.006, H),
                ('Q', END, H, END, H - 0.006), ('L', END, -H + 0.006), ('Q', END, -H, END + 0.006, -H)]
+    pocket = [('M', -0.112, -0.0082), ('L', -0.028, -0.0082), ('A', -0.028, 0.0, 0.0082, -PI / 2, PI / 2), ('L', -0.112, 0.0082),
+              ('A', -0.112, 0.0, 0.0082, PI / 2, 3 * PI / 2)]
+    inlay = [('M', -0.1115, -0.0077), ('L', -0.0285, -0.0077), ('A', -0.0285, 0.0, 0.0077, -PI / 2, PI / 2), ('L', -0.1115, 0.0077),
+             ('A', -0.1115, 0.0, 0.0077, PI / 2, 3 * PI / 2)]
     for name, side in (('bfA', 1), ('bfB', -1)):
         piv = empty(name, (PX, 0, 0))
         parts = []
+        out = side * (Y0 + T)                                        # the outer face
         h = extrude(f'{name}_handle', outline, T, M['steel'], y=side * (Y0 + T / 2), bevel=0.0012)
-        # two slots milled down the outside, not through
-        for a, b2 in ((-0.118, -0.073), (-0.063, -0.027)):
-            cut(h, cutter_box((b2 - a, 0.003, 0.0084), ((a + b2) / 2, side * (Y0 + T), 0)))
+        cut(h, extrude('cutter', pocket, 0.004, None, y=out, bevel=0))   # a 2 mm pocket for the inlay
         parts.append(h)
+        inl = extrude(f'{name}_inlay', inlay, 0.0021, M['polymer'], y=out - side * 0.00095, bevel=0.0004)
+        for k in range(9):                                           # grip grooves across it
+            cut(inl, cutter_box((0.0014, 0.003, 0.03), (-0.104 + k * 0.0093, out, 0.0), rot=(0, 0.55, 0)))
+        parts.append(inl)
         # a spacer closing the gap at the pommel (each handle fills its own half of it)
         parts.append(box(f'{name}_spacer', (0.007, Y0 - 0.0003, 0.016), (-0.1235, side * (Y0 + 0.0003) / 2, 0), M['dark'], bevel=0.0006))
-        for k, x in enumerate((-0.123, -0.068)):
-            parts.append(cyl(f'{name}_screw{k}', 0.0021, 0.0016, (x, side * (Y0 + T + 0.0002), 0), M['brass'], axis='Y', segs=16))
+        # Torx screws: pivot, two through the handle, and a zen pin by the pivot
+        for k, (x, z, r) in enumerate(((PX, 0.0, 0.0046), (-0.123, 0.0, 0.0024), (-0.019, 0.0, 0.0024), (-0.009, 0.0085, 0.0014))):
+            parts.append(cyl(f'{name}_screw{k}', r, 0.0012, (x, out + side * 0.0004, z), M['steel'], axis='Y', segs=18, bevel=0.0002))
+            if r > 0.002:
+                parts.append(cyl(f'{name}_torx{k}', r * 0.38, 0.0012, (x, out + side * 0.0007, z), M['dark'], axis='Y', segs=6))
         for o in parts:
             o.parent = piv
             o.location.x -= PX
-    # the latch, on the held handle's pommel end in the gap between the handles
-    latch = box('latch', (0.006, 0.0022, 0.007), (-0.1315, 0, -0.007), M['dark'], bevel=0.0006)
+    # bronze washers either side of the tang, under the handles
+    for side in (1, -1):
+        cyl(f'washer{"AB"[side < 0]}', 0.0066, 0.00042, (PX, side * 0.00205, 0), M['brass'], axis='Y', segs=24)
+    # the latch: a lever on the held handle's pommel end, lying in the gap
+    latch = box('latch', (0.006, 0.0022, 0.0075), (-0.1315, 0, -0.0068), M['dark'], bevel=0.0006)
     latch.parent = bpy.data.objects['bfA']
     latch.location.x -= PX
-    cyl('pivot_pin', 0.0042, 0.0216, (PX, 0, 0), M['brass'], axis='Y', segs=24)
+    lp = cyl('latch_pin', 0.0012, 0.0024, (-0.1325, 0.0012, -0.0098), M['steel'], axis='Y', segs=12)
+    lp.parent = bpy.data.objects['bfA']
+    lp.location.x -= PX
+    cyl('pivot_pin', 0.0024, 0.0206, (PX, 0, 0), M['steel'], axis='Y', segs=16)
     # the fist closes round the middle of the handles
     return 0.114, -0.066
 
@@ -1155,7 +1178,7 @@ def butterfly():
 def flip():
     M = mats()
     b = blade('blade', [('M', 0.012, 0.012), ('L', 0.12, 0.014), ('Q', 0.17, 0.01, 0.19, -0.004), ('Q', 0.14, -0.02, 0.012, -0.014)], edge_below(lambda x: -0.002), 0.005, M['blade'])
-    cut(b, cutter_cyl(0.005, 0.03, (0.035, 0, 0.004), axis='Y'))
+    cut(b, cutter_cyl(0.005, 0.03, (0.035, 0, 0.004), axis='Y'), tolerant=True)
     h = puffy('handle', [('M', 0.016, 0.014), ('L', -0.095, 0.012), ('Q', -0.108, 0.0, -0.095, -0.014), ('L', 0.016, -0.016), ('Q', 0.024, 0.0, 0.016, 0.014)], 0.02, M['polymer'], r=0.0076, rings=3)
     for i in range(5):
         cut(h, cutter_box((0.008, 0.03, 0.002), (-0.08 + i * 0.016, 0, 0.0), rot=(0, 0.7, 0)))
@@ -1270,8 +1293,12 @@ def skeleton():
     """Drop-point blade on a skeletal steel frame: an open handle with a few
     turns of cord at the front and a finger ring at the end."""
     M = mats()
-    blade('blade', [('M', 0.012, 0.012), ('L', 0.14, 0.012), ('Q', 0.18, 0.009, 0.2, -0.002), ('Q', 0.15, -0.017, 0.012, -0.013)],
-          edge_below(lambda x: 0.0 if x < 0.14 else 0.005), 0.0045, M['blade'])
+    b = blade('blade', [('M', 0.012, 0.012), ('L', 0.14, 0.012), ('Q', 0.18, 0.009, 0.2, -0.002), ('Q', 0.15, -0.017, 0.012, -0.013)],
+              edge_below(lambda x: 0.0 if x < 0.14 else 0.005), 0.0045, M['blade'])
+    # a long round-ended slot through the blade, up near the spine (the
+    # skeleton look carried on from the handle into the blade)
+    cut(b, extrude('cutter', [('M', 0.084, 0.0001), ('L', 0.119, 0.0001), ('A', 0.119, 0.0034, 0.0033, -PI / 2, PI / 2), ('L', 0.084, 0.0067),
+                              ('A', 0.084, 0.0034, 0.0033, PI / 2, 3 * PI / 2)], 0.03, None, bevel=0), tolerant=True)
     fr = extrude('frame', [('M', 0.014, 0.012), ('L', -0.09, 0.01), ('Q', -0.104, 0.0, -0.09, -0.012), ('L', 0.014, -0.013)], 0.008, M['steel'], bevel=0.002)
     cut(fr, extrude('cutter', [('M', -0.012, 0.006), ('L', -0.08, 0.005), ('Q', -0.088, 0.0, -0.08, -0.006), ('L', -0.012, -0.007)], 0.03, None, bevel=0))
     for i in range(4):
@@ -1292,6 +1319,47 @@ def hawkbill():
         cyl(f'pin{i}', 0.0025, 0.023, (-0.028 - i * 0.03, 0, -0.001), M['steel'], axis='Y')
     cyl('thumb_stud', 0.0035, 0.012, (0.03, 0, 0.014), M['steel'], axis='Y')
     return 0.19
+
+
+@knife
+def falchion():
+    """Falchion: a broad, single-edged blade that widens toward the tip, its
+    edge sweeping out in a long convex curve and the spine dropping in a short
+    clip to the point, with a fuller under the spine; a narrow brass guard, a
+    contoured wooden handle pinned in brass and a steel pommel cap."""
+    M = mats()
+    blade('blade', [('M', 0.013, 0.011), ('L', 0.15, 0.012), ('Q', 0.181, 0.0105, 0.203, -0.006), ('Q', 0.193, -0.027, 0.14, -0.0265), ('Q', 0.07, -0.02, 0.013, -0.013)],
+          edge_below(lambda x: -0.002 if x < 0.16 else 0.004), 0.0052, M['blade'])
+    blade('fuller', [('M', 0.032, 0.0078), ('L', 0.122, 0.0088), ('L', 0.122, 0.0050), ('L', 0.032, 0.0040)], lambda x, z: False, 0.0058, M['steel'])
+    extrude('guard', [('M', 0.006, 0.019), ('L', 0.014, 0.019), ('L', 0.014, -0.024), ('Q', 0.0105, -0.0295, 0.006, -0.024)], 0.024, M['brass'], bevel=0.0025)
+    puffy('handle', [('M', 0.006, 0.013), ('Q', -0.045, 0.017, -0.092, 0.011), ('L', -0.099, 0.0095), ('L', -0.099, -0.0145), ('Q', -0.05, -0.022, 0.006, -0.015)],
+          0.022, M['woodd'], r=0.0075, rings=3)
+    extrude('pommel', [('M', -0.098, 0.0105), ('L', -0.109, 0.009), ('Q', -0.1155, -0.002, -0.109, -0.016), ('L', -0.098, -0.0155)], 0.0235, M['steel'], bevel=0.003)
+    for i, x in enumerate((-0.026, -0.07)):
+        cyl(f'pin{i}', 0.0024, 0.0234, (x, 0, -0.001), M['brass'], axis='Y', segs=16)
+    return 0.203
+
+
+@knife
+def talon():
+    """Talon: a short, deeply hooked claw of a blade, the edge on the inside
+    of the curve, on a slim handle with a ring for the index finger at its
+    front, under the blade (it's held in a normal grip with that finger through
+    the ring; the karambit's ring is at its pommel, held the other way)."""
+    M = mats()
+    chord = lambda x: 0.012 - 0.3176 * (x - 0.012)
+    blade('blade', [('M', 0.012, 0.012), ('C', 0.06, 0.031, 0.13, 0.024, 0.16, -0.035), ('C', 0.122, -0.006, 0.07, -0.0045, 0.012, -0.011)],
+          lambda x, z: z < chord(x) - 0.001, 0.0048, M['blade'])
+    extrude('bolster', [('M', 0.004, 0.0145), ('L', 0.016, 0.0145), ('L', 0.016, -0.0135), ('L', 0.004, -0.0135)], 0.021, M['dark'], bevel=0.002)
+    puffy('handle', [('M', 0.006, 0.013), ('Q', -0.04, 0.0165, -0.094, 0.0095), ('Q', -0.107, -0.002, -0.094, -0.0135), ('Q', -0.04, -0.0115, 0.006, -0.0135)],
+          0.0195, M['polymer'], r=0.007, rings=3)
+    for i in range(4):
+        box(f'groove{i}', (0.0022, 0.0205, 0.004), (-0.03 - i * 0.012, 0, 0.0125 - i * 0.0006), M['rubber'], bevel=0.0008)
+    torus('ring', 0.0205, 0.0046, (0.004, 0, -0.037), M['dark'], segs=40)
+    extrude('ring_web', [('M', -0.006, -0.0105), ('L', 0.014, -0.0105), ('L', 0.012, -0.0175), ('L', -0.004, -0.0175)], 0.0085, M['dark'], bevel=0.001)
+    cyl('screw0', 0.0028, 0.021, (0.010, 0, 0.0), M['steel'], axis='Y', segs=16)
+    cyl('screw1', 0.0022, 0.0205, (-0.075, 0, -0.001), M['steel'], axis='Y', segs=16)
+    return 0.16, -0.046
 
 
 @knife

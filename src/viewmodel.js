@@ -28,7 +28,7 @@ const poseOf = (type) => POSE[type] || POSE.rifle;
 const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
 const TAU = Math.PI * 2;
 // knife channels that are angles (a whole turn looks the same as none)
-const SPIN_CH = new Set(['twirl', 'flip', 'ring', 'bb', 'bh', 'ltwirl']);
+const SPIN_CH = new Set(['twirl', 'flip', 'ring', 'bb', 'bh', 'ltwirl', 'rev']);
 const GRIP_R = {
   rifle: [V3(0, -0.34, -0.94), V3(-1, 0, 0)],          // pistol grip: knuckles forward-down, palm on its right side
   sniper: [V3(0, -0.34, -0.94), V3(-1, 0, 0)],
@@ -700,8 +700,11 @@ export class ViewModel {
         // the wider) and rocks with it; the index finger pumps (applyHands)
         this.ringDrive = 0;
         if ((P.ringW || 0) > 0.01 && this._ringAxis && this._ringCom) {
-          const om = channelRate(this.ins, 'ring', Tc);
-          const w = Math.min(1, P.ringW), k = Math.min(1, Math.abs(om) / 18) * w * w * (3 - 2 * w);
+          // (by the spin's speed, rounded off through zero so the hand eases
+          // through a change of direction instead of snapping round; and not
+          // while the knife hangs: a pendulum swings by itself)
+          const om = channelRate(this.ins, 'ring', Tc), sa = om * om / Math.sqrt(om * om + 9);
+          const w = Math.min(1, P.ringW), k = Math.min(1, sa / 18) * w * w * (3 - 2 * w) * (1 - Math.min(1, P.hang || 0));
           if (k > 0.001) {
             const lead = (this._lead ||= new THREE.Vector3()).crossVectors(this._ringAxis, this._ringCom);
             if (lead.lengthSq() > 1e-12) pos.addScaledVector(lead.normalize(), 0.011 * k * Math.sign(om));
@@ -851,6 +854,8 @@ export class ViewModel {
         this.bfA.rotation.z = -bb; this.bfB.rotation.z = bh - bb;
       }
       if (P.flip) m.premultiply(_kt.makeTranslation(-this.balance.x, -this.balance.y, -this.balance.z)).premultiply(_kr.makeRotationX(P.flip)).premultiply(_kt.makeTranslation(this.balance.x, this.balance.y, this.balance.z));
+      // end over end about the grip, in the hand (a flip to a reverse grip and back)
+      if (P.rev) m.premultiply(_kt.makeTranslation(-grip.x, -grip.y, -grip.z)).premultiply(_kr.makeRotationX(P.rev)).premultiply(_kt.makeTranslation(grip.x, grip.y, grip.z));
       if (P.twirl) m.premultiply(_kt.makeTranslation(-grip.x, -grip.y, -grip.z)).premultiply(_kr.makeRotationZ(P.twirl)).premultiply(_kt.makeTranslation(grip.x, grip.y, grip.z));
       if (P.slide) m.premultiply(_kt.makeTranslation(0, 0, P.slide));
       if (P.kx || P.ky) m.premultiply(_kt.makeTranslation(P.kx || 0, P.ky || 0, 0));
@@ -867,7 +872,7 @@ export class ViewModel {
       this.ringInfo.c.copy(this.pin.p).addScaledVector(a.clone().applyAxisAngle(n, (P.bh || 0) / 2 - (P.bb || 0)), CROTCH);
     }
     if (P && this.ringInfo && ((P.ringW || 0) > 0.001)) this.ringAttach(P);
-    else this._ringSide = 0;
+    else { this._ringSide = 0; this._hangAng = null; }
   }
 
   // Ring spin: the knife's ring put round the index finger's middle segment,
@@ -897,7 +902,26 @@ export class ViewModel {
     // leaves the fist, so it starts and finishes at no turn at all
     const base = restQ.clone().slerp(align.multiply(restQ.clone()), w);
     const ring = P.ring || 0, wrapped = ring - TAU * Math.round(ring / TAU);
-    const q = new THREE.Quaternion().setFromAxisAngle(fy, wrapped * Math.min(1, w / 0.15)).multiply(base);
+    let spin = wrapped * Math.min(1, w / 0.15);
+    // hang (0..1): turned about the finger until the knife's weight is straight
+    // below it, so a swing (ring) is a pendulum the right way up whatever the
+    // hand is doing (measured without the swing, which goes on top: measured
+    // with it, the hang took the swing straight back out)
+    if (P.hang) {
+      const d = this.balance.clone().sub(ri.c).applyQuaternion(base), down = V3(0, -1, 0);
+      d.addScaledVector(fy, -d.dot(fy)); down.addScaledVector(fy, -down.dot(fy));
+      if (d.lengthSq() > 1e-10 && down.lengthSq() > 1e-10) {
+        // kept continuous: let go standing up, its weight is near straight
+        // above the finger, where the angle flips between +pi and -pi as the
+        // hand moves (the knife jumped as it began to fall); it falls the way
+        // it started to
+        let ang = Math.atan2(d.clone().cross(down).dot(fy), d.dot(down));
+        if (this._hangAng != null) ang += TAU * Math.round((this._hangAng - ang) / TAU);
+        this._hangAng = ang;
+        spin += Math.min(1, P.hang) * ang;
+      }
+    }
+    const q = new THREE.Quaternion().setFromAxisAngle(fy, spin).multiply(base);
     const c = cW.lerp(target, w);
     const origin = c.sub(ri.c.clone().multiplyScalar(sc).applyQuaternion(q));
     const mw = new THREE.Matrix4().compose(origin, q, new THREE.Vector3(sc, sc, sc));

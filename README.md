@@ -457,6 +457,40 @@ dropped them.
   don't get them (they start with their own Gold Case). One-off gifts like this are the `GIFTS` list in
   `src/shared/economy.js`; gifts or refunds for one account are the `GRANTS` list in `server/index.js`
   (crustylips67tung, made after the first two went out, gets those two as well: three with the third gift).
+- **A new inspect for every knife**: every knife's inspect was scrapped and redone except the balisong's
+  and karambit's, so each now does its own thing. Field knife: raised in a salute, tip up, and turned a
+  full turn in the fingers to show both faces. Bayonet: flicked end over end into a reverse grip, shown
+  with the blade standing out of the fist, and flicked back round across the view. Combat bayonet: a
+  slash, a stab, then the saw back turned to you. Flip knife: tossed high, turning twice, and caught.
+  Gut hook: the hook turned up and pulled back twice. Bowie: weighed in the hand, then a slow, heavy
+  chop. Push daggers: a boxer's jab, cross and uppercut, the blades crossed and scraped, then both palms
+  turned up. Navaja: snapped out from the wrist, then a look down the curve of the edge. Stiletto: spun
+  three times in the fingers like a pen and stopped with the point out. Kukri: let swing loose from the
+  fingers like a pendulum, then closed on with a chop. Tanto: held level at eye height, edge up, and
+  drawn sideways to sight along it. Survival knife: the saw back turned to you and sawn back and forth.
+  Skeleton knife: let go onto the index finger by its ring, where it hangs and swings like a pendulum,
+  then swung over the finger and caught. Hawkbill: the hooked point turned down and raked back twice.
+  Trench knife: a jab and a hook with the knuckle guard, then the guard turned to you. Cord knife: spun
+  twice flat on the open palm. Falchion: spun end over end in the hand all the way round. Talon: flicked
+  round the index finger through its ring into a reverse hold and back, then a full turn the other way.
+  Each still ends by turning the blade over to show its other face. Checked by stepping every inspect
+  every 20 ms (the blade never visibly goes more than about 2 mm into the hand: in the end-over-end flips
+  the knife turns just off the palm, and the fingers stay open until the blade is past them) and at
+  120 fps (no jumps anywhere).
+- **Two new knives, the Falchion and the Talon**: the falchion is a fixed blade with a broad, curved
+  blade and a fuller, a brass guard, a wooden handle with brass pins and a steel pommel; the talon has a
+  hooked claw blade, a finger ring under the bolster and a ridged handle. Both come in all 24 knife
+  finishes and take a Killscribe. The falchion drops from the Dunehold and Workshop Cases, the talon from
+  the Nightfall and Ember Cases, and both from the Universal Case. A talon is worth about 1.6 times an
+  ordinary knife with the same finish, a falchion about 1.3 times.
+- **Skeleton knife**: its blade now has the slot right through it, as on the real thing. The hole in
+  the flip knife's blade also goes all the way through now (before, it only showed as a dent).
+- **Balisong, modelled more realistically**: a clip-point blade with a swedge, a choil and an
+  unsharpened ricasso, its tang rounded round the pivot; bronze washers either side of the tang; Torx
+  pivot and handle screws and a zen pin; grooved grip inlays set into pockets milled into the handles;
+  spacers closing the pommel end and a latch. The blade is about 82% of the handle's length, about the
+  same as on real balisongs. Closed, the blade still hides between the handles (about 6% of it shows on
+  average, only along the gap between them), and the tricks were checked again with the new model.
 
 ## Blender models
 

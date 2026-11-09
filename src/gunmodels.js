@@ -416,6 +416,22 @@ const KNIVES = {
     g.add(cylZ(0.0042, 0.0216, PX, 0.0, 0, M.brass));
     return { g, tip: 0.114, grip: -0.066, butterfly: true };
   },
+  // (fallbacks for the Blender models)
+  falchion() {
+    const M = mats(), g = new THREE.Group();
+    g.add(blade([['M', 0.013, 0.011], ['L', 0.15, 0.012], ['Q', 0.181, 0.0105, 0.203, -0.006], ['Q', 0.193, -0.027, 0.14, -0.0265], ['Q', 0.07, -0.02, 0.013, -0.013]], 0.0052));
+    g.add(profile([['M', 0.006, 0.019], ['L', 0.014, 0.019], ['L', 0.014, -0.024], ['L', 0.006, -0.024]], 0.024, M.brass, 'metal', { bevel: 0.0025 }));
+    g.add(profile([['M', 0.006, 0.013], ['Q', -0.045, 0.017, -0.092, 0.011], ['L', -0.099, 0.0095], ['L', -0.099, -0.0145], ['Q', -0.05, -0.022, 0.006, -0.015]], 0.022, M.wood, 'detail', { bevel: 0.007 }));
+    return { g, tip: 0.203 };
+  },
+  talon() {
+    const M = mats(), g = new THREE.Group();
+    g.add(blade([['M', 0.012, 0.012], ['C', 0.06, 0.031, 0.13, 0.024, 0.16, -0.035], ['C', 0.122, -0.006, 0.07, -0.0045, 0.012, -0.011]], 0.0048));
+    g.add(profile([['M', 0.006, 0.013], ['Q', -0.04, 0.0165, -0.094, 0.0095], ['Q', -0.107, -0.002, -0.094, -0.0135], ['Q', -0.04, -0.0115, 0.006, -0.0135]], 0.0195, M.polymer, 'detail', { bevel: 0.007 }));
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.0205, 0.0046, 14, 32), M.darkSteel);
+    ring.name = 'ring'; ring.position.set(0.004, -0.037, 0); ring.userData.part = 'metal'; g.add(ring);
+    return { g, tip: 0.16, grip: -0.046 };
+  },
   flip() {
     const M = mats(), g = new THREE.Group();
     g.add(blade([['M', 0.012, 0.012], ['L', 0.12, 0.014], ['Q', 0.17, 0.01, 0.19, -0.004], ['Q', 0.14, -0.02, 0.012, -0.014]], 0.005,

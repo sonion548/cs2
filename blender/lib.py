@@ -341,12 +341,17 @@ def smooth(obj):
         p.use_smooth = True
 
 
-def cut(target, cutter):
-    """Boolean difference; the cutter object is removed afterwards."""
+def cut(target, cutter, tolerant=False):
+    """Boolean difference; the cutter object is removed afterwards.
+    tolerant: for a hole through a ground blade (its pinched edge makes the
+    mesh awkward for the exact solver, which can leave the hole closed)."""
     m = target.modifiers.new('cut', 'BOOLEAN')
     m.operation = 'DIFFERENCE'
     m.solver = 'EXACT'
     m.object = cutter
+    if tolerant:
+        m.use_hole_tolerant = True
+        m.use_self = True
     # move boolean before bevel so the cut edges get bevelled too
     first = next((i for i, x in enumerate(target.modifiers) if x.type != 'BOOLEAN'), None)
     if first is not None and first < len(target.modifiers) - 1:
