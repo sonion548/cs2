@@ -3,11 +3,11 @@ import { KNIFE_TYPES } from '../shared/knives.js';
 import { WEAPONS } from '../weapons.js';
 
 export const RARITIES = [
-  { id: 'standard', name: 'Standard', color: '#4f7cff', odds: 0.7900 },
+  { id: 'standard', name: 'Standard', color: '#4f7cff', odds: 0.7670 },
   { id: 'superior', name: 'Superior', color: '#8c52ff', odds: 0.1600 },
-  { id: 'exotic', name: 'Exotic', color: '#d23cd8', odds: 0.0360 },
-  { id: 'mythic', name: 'Mythic', color: '#e8423a', odds: 0.0090 },
-  { id: 'legendary', name: 'Legendary', color: '#e7b53c', odds: 0.0050 },   // knives (and gloves): 1 in 200
+  { id: 'exotic', name: 'Exotic', color: '#d23cd8', odds: 0.0500 },      // pink: 1 in 20
+  { id: 'mythic', name: 'Mythic', color: '#e8423a', odds: 0.0160 },      // red: 1 in about 60
+  { id: 'legendary', name: 'Legendary', color: '#e7b53c', odds: 0.0070 },   // knives (and gloves): 1 in about 140
 ];
 export const RARITY = Object.fromEntries(RARITIES.map((r, i) => [r.id, { ...r, tier: i }]));
 

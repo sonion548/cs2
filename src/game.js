@@ -501,6 +501,7 @@ export class Game {
 
   // Drops the held gun (or the bomb) on the ground.
   dropWeapon(ch) {
+    if (this.mode?.noPickups) return;   // Arms Race: your gun is the ladder's
     if (!ch.alive) return;
     if (ch.slot === 5 && ch.hasBomb) { this.bomb.drop(ch); if (ch === this.player) this.switchWeapon(ch.bestSlot()); return; }
     const w = ch.weapon;

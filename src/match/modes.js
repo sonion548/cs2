@@ -4,7 +4,9 @@
 //                    limit) wins
 //   Arms Race        respawns, and every kill moves you on to the next gun
 //                    on a ladder; whoever gets a kill with the last one (the
-//                    knife) wins it for their team
+//                    knife) wins it for their team. No guns can be picked up
+//                    (none are dropped), and a knife kill also knocks the
+//                    victim down a gun
 //   Retakes          rounds that start with the bomb already planted: the
 //                    attackers hold the site, the defenders retake it, with
 //                    random loadouts and no buying
@@ -16,7 +18,7 @@ import { WEAPONS, WeaponState } from '../weapons.js';
 export const GAME_TYPES = [
   ['defusal', 'Bomb defusal', 'Plant or defuse the bomb. First to 5 rounds.'],
   ['tdm', 'Team Deathmatch', 'Respawns and free weapons. First team to the kill limit.'],
-  ['armsrace', 'Arms Race', 'Every kill moves you to the next gun. A knife kill wins.'],
+  ['armsrace', 'Arms Race', 'Every kill moves you to the next gun. Knife someone and they go down a gun. A knife kill with the last gun wins.'],
   ['retakes', 'Retakes', 'Every round starts with the bomb planted. Hold it or retake it.'],
 ];
 
@@ -189,6 +191,7 @@ class ArmsRace extends Respawns {
     super(g);
     this.type = 'armsrace';
     this.level = new Map();      // character -> rung on the ladder
+    this.noPickups = true;       // guns aren't dropped, so there's nothing to pick up
   }
 
   canBuy() { return false; }
@@ -209,6 +212,15 @@ class ArmsRace extends Respawns {
     const rung = this.level.get(killer) || 0;
     if (LADDER[rung] === 'knife') { g.endMatch(killer.team, `${killer.name} won it with the knife`); return; }
     this.level.set(killer, rung + 1);
+    // knifed: the victim goes back a gun (they respawn with it)
+    if (weaponDef?.type === 'melee') {
+      const vr = this.level.get(victim) || 0;
+      if (vr > 0) {
+        this.level.set(victim, vr - 1);
+        if (victim === g.player) g.hud.notice(`Knifed: back to level ${vr}/${LADDER.length}, ${WEAPONS[LADDER[vr - 1]]?.name || 'Knife'}`);
+        else if (killer === g.player) g.hud.notice(`You knifed ${victim.name} back to level ${vr}`);
+      }
+    }
     // the next gun, straight away
     if (killer.alive) {
       this.equip(killer);
@@ -224,7 +236,7 @@ class ArmsRace extends Respawns {
     const r = this.level.get(this.g.player) || 0;
     return `Arms Race · level ${r + 1}/${LADDER.length}: ${WEAPONS[LADDER[r]]?.name || 'Knife'}`;
   }
-  roundMessage() { return ['Arms Race', `Every kill moves you to the next gun · a knife kill wins`]; }
+  roundMessage() { return ['Arms Race', `Every kill moves you to the next gun · knifed, you go back one · a knife kill with the last gun wins`]; }
   respawnNote() { return this.hudText(); }
 }
 

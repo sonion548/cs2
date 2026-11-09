@@ -403,6 +403,13 @@ dropped them.
   bid. A bot's bid stays under the least a copy it takes can be worth (its most worn float and its
   plainest pattern, such as a low fade or the cheapest Doppler phase) and always at least a credit under
   what any bot lists such a copy for, so nothing can be bought and sold straight back to a bot at a profit.
+- **Better case odds**: the gold tier (a knife or gloves) is now 0.7% (was 0.5%), red 1.6% (was 0.9%) and
+  pink 5% (was 3.6%); blue drops to 76.7% and purple stays at 16%. The odds table on each case shows them.
+- **Arms Race**: no guns are dropped, so there's nothing to pick up (and you can't drop yours), and a knife
+  kill knocks the victim back a gun as well as moving you on (a knife kill with the last gun still wins).
+- **Negev buffed**: 38 damage (was 35), 78% armour penetration (was 71%), 850 rounds a minute (was 800), a
+  shorter, milder kick that settles into the tight stream after about 10 shots instead of 20, less view
+  kick, faster to move with (70% speed, was 62%), 5.0 s reload (was 5.7) and 1.0 s draw (was 1.2).
 - **Reconnecting to matches**: dropping out of an online match (the game closed or crashed, the
   connection went) no longer takes you out of it. A bot plays your character until you're back (after a
   few seconds, so a blip doesn't hand it over). Sign in again and the menu shows "Match in progress" with

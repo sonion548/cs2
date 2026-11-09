@@ -11,6 +11,7 @@ export class Drops {
   // ws: WeaponState (keeps its ammo); skin: inventory item for the finish (or null)
   add(ws, pos, vel = new THREE.Vector3(), skin = null) {
     if (!ws || ws.def.type === 'melee') return null;
+    if (this.g.mode?.noPickups) return null;   // Arms Race: nothing to pick up
     const mesh = buildGun(ws.id, { lod: true });
     if (skin) applySkinAsync(mesh, skin, { size: 256 });
     mesh.traverse(o => { if (o.isMesh) o.castShadow = true; });

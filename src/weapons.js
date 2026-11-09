@@ -358,13 +358,15 @@ export const WEAPONS = {
 
   negev: {
     id: 'negev', name: 'Negev', slot: 1, type: 'lmg', cls: 'lmg', price: 1700, reward: 300,
-    // 150-round belt at a high rate: wild for the first dozen shots, then the
-    // spray settles into a tight, steady stream (hold it to lay down fire).
-    damage: 35, armorPen: 0.71, rangeMod: 0.96, rpm: 800, auto: true,
-    magSize: 150, reserve: 300, reloadTime: 5.7, deployTime: 1.2,
-    moveSpeed: 0.62, baseSpread: 0.0055, moveSpread: 0.1, airSpread: 0.26, crouchMul: 0.6,
-    recoilRecovery: 3.4, viewKick: 0.7,
-    pattern: P([[0, 0, 0], [1, 1.2, 0.1], [5, 5.4, 0.9], [10, 6.8, -1.4], [14, 4.2, 0.8], [20, 2.0, 0.3], [30, 1.4, -0.2], [60, 1.3, 0.2], [150, 1.3, 0]], 150),
+    // 150-round belt at a high rate: a short kick for the first few shots,
+    // then the spray settles into a tight, steady stream (hold it to lay down
+    // fire). Hits harder through armour than it used to, settles sooner, and
+    // is lighter to move and reload with.
+    damage: 38, armorPen: 0.78, rangeMod: 0.97, rpm: 850, auto: true,
+    magSize: 150, reserve: 300, reloadTime: 5.0, deployTime: 1.0,
+    moveSpeed: 0.7, baseSpread: 0.0045, moveSpread: 0.085, airSpread: 0.24, crouchMul: 0.6,
+    recoilRecovery: 3.8, viewKick: 0.55,
+    pattern: P([[0, 0, 0], [1, 0.9, 0.1], [4, 3.6, 0.6], [8, 4.4, -0.9], [11, 2.6, 0.5], [16, 1.3, 0.2], [25, 0.9, -0.1], [60, 0.85, 0.1], [150, 0.85, 0]], 150),
     sound: S.lmg,
   },
 
