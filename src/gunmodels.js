@@ -396,24 +396,28 @@ const KNIVES = {
     return { g: pivot, tip: 0.17, ring: true };
   },
   butterfly() {
-    // (the fallback for the Blender model): each handle a full-height plate on
-    // its own side of the blade, rounded round the pivot, no windows through
-    // them, so a closed knife hides its blade completely
+    // (the fallback for the Blender model): built like a real one, a pin for
+    // each handle in the blade's tang (the held handle's near the edge, the
+    // other's near the spine), each handle a pair of liners straddling the
+    // blade, so open they lie along its edge and spine and closed the blade
+    // sits between both pairs
     const M = mats(), g = new THREE.Group();
-    g.add(blade([['M', 0.0, 0.01], ['L', 0.084, 0.01], ['Q', 0.102, 0.008, 0.114, -0.002], ['Q', 0.086, -0.015, 0.0, -0.012]], 0.0036));
-    const PX = 0.003, H = 0.0134, END = -0.132, T = 0.008, Y0 = 0.0023;
-    const mkHandle = (side) => {
-      const h = new THREE.Group();
-      const plate = profile([['M', END + 0.006 - PX, -H], ['L', 0, -H], ['A', 0, 0, H, -Math.PI / 2, Math.PI / 2], ['L', END + 0.006 - PX, H],
-        ['Q', END - PX, H, END - PX, H - 0.006], ['L', END - PX, -H + 0.006], ['Q', END - PX, -H, END + 0.006 - PX, -H]], T, M.steel, 'detail', { bevel: 0.0012 });
-      plate.position.z = side * (Y0 + T / 2);
-      h.add(plate);
+    g.add(blade([['M', 0.0, 0.0112], ['L', 0.084, 0.0112], ['Q', 0.102, 0.0092, 0.114, -0.0008], ['Q', 0.086, -0.0138, 0.0, -0.0108]], 0.0036));
+    const PX = 0.003, H = 0.0135, END = -0.132, TL = 0.0024, LY = 0.0018 + 0.0004 + TL / 2;
+    const mkHandle = () => {
+      const h = new THREE.Group(), z0 = -H / 2, z1 = H / 2, e = END - PX;
+      for (const s of [1, -1]) {
+        const liner = profile([['M', e + 0.004, z0], ['L', 0, z0], ['A', 0, 0, H / 2, -Math.PI / 2, Math.PI / 2], ['L', e + 0.004, z1],
+          ['Q', e, z1, e, z1 - 0.004], ['L', e, z0 + 0.004], ['Q', e, z0, e + 0.004, z0]], TL, M.steel, 'detail', { bevel: 0.0005 });
+        liner.position.z = s * LY;
+        h.add(liner);
+      }
       return h;
     };
-    const A = new THREE.Group(); A.name = 'bfA'; A.add(mkHandle(1)); A.position.set(PX, 0, 0);
-    const B = new THREE.Group(); B.name = 'bfB'; B.add(mkHandle(-1)); B.position.set(PX, 0, 0);
+    const A = new THREE.Group(); A.name = 'bfA'; A.add(mkHandle()); A.position.set(PX, -H / 2, 0);
+    const B = new THREE.Group(); B.name = 'bfB'; B.add(mkHandle()); B.position.set(PX, H / 2, 0);
     g.add(A, B);
-    g.add(cylZ(0.0042, 0.0216, PX, 0.0, 0, M.brass));
+    g.add(cylZ(0.0024, 2 * (LY + TL / 2), PX, -H / 2, 0, M.steel), cylZ(0.0024, 2 * (LY + TL / 2), PX, H / 2, 0, M.steel));
     return { g, tip: 0.114, grip: -0.066, butterfly: true };
   },
   // (fallbacks for the Blender models)

@@ -104,7 +104,7 @@ function ringSpin(t0, p, from, turns = 2, d = 0.9) {
 // over to the other side, and the free handle carries on round into the hand
 // and shuts against the held one. The viewmodel turns the wrist with every
 // swing, a moment ahead of it, so each is seen to be thrown from the hand.
-const BS = -0.095;
+export const BS = -0.095;
 const PINCH = { slide: BS, th: -0.45, ix: 0.04, mi: 0.06, rp: -0.4 };
 // dir -1 closes (from open), +1 opens (from closed); bh0 / bb0: the free
 // handle's and the blade's angles going in; settle: ease back to the pinch
@@ -154,26 +154,31 @@ function fan(t0, p, n, d = 0.34) {
 // then the held handle comes round into the palm, the fist closes on it and
 // the free handle swings back shut. From the fist, knife open. (The viewmodel
 // puts the crotch on the finger and keeps the spin going with the wrist.)
-const CHAP_V = -2.2;                                          // the free handle out this far: room for the finger between the handles
+const CHAP_V = -2.2, CHAP_KY = -0.012;                                          // the free handle out this far: room for the finger between the handles
 function chaplin(t0, p, turns = 2, d = 0.85) {
   const to = TAU * turns, f = p.flex || 0;
   const SP = { ix: 0.95, mi: -0.2, th: 0.35, rp: 0 };          // the index out straight, the rest tucked in
-  // (going onto the finger, the index is straightened first and the other
-  // fingers open to let the handles out of the fist; coming back, the thumb
-  // tucks clear of the handles and the free handle comes home before the
-  // fist closes: it swings round on the palm's side of the knife)
-  const OUTF = { ix: 0.95, mi: 0.75, th: 0.3, rp: 0 }, BACK = { ix: 0.6, mi: 0.75, th: -0.35, rp: 0 };
+  // (going onto the finger, the thumb lifts off first and the index is
+  // straightened and the other fingers open to let the handles out of the
+  // fist: the free handle lies along the spine, under the thumb, and swings
+  // out past it; coming back, the thumb stays up until the free handle is
+  // home, then the fist closes)
+  const OUTF = { ix: 0.95, mi: 0.75, th: 0.5, rp: 0 }, BACK = { ix: 0.6, mi: 0.75, th: 0.5, rp: 0 };
   return [
-    [t0, { ...knifeOnly(p), ...GRIP, bh: 0, ringW: 0, ring: 0, free: 0, slide: 0 }],
-    [t0 + 0.12, { ...p, flex: f + 0.16, ...OUTF, bh: CHAP_V * 0.85, ringW: 0, ring: 0, free: 0.3 }],
-    [t0 + 0.22, { ...p, flex: f + 0.08, ...OUTF, bh: CHAP_V, ringW: 0.6, ring: 0.3, free: 0.8 }],
-    [t0 + 0.32, { ...p, ...SP, bh: CHAP_V, ringW: 1, ring: 0.85, free: 1 }],
-    [t0 + 0.32 + d * 0.5, { ...p, ...SP, bh: CHAP_V, ringW: 1, ring: to * 0.6, free: 1 }],
-    [t0 + 0.32 + d, { ...p, ...SP, bh: CHAP_V, ringW: 1, ring: to - 0.55, free: 1 }],
-    [t0 + 0.46 + d, { ...p, ...BACK, bh: CHAP_V * 0.9, ringW: 0.4, ring: to - 0.12, free: 0.6 }],
-    [t0 + 0.56 + d, { ...p, ...BACK, bh: CHAP_V * 0.45, ringW: 0, ring: to, free: 0.2 }],
-    [t0 + 0.66 + d, { ...p, ...BACK, bh: 0, free: 0 }],
-    [t0 + 0.8 + d, { ...p, ...GRIP, flex: f + 0.06, slide: 0 }],
+    [t0, { ...knifeOnly(p), ...GRIP, bh: 0, ringW: 0, ring: 0, free: 0, slide: 0, ky: 0 }],
+    // (and the knife rolls a little down out of the fist, ky, so the free
+    // handle's back end comes up clear of the root of the thumb)
+    [t0 + 0.07, { ...p, flex: f + 0.06, ix: 0.45, mi: 0.4, th: 0.6, rp: 0, bh: -0.04, ringW: 0, ring: 0, free: 0, ky: CHAP_KY }],
+    [t0 + 0.16, { ...p, flex: f + 0.16, ...OUTF, bh: CHAP_V * 0.85, ringW: 0, ring: 0, free: 0.3, ky: CHAP_KY }],
+    [t0 + 0.3, { ky: 0 }],
+    [t0 + 0.26, { ...p, flex: f + 0.08, ...OUTF, bh: CHAP_V, ringW: 0.6, ring: 0.3, free: 0.8 }],
+    [t0 + 0.36, { ...p, ...SP, bh: CHAP_V, ringW: 1, ring: 0.85, free: 1 }],
+    [t0 + 0.36 + d * 0.5, { ...p, ...SP, bh: CHAP_V, ringW: 1, ring: to * 0.6, free: 1 }],
+    [t0 + 0.36 + d, { ...p, ...SP, bh: CHAP_V, ringW: 1, ring: to - 0.55, free: 1 }],
+    [t0 + 0.5 + d, { ...p, ...BACK, bh: CHAP_V * 0.9, ringW: 0.4, ring: to - 0.12, free: 0.6 }],
+    [t0 + 0.6 + d, { ...p, ...BACK, bh: CHAP_V * 0.45, ringW: 0, ring: to, free: 0.2 }],
+    [t0 + 0.7 + d, { ...p, ...BACK, bh: 0, free: 0 }],
+    [t0 + 0.84 + d, { ...p, ...GRIP, flex: f + 0.06, slide: 0 }],
   ];
 }
 
@@ -240,12 +245,14 @@ function aerial(t0, p, drop = false) {
   const tb = tc + 0.12, fall = (tau) => 2.8 * tau * tau;
   const dive = (tau) => 0.4 * (tau < 0.25 ? 0 : Math.min(1, ((tau - 0.25) / 0.35) ** 1.5));
   // (it bounces off away from the palm, kx, so it clears the closing fingers)
-  k.push([tc + 0.05, { lift: 0.034, flip: -TAU + late + 0.2, slide: -0.012, bh: 0.2, bb: -0.08, free: 1, kx: KX_AIR - 0.016, ky: KY_AIR }],
-    [tb, { lift: 0.05, flip: -TAU + late + 0.6, slide: -0.03, bh: 0.6, bb: -0.3, free: 1, kx: KX_AIR - 0.034, ky: KY_AIR - 0.005 }]);
+  // (the free handle flops open away from the held one: its pin is beside the
+  // held handle's, so turned the other way it would swing into it)
+  k.push([tc + 0.05, { lift: 0.034, flip: -TAU + late + 0.2, slide: -0.012, bh: -0.2, bb: -0.08, free: 1, kx: KX_AIR - 0.016, ky: KY_AIR }],
+    [tb, { lift: 0.05, flip: -TAU + late + 0.6, slide: -0.03, bh: -0.6, bb: -0.3, free: 1, kx: KX_AIR - 0.034, ky: KY_AIR - 0.005 }]);
   for (let i = 1; i <= 8; i++) {
     const tau = i * 0.07;
     k.push([tb + tau, { lift: 0.05 - fall(tau) + dive(tau), flip: -TAU + late + 0.6 + 5 * tau, slide: -0.03 - 0.1 * tau,
-      bh: 0.6 + 1.3 * Math.min(1, tau / 0.4), bb: -0.3 - 0.8 * Math.min(1, tau / 0.45), free: 1, kx: KX_AIR - 0.034 - 0.06 * tau, ky: KY_AIR - 0.005 }]);
+      bh: -0.6 - 1.3 * Math.min(1, tau / 0.4), bb: -0.3 - 0.8 * Math.min(1, tau / 0.45), free: 1, kx: KX_AIR - 0.034 - 0.06 * tau, ky: KY_AIR - 0.005 }]);
   }
   k.push([tc + 0.06, { ...U, ...OPEN, th: TH_AIR, rp: 0, flex: uf - 0.02, y: uy + 0.012 }],
     [tc + 0.2, { ...U, ...GRIP, flex: uf + 0.1, y: uy + 0.002, x: U.x - 0.012 }],

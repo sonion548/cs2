@@ -485,13 +485,19 @@ dropped them.
   ordinary knife with the same finish, a falchion about 1.3 times.
 - **Skeleton knife**: its blade now has the slot right through it, as on the real thing. The hole in
   the flip knife's blade also goes all the way through now (before, it only showed as a dent).
-- **Balisong, modelled more realistically**: a clip-point blade with a swedge, a choil and an
-  unsharpened ricasso, its tang rounded round the pivot; bronze washers either side of the tang; Torx
-  pivot and handle screws and a zen pin; grooved grip inlays set into pockets milled into the handles;
-  spacers closing the pommel end and a latch. The blade is about 82% of the handle's length, about the
-  same as on real balisongs. Closed, the blade still hides between the handles (about 6% of it shows on
-  average, only along the gap between them), and the tricks were checked again with the new model.
-
+- **Balisong, built like a real one**: the blade's tang carries two pivot pins, one near the edge and one
+  near the spine, and each handle turns on its own pin. Each handle is a pair of steel liners straddling
+  the blade (one liner either side of it) with a grooved scale on the outside, Torx pivot and butt screws
+  and a spacer closing its butt end. Open, the two handles lie along the blade's edge and spine and meet in
+  the middle; closed, the blade sits in the channels between both pairs of liners, its spine in one handle
+  and its edge in the other (about 6% of it shows on average, only along the open edges, as on the real
+  thing). The blade is a clip point with a swedge, a choil and an unsharpened ricasso, about 82% of the
+  handle's length, with bronze washers either side of the tang at each pin and a latch in the held
+  handle's butt. In the flips the blade turns about the held handle's pin and the free handle about its
+  own, which goes round with the blade; the free handle always swings out away from the held one (stepping
+  every frame of the inspect, and of the fumbled one, the handles never pass through each other), the
+  closed knife stays centred in the fist, and the thumb lifts clear as the free handle swings out for the
+  Chaplin.
 ## Blender models
 
 Weapons, knives, characters and the Dunehold map are modelled with Blender scripts in `blender/` (see

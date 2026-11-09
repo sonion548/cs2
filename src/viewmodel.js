@@ -11,7 +11,7 @@ import { radialTexture } from './textures.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { assets } from './assets.js';
-import { inspectFor, gunInspectFor, samplePose, channelRate, channelRateSmooth, BLUR_TAIL } from './inspects.js';
+import { inspectFor, gunInspectFor, samplePose, channelRate, channelRateSmooth, BLUR_TAIL, BS as BALI_END } from './inspects.js';
 
 const POSE = {
   rifle: new THREE.Vector3(0.1, -0.105, -0.2),
@@ -118,7 +118,7 @@ const GRIP_L = {
 const DEF_GRIP = new THREE.Vector3(0, -0.04, 0.03);
 const AXIS_Z = new THREE.Vector3(0, 0, 1);
 const MIRROR = new THREE.Matrix4().makeScale(-1, 1, 1), ONE = new THREE.Vector3(1, 1, 1);
-const _km = new THREE.Matrix4(), _kt = new THREE.Matrix4(), _kr = new THREE.Matrix4(), _kq = new THREE.Quaternion();
+const _km = new THREE.Matrix4(), _kt = new THREE.Matrix4(), _kr = new THREE.Matrix4(), _kq = new THREE.Quaternion(), _kv = new THREE.Vector3();
 const _ge = new THREE.Euler();
 
 // A turn of a knife hand about its own axes (h: the hold): roll about the
@@ -486,11 +486,18 @@ export class ViewModel {
     this.gunPivot = type === 'melee' ? null : this.gunWrist();
     this.ringInfo = type === 'melee' ? ringOf(this.gun) : null;
     this.pin = this.bfA ? pinOf(this.gun, this.bfA) : null;
+    // a real balisong's handles turn on pins of their own, one near the edge
+    // and one near the spine (the held handle's is this.pin): the blade turns
+    // about the held handle's pin and the free handle about its own, which goes
+    // round with the blade. pinGap: from the held handle's pin to the other one
+    this.pinB = this.bfB ? pinOf(this.gun, this.bfB) : null;
+    this.pinGap = this.pinB ? this.pinB.p.clone().sub(this.pin.p).projectOnPlane(this.pin.n) : null;
+    if (this.pinGap && this.pinGap.lengthSq() < 1e-8) this.pinGap = null;   // one shared pin
     // a balisong spun round the index finger (a Chaplin): its "ring" is the
     // crotch between the handles, a little out from the pivot, worked out each
-    // frame from where the handles are (applyKnifePose); balisongA: the held
-    // handle's direction from the pivot
-    this.balisongA = this.pin ? (this.gun.userData.grip || DEF_GRIP).clone().sub(this.pin.p).projectOnPlane(this.pin.n).normalize() : null;
+    // frame from where the handles are (applyKnifePose); balisongA: the
+    // direction the handles lie in from the pivot, open
+    this.balisongA = this.pin ? (this.gun.userData.grip || DEF_GRIP).clone().sub(this.gun.userData.muzzle || V3(0, 0, -0.1)).projectOnPlane(this.pin.n).normalize() : null;
     if (!this.ringInfo && this.pin) this.ringInfo = { c: new THREE.Vector3(), n: this.pin.n.clone(), crotch: true };
     // the balisong's latch belongs on a handle, not the blade (it would float off in a flip)
     if (this.bfA && part('latch')) this.bfA.attach(part('latch'));
@@ -852,6 +859,19 @@ export class ViewModel {
         const bb = P.bb || 0, bh = P.bh || 0, pv = this.pin.p;
         if (bb) m.premultiply(_kt.makeTranslation(-pv.x, -pv.y, -pv.z)).premultiply(_kr.makeRotationAxis(this.pin.n, bb)).premultiply(_kt.makeTranslation(pv.x, pv.y, pv.z));
         this.bfA.rotation.z = -bb; this.bfB.rotation.z = bh - bb;
+        if (this.pinGap) {
+          // With a pin for each handle the held handle is only half of the
+          // bar, and which half depends on whether the knife is open or shut
+          // (shut, the other handle has come round to its other side). In the
+          // fist the whole bar is held, so it's kept centred there; held out
+          // by the end of the handle for the flips (slide), only the held
+          // handle is, so that is centred in the pinch.
+          const w = 1 - Math.min(1, Math.max(0, (P.slide || 0) / BALI_END));
+          const half = _kv.copy(this.pinGap).multiplyScalar(0.5);
+          const fist = half.clone().sub(half.clone().applyAxisAngle(this.pin.n, bb));
+          const off = fist.multiplyScalar(w).addScaledVector(half, 1 - w);
+          m.premultiply(_kt.makeTranslation(off.x, off.y, off.z));
+        }
       }
       if (P.flip) m.premultiply(_kt.makeTranslation(-this.balance.x, -this.balance.y, -this.balance.z)).premultiply(_kr.makeRotationX(P.flip)).premultiply(_kt.makeTranslation(this.balance.x, this.balance.y, this.balance.z));
       // end over end about the grip, in the hand (a flip to a reverse grip and back)
@@ -868,8 +888,11 @@ export class ViewModel {
     if (P && this.ringInfo?.crotch && (P.ringW || 0) > 0.001) {
       // the balisong's crotch: on the line halving the angle between its
       // handles, CROTCH out from the pivot (the finger fits between them there)
+      // (with a pin for each handle, the crotch opens from between the two pins)
       const a = this.balisongA, n = this.pin.n;
-      this.ringInfo.c.copy(this.pin.p).addScaledVector(a.clone().applyAxisAngle(n, (P.bh || 0) / 2 - (P.bb || 0)), CROTCH);
+      this.ringInfo.c.copy(this.pin.p);
+      if (this.pinGap) this.ringInfo.c.addScaledVector(this.pinGap, 0.5);
+      this.ringInfo.c.addScaledVector(a.clone().applyAxisAngle(n, (P.bh || 0) / 2 - (P.bb || 0)), CROTCH);
     }
     if (P && this.ringInfo && ((P.ringW || 0) > 0.001)) this.ringAttach(P);
     else { this._ringSide = 0; this._hangAng = null; }

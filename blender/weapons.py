@@ -1111,65 +1111,80 @@ def karambit():
 
 @knife
 def butterfly():
-    """Balisong. Each handle is a full-height plate on its own side of the
-    blade, rounded round the pivot, so a closed knife hides the blade between
-    them (only a thin line of the spine or edge shows down the gap, as on the
-    real thing). Like a real one: a clip-point blade with a swedge, a choil and
-    an unsharpened ricasso, its tang rounded round the pivot; grippy inlays set
-    into pockets milled in the handles; Torx pivot and handle screws, bronze
-    washers either side of the tang, zen pins, spacers closing the pommel end
-    and a latch. The blade is shorter than the handles, and the spacers and
-    latch sit further from the pivot than its tip reaches, so it swings past
-    them in a flip. Open, the two plates come together as the grip."""
+    """Balisong, built like a real one (sandwich construction). The blade's
+    tang carries two pivot pins, one near the edge and one near the spine, and
+    each handle turns on its own: a pair of liners straddling the blade, one
+    liner either side of it, with a scale on the outside, Torx screws and a
+    spacer closing its butt end. Open, the handles lie along the blade's edge
+    and spine sides and meet in the middle, the tang between them; the held
+    handle (bfA) is the one on the edge side. Closed, the blade sits in the
+    channels between both pairs of liners, its spine in one handle and its edge
+    in the other (only a thin line of each shows along the open edges, as on the
+    real thing). Each pin sits halfway up its handle, so either way the two
+    handles stack into the same bar. The blade (centred between the pins) is
+    shorter than the handles, and the spacers and latch sit beyond the reach of
+    its tip, so it swings past them in a flip."""
     M = mats()
-    # pivot, handle half-height (the closed blade spans -0.0105..0.012), pommel
-    # end, plate thickness and the gap from the blade's middle to each plate
-    PX, H, END, T, Y0 = 0.003, 0.0134, -0.132, 0.008, 0.0023
-    TR = 0.0112   # the tang, round the pivot: inside the handles' rounded ends either way round
-    a0, a1 = math.radians(112), math.radians(248)
-    blade('blade', [('M', 0.012, 0.0100), ('L', 0.068, 0.0102), ('Q', 0.093, 0.0098, 0.114, -0.0015),       # spine, clip to the point
-                    ('Q', 0.095, -0.0125, 0.034, -0.0118), ('L', 0.025, -0.0115),                            # belly and edge
-                    ('Q', 0.0195, -0.0116, 0.019, -0.0086), ('Q', 0.0185, -0.0063, 0.015, -0.0068),          # the choil
-                    ('L', PX + TR * math.cos(a1), TR * math.sin(a1)), ('A', PX, 0.0, TR, a1, a0)],           # the tang round the pivot
-          lambda x, z: (x > 0.025 and z < -0.003) or (x > 0.086 and z > -0.0016), 0.0036, M['blade'])        # the edge, and the swedge up the clip
-    outline = [('M', END + 0.006, -H), ('L', PX, -H), ('A', PX, 0, H, -PI / 2, PI / 2), ('L', END + 0.006, H),
-               ('Q', END, H, END, H - 0.006), ('L', END, -H + 0.006), ('Q', END, -H, END + 0.006, -H)]
-    pocket = [('M', -0.112, -0.0082), ('L', -0.028, -0.0082), ('A', -0.028, 0.0, 0.0082, -PI / 2, PI / 2), ('L', -0.112, 0.0082),
-              ('A', -0.112, 0.0, 0.0082, PI / 2, 3 * PI / 2)]
-    inlay = [('M', -0.1115, -0.0077), ('L', -0.0285, -0.0077), ('A', -0.0285, 0.0, 0.0077, -PI / 2, PI / 2), ('L', -0.1115, 0.0077),
-             ('A', -0.1115, 0.0, 0.0077, PI / 2, 3 * PI / 2)]
-    for name, side in (('bfA', 1), ('bfB', -1)):
-        piv = empty(name, (PX, 0, 0))
+    # pivot x, each handle's height, butt end, liner thickness, the gap between
+    # blade and liner (washers), the blade's thickness
+    PX, H, END, TL, G, TB = 0.003, 0.0135, -0.132, 0.0024, 0.0004, 0.0036
+    ZA, ZB = -H / 2, H / 2          # the pins: the held handle's (edge side), the free handle's (spine side)
+    RT = 0.0043                     # the tang round each pin
+    LY = TB / 2 + G + TL / 2        # the liners' middles, either side of the blade
+    LO = TB / 2 + G + TL            # their outer faces
+    c45 = RT * math.cos(PI / 4)
+    blade('blade', [('M', 0.012, 0.01115), ('L', 0.068, 0.01135), ('Q', 0.093, 0.01095, 0.114, -0.00035),     # spine, clip to the point
+                    ('Q', 0.095, -0.01135, 0.034, -0.01065), ('L', 0.025, -0.01035),                        # belly and edge
+                    ('Q', 0.0195, -0.01045, 0.019, -0.00745), ('Q', 0.0185, -0.00515, 0.015, -0.00565),     # the choil
+                    ('L', PX + c45, ZA - c45), ('A', PX, ZA, RT, -PI / 4, -PI),                             # the tang, round both pins
+                    ('L', PX - RT, ZB), ('A', PX, ZB, RT, PI, PI / 4), ('L', 0.012, 0.01115)],
+          lambda x, z: (x > 0.025 and z < -0.0019) or (x > 0.086 and z > -0.00045), TB, M['blade'])      # the edge, and the swedge up the clip
+
+    def handle(name, zp, side_out):
+        """One handle on the pin at height zp; side_out: +1 if its outer long edge is above (spine side)."""
+        piv = empty(name, (PX, 0, zp))
+        z0, z1 = zp - H / 2, zp + H / 2
+        # the corner on the outer long edge is well rounded, the one on the seam
+        # (where the two handles meet) nearly square, so they close flush
+        ro, rs = 0.005, 0.0015
+        r0, r1 = (rs, ro) if side_out > 0 else (ro, rs)
+        outline = [('M', END + r0, z0), ('L', PX, z0), ('A', PX, zp, H / 2, -PI / 2, PI / 2), ('L', END + r1, z1),
+                   ('Q', END, z1, END, z1 - r1), ('L', END, z0 + r0), ('Q', END, z0, END + r0, z0)]
+        sx0, sx1, sh = END + 0.012, PX - 0.0112, H / 2 - 0.0019
+        scale_outline = [('M', sx0, zp - sh), ('L', sx1, zp - sh), ('A', sx1, zp, sh, -PI / 2, PI / 2), ('L', sx0, zp + sh),
+                         ('A', sx0, zp, sh, PI / 2, 3 * PI / 2)]
         parts = []
-        out = side * (Y0 + T)                                        # the outer face
-        h = extrude(f'{name}_handle', outline, T, M['steel'], y=side * (Y0 + T / 2), bevel=0.0012)
-        cut(h, extrude('cutter', pocket, 0.004, None, y=out, bevel=0))   # a 2 mm pocket for the inlay
-        parts.append(h)
-        inl = extrude(f'{name}_inlay', inlay, 0.0021, M['polymer'], y=out - side * 0.00095, bevel=0.0004)
-        for k in range(9):                                           # grip grooves across it
-            cut(inl, cutter_box((0.0014, 0.003, 0.03), (-0.104 + k * 0.0093, out, 0.0), rot=(0, 0.55, 0)))
-        parts.append(inl)
-        # a spacer closing the gap at the pommel (each handle fills its own half of it)
-        parts.append(box(f'{name}_spacer', (0.007, Y0 - 0.0003, 0.016), (-0.1235, side * (Y0 + 0.0003) / 2, 0), M['dark'], bevel=0.0006))
-        # Torx screws: pivot, two through the handle, and a zen pin by the pivot
-        for k, (x, z, r) in enumerate(((PX, 0.0, 0.0046), (-0.123, 0.0, 0.0024), (-0.019, 0.0, 0.0024), (-0.009, 0.0085, 0.0014))):
-            parts.append(cyl(f'{name}_screw{k}', r, 0.0012, (x, out + side * 0.0004, z), M['steel'], axis='Y', segs=18, bevel=0.0002))
-            if r > 0.002:
-                parts.append(cyl(f'{name}_torx{k}', r * 0.38, 0.0012, (x, out + side * 0.0007, z), M['dark'], axis='Y', segs=6))
+        for s in (1, -1):
+            parts.append(extrude(f'{name}_liner{"LR"[s < 0]}', outline, TL, M['steel'], y=s * LY, bevel=0.0005, bevel_segs=2, seg=8))
+            sc = extrude(f'{name}_scale{"LR"[s < 0]}', scale_outline, 0.0012, M['polymer'], y=s * (LO + 0.0006), bevel=0.0003, bevel_segs=1, seg=8)
+            for k in range(9):                                           # grip grooves across it
+                cut(sc, cutter_box((0.0013, 0.0012, 0.03), (sx0 + 0.008 + k * 0.0104, s * (LO + 0.0012), zp), rot=(0, 0.55, 0)))
+            parts.append(sc)
+            # Torx screws: the pivot and the butt
+            for k, (x, r) in enumerate(((PX, 0.0042), (END + 0.007, 0.0022))):
+                parts.append(cyl(f'{name}_screw{k}{"LR"[s < 0]}', r, 0.0012, (x, s * (LO + 0.0004), zp), M['steel'], axis='Y', segs=16, bevel=0.0002))
+                parts.append(cyl(f'{name}_torx{k}{"LR"[s < 0]}', r * 0.38, 0.0012, (x, s * (LO + 0.0007), zp), M['dark'], axis='Y', segs=6))
+        # the spacer closing the butt end between the liners
+        parts.append(box(f'{name}_spacer', (0.007, 2 * (TB / 2 + G) - 0.0002, H - 0.0012), (END + 0.0075, 0, zp), M['dark'], bevel=0.0006))
         for o in parts:
             o.parent = piv
             o.location.x -= PX
-    # bronze washers either side of the tang, under the handles
-    for side in (1, -1):
-        cyl(f'washer{"AB"[side < 0]}', 0.0066, 0.00042, (PX, side * 0.00205, 0), M['brass'], axis='Y', segs=24)
-    # the latch: a lever on the held handle's pommel end, lying in the gap
-    latch = box('latch', (0.006, 0.0022, 0.0075), (-0.1315, 0, -0.0068), M['dark'], bevel=0.0006)
+            o.location.z -= zp
+        return piv
+
+    handle('bfA', ZA, -1)
+    handle('bfB', ZB, 1)
+    # bronze washers either side of the tang at each pin, and the pins
+    for zp in (ZA, ZB):
+        for s in (1, -1):
+            cyl(f'washer{"AB"[zp > 0]}{"LR"[s < 0]}', 0.0047, 0.00038, (PX, s * (TB / 2 + G / 2), zp), M['brass'], axis='Y', segs=24)
+        cyl(f'pivot_pin{"AB"[zp > 0]}', 0.0024, 2 * LO, (PX, 0, zp), M['steel'], axis='Y', segs=16)
+    # the latch: a lever in the held handle's butt end, along the seam side, in
+    # the strip the closed blade leaves free
+    latch = box('latch', (0.009, 2 * (TB / 2 + G) - 0.0004, 0.0018), (END + 0.0035, 0, -0.0011), M['dark'], bevel=0.0004)
     latch.parent = bpy.data.objects['bfA']
     latch.location.x -= PX
-    lp = cyl('latch_pin', 0.0012, 0.0024, (-0.1325, 0.0012, -0.0098), M['steel'], axis='Y', segs=12)
-    lp.parent = bpy.data.objects['bfA']
-    lp.location.x -= PX
-    cyl('pivot_pin', 0.0024, 0.0206, (PX, 0, 0), M['steel'], axis='Y', segs=16)
+    latch.location.z -= ZA
     # the fist closes round the middle of the handles
     return 0.114, -0.066
 
