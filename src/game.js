@@ -128,7 +128,9 @@ export class Game {
     this.onResize = () => this.resize();
     window.addEventListener('resize', this.onResize);
     this.resize();
-    if (!this.net || this.net.isHost) this.startRound();
+    // (a host coming back to a match, or taking it over, goes on from its save)
+    if (this.net?.resume) this.net.restore();
+    else if (!this.net || this.net.isHost) this.startRound();
     else this.clientStart();
     // The browser can take the graphics context away (a GPU driver reset, too
     // many 3D views open). The match keeps running underneath; three.js

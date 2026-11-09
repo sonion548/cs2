@@ -403,6 +403,17 @@ dropped them.
   bid. A bot's bid stays under the least a copy it takes can be worth (its most worn float and its
   plainest pattern, such as a low fade or the cheapest Doppler phase) and always at least a credit under
   what any bot lists such a copy for, so nothing can be bought and sold straight back to a bot at a profit.
+- **Reconnecting to matches**: dropping out of an online match (the game closed or crashed, the
+  connection went) no longer takes you out of it. A bot plays your character until you're back (after a
+  few seconds, so a blip doesn't hand it over). Sign in again and the menu shows "Match in progress" with
+  Reconnect and Leave; reconnecting puts you back with your character as it is now (where it is, its
+  health, money and guns), or spectating until the next round if it died meanwhile. If your game was still
+  open when the connection came back, it just carries on. The host's game saves the match to the server
+  every 2 seconds: a host who drops out has 20 seconds to come back (a host whose game closed carries on
+  from the save), and after that, or if the host leaves, the match moves to another player's game from the
+  save and goes on (the old host can rejoin it as a player). Going on from a save rolls the match back up to
+  2 seconds, and smokes and fires that were burning are gone. In ranked, dropping out only counts as an
+  abandon if you're still gone when the match ends (or after 5 minutes); leaving on purpose still does.
 - **Killscribe preview on the market**: the market's 3D inspect and its inspect animation have a
   Killscribe box. Tick it and type a count (up to 99999, what the readout holds) to see the skin with a
   kill counter: the readout on a gun (the 3D view turns to show it) or the count etched into a knife's

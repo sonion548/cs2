@@ -81,6 +81,7 @@ export class OnlineUI {
     if (ev === 'party') this.party = d;
     if (ev === 'trades') { const before = this.trades.length; this.trades = d; if (d.length > before) audio.ui(); }
     if (ev === 'mm') this.mm = d;
+    if (ev === 'rejoin') this.rejoin = d;
     if (ev === 'party.invite') { this.invites = [...this.invites.filter(i => i.partyId !== d.partyId), d]; this.drawerOpen = true; audio.ui(); }
     this.m.updateBar();
     this.renderDrawer();
@@ -96,7 +97,23 @@ export class OnlineUI {
     const wrap = document.createElement('div');
     wrap.append(this.drawer, this.search);
     this.drawer.onclick = (e) => this.drawerClick(e);
-    this.search.onclick = async (e) => { if (e.target.closest('[data-cancel]')) { await net.rpc('mm.cancel'); this.mm = { state: 'idle' }; this.renderSearch(); } };
+    this.search.onclick = async (e) => {
+      if (e.target.closest('[data-cancel]')) { await net.rpc('mm.cancel'); this.mm = { state: 'idle' }; this.renderSearch(); }
+      // a match you dropped out of: back into it, or leave it for good
+      if (e.target.closest('[data-rejoin]')) {
+        const r = await net.rpc('room.rejoin');
+        this.rejoin = null; this.renderSearch();
+        if (r.error) return this.m.toast(r.error);
+        this.m.onPlay({ rejoin: { room: r.room, role: r.role, you: r.you, resume: r.resume } });
+      }
+      if (e.target.closest('[data-abandon]')) {
+        const ranked = this.rejoin?.room?.ladder && this.rejoin.room.mode !== 'casual';
+        if (!await ask(ranked ? 'Leave the match for good? In ranked that counts as an abandon.' : 'Leave the match for good?', { ok: 'Leave match', danger: true })) return;
+        await net.rpc('room.leave');
+        this.rejoin = null; this.renderSearch();
+        this.m.toast(ranked ? 'You abandoned a ranked match' : 'You left the match');
+      }
+    };
     this.renderDrawer(); this.renderSearch();
     clearInterval(this.searchTimer);
     this.searchTimer = setInterval(() => this.renderSearch(), 1000);
@@ -241,7 +258,14 @@ export class OnlineUI {
     if (!this.search) return;
     const s = this.mm;
     const on = s.state === 'searching';
-    this.search.classList.toggle('hidden', !on);
+    const rj = !on && this.rejoin && P.isOnline();
+    this.search.classList.toggle('hidden', !on && !rj);
+    this.search.classList.toggle('rejoin', !!rj);
+    if (rj) {
+      const r = this.rejoin.room;
+      this.search.innerHTML = `<span class="pulse"></span><b>Match in progress</b> You dropped out of a ${MODE_NAMES[r.mode] || ''} ${r.size}v${r.size} match<button class="pri" data-rejoin="1">Reconnect</button><button data-abandon="1">Leave</button>`;
+      return;
+    }
     if (!on) return;
     const t = Math.floor((Date.now() - (s.since || Date.now())) / 1000);
     this.search.innerHTML = `<span class="pulse"></span><b>Searching</b> ${MODE_NAMES[s.mode] || ''} ${s.size}v${s.size} <span class="t">${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}</span><button data-cancel="1">Cancel</button>`;

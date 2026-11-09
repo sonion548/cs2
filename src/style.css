@@ -381,6 +381,8 @@ img:not([src]) { visibility: hidden; }
 .searching { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 14px 10px 18px; display: flex; gap: 10px; align-items: center; font: 600 16px var(--cond); letter-spacing: .5px; z-index: 18; }
 .searching .t { font-variant-numeric: tabular-nums; color: #5a564e; }
 .searching button { border: 1px solid #9a958a; padding: 4px 10px; font: 600 13px var(--cond); text-transform: uppercase; }
+.searching.rejoin .pulse { background: #e7b53c; }
+.searching.rejoin .pri { background: var(--accent); border-color: var(--accent); color: #fff; }
 .pulse { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); animation: pulse 1s infinite; }
 @keyframes pulse { 50% { opacity: .25; } }
 .auth form { display: flex; flex-direction: column; gap: 12px; margin-top: 10px; }

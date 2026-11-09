@@ -79,6 +79,7 @@ function launch(opts, onDone) {
 // Offline / solo matches started from the menu.
 function start(opts) {
   if (opts.online) { menu.queue(opts.online); return; }
+  if (opts.rejoin) { playNet(opts.rejoin); return; }
   let ranked = null;
   if (opts.ranked) {
     // ranked: team size and length come from the ladder, bots scale to the hidden rating
@@ -108,15 +109,37 @@ net.on('toast', (t) => menu.toast(t));
 for (const ev of ['social', 'party', 'trades', 'mm', 'party.invite']) net.on(ev, (d) => menu.onNet(ev, d));
 net.on('disconnected', () => { if (!game) menu.refresh(); });
 
-net.on('match.found', ({ room, role, you }) => {
+// An online match: one just found, one you're rejoining after dropping out,
+// or one moving to your game because its host dropped out (the game you were
+// playing in is swapped for the host's, going on from the match's save).
+function playNet({ room, role, you, resume }) {
   menu.onNet('mm', { state: 'idle' });
-  if (game) return;
-  launch({ map: 'dunehold', teamSize: room.size, winRounds: room.winRounds, net: { room, role, you }, ranked: room.ladder && room.mode !== 'casual' ? room.ladder : null }, async (r) => {
+  menu.onNet('rejoin', null);
+  if (game) {
+    // only the same match changing hands replaces the game on screen
+    if (!game.net || game.net.room.id !== room.id) return;
+    const old = game; game = null; window.__game = null;
+    old.running = false; old.dispose();
+  }
+  launch({ map: 'dunehold', teamSize: room.size, winRounds: room.winRounds, net: { room, role, you, resume }, ranked: room.ladder && room.mode !== 'casual' ? room.ladder : null }, async (r) => {
     if (r?.left) { await net.rpc('room.leave'); menu.toast(room.mode === 'casual' ? 'You left the match' : 'You abandoned a ranked match'); return; }
     if (r?.reason) menu.toast(r.reason);
     if (pendingResult) { const pr = pendingResult; pendingResult = null; showServerResult(pr); }
     else menu.toast('Waiting for the match result…');
   });
+}
+net.on('match.found', (m) => playNet(m));
+// Signed in again with a match you dropped out of still going. If it's still
+// on screen (the connection blipped) it just carries on, as host or player,
+// whichever you are now; otherwise the menu offers to reconnect.
+net.on('match.rejoin', async ({ room, host }) => {
+  if (game?.net && game.net.room.id === room.id) {
+    const r = await net.rpc('room.rejoin');
+    if (r.error) { game?.finishNet(r.error); return; }
+    if (r.role !== game.net.role) playNet({ room: r.room, role: r.role, you: r.you, resume: r.resume });
+    return;
+  }
+  if (!game) menu.onNet('rejoin', { room, host });
 });
 net.on('match.result', (res) => {
   if (res.profile) { P.setRemote(res.profile); R.setRemoteLadders(res.profile.ladders); }

@@ -4,6 +4,13 @@
 // (bots, rounds, damage) and broadcasts snapshots + events through the server.
 // Other players ("clients") move and aim locally for responsiveness, send their
 // state and shots to the host, and render everyone else from snapshots.
+//
+// Reconnecting: the host also sends the server a save of the whole match every
+// couple of seconds. A player who drops out is played by a bot until they're
+// back; when they rejoin, the host hands them their character as it is now
+// (resume). A host that drops comes back to the match (or another player
+// takes it over) from the save: the game is built from it instead of
+// starting a new match.
 import * as THREE from 'three';
 import { Bot } from '../bots.js';
 import { WEAPONS, WeaponState } from '../weapons.js';
@@ -11,12 +18,18 @@ import { net } from './client.js';
 import { BOMB } from '../match/bomb.js';
 
 const SNAP_HZ = 20, INPUT_HZ = 30;
+// how often the host saves the match to the server, and how long a dropped
+// player stands still before a bot takes over their character (a blip of a
+// few seconds shouldn't hand it over)
+const SAVE_EVERY = 2, AWAY_BOT_AFTER = 4;
 const r2 = (v) => Math.round(v * 100) / 100;
 
 export class NetMatch {
-  constructor(game, { room, role, you }) {
+  constructor(game, { room, role, you, resume }) {
     this.g = game; this.room = room; this.role = role; this.me = you;
     this.isHost = role === 'host';
+    this.resume = this.isHost && resume?.ch ? resume : null;   // a save to go on from
+    this.saveT = 0.5;
     this.byId = new Map();
     this.loadouts = new Map();     // host: remote human → {p, s}
     this.events = [];
@@ -35,6 +48,7 @@ export class NetMatch {
     g.player.netId = this.me;
     this.byId.set(this.me, g.player);
     if (!this.isHost) return;
+    if (this.resume) { this.rosterFromSave(this.resume); this.sendRoster(); return; }
     const size = this.room.size;
     const names = ['Viper', 'Rook', 'Mako', 'Sable', 'Kestrel', 'Onyx', 'Drift', 'Talon', 'Ember', 'Quill'];
     for (const m of this.room.members) {
@@ -55,10 +69,131 @@ export class NetMatch {
     }
     this.sendRoster();
   }
+  // Going on from a save: the same characters (bots at their own skill,
+  // the other players as puppets; one who has left stays out, one who is
+  // away is played by a bot until they're back).
+  rosterFromSave(save) {
+    const g = this.g, away = new Set(this.room.away || []), left = new Set(this.room.left || []);
+    for (const c of save.ch) {
+      if (c.id === this.me) continue;
+      const m = this.member(c.id);
+      const b = new Bot(c.t, c.nm, m ? 0.5 : (c.sk ?? this.room.botSkill), g);
+      b.netId = c.id;
+      if (m) {
+        b.human = true; b.puppet = true; b.skins = { ...(m.equipped || {}) };
+        if (left.has(c.id) || c.left) b.left = true;
+        else if (away.has(c.id)) { b.away = true; b.awaySince = -1e9; }
+      }
+      this.add(b);
+    }
+  }
   add(b) {
     const g = this.g;
     g.bots.push(b); g.characters.push(b); g.scene.add(b.model);
     this.byId.set(b.netId, b);
+  }
+
+  // ---------------------------------------------------------------- saves
+  // Everything about a character a restored match needs (and a rejoining
+  // player gets back): where they are, health, armour, kit, money, stats,
+  // the guns in each slot with their ammo, grenades.
+  charState(c) {
+    const w = [];
+    for (const slot of [1, 2, 3]) { const x = c.weapons?.[slot]; if (x) w.push([slot, x.id, x.ammo, x.reserve]); }
+    return {
+      id: c.netId, nm: c.name, t: c.team, h: c === this.g.player || c.human ? 1 : 0, sk: c.isBot && !c.human ? c.prof?.skill ?? null : null,
+      p: [r2(c.pos.x), r2(c.pos.y), r2(c.pos.z)], y: r2(c.yaw), pi: r2(c.pitch), al: c.alive ? 1 : 0, hp: Math.max(0, c.health | 0),
+      ar: c.armor | 0, he: c.helmet ? 1 : 0, kit: c.hasKit ? 1 : 0, m: c.money | 0, sts: { ...c.stats }, sv: c.survived ? 1 : 0,
+      w, n: [...(c.nades || [])], sl: c.slot, left: c.left ? 1 : 0,
+    };
+  }
+  applyState(ch, c) {
+    ch.pos.set(c.p[0], c.p[1], c.p[2]); ch.vel.set(0, 0, 0); ch.yaw = c.y; ch.pitch = c.pi || 0;
+    ch.alive = !!c.al && c.hp > 0; ch.health = ch.alive ? c.hp : 0;
+    ch.armor = c.ar | 0; ch.helmet = !!c.he; ch.hasKit = !!c.kit; ch.money = c.m | 0;
+    Object.assign(ch.stats, c.sts || {}); ch.survived = !!c.sv;
+    ch.weapons = { 1: null, 2: null, 3: null, 4: null, 5: null };
+    for (const [slot, id, ammo, reserve] of c.w || []) {
+      if (!WEAPONS[id]) continue;
+      const w = new WeaponState(id);
+      if (ammo != null) w.ammo = ammo;
+      if (reserve != null) w.reserve = reserve;
+      ch.weapons[slot] = w;
+    }
+    ch.weapons[3] ||= new WeaponState('knife');
+    ch.nades = [...(c.n || [])];
+    ch.slot = 0; ch.switchTo(ch.weapons[c.sl] && c.sl <= 3 ? c.sl : ch.bestSlot());
+    if (ch.weapon) ch.weapon.deploying = 0;
+    if (ch.isBot) {
+      ch.deathAnim = 0; ch.clearRagdoll?.(); ch.path = null; ch.target = null; ch.goal = null; ch.netTarget = null;
+      ch.model.visible = ch.alive; ch.despawned = !ch.alive;   // the fallen are already gone
+      ch.equip();
+    }
+  }
+  sendSave() {
+    const g = this.g, b = g.bomb;
+    this.send({
+      k: 'save', rd: g.round, sc: { ...g.score }, ls: { ...g.lossStreak }, wr: g.winRounds, st: g.state, tm: r2(g.stateTimer), rt: r2(g.roundTime || 0), mo: g.matchOver || null,
+      bomb: { st: b.state, car: b.carrier?.netId ?? null, p: [r2(b.pos.x), r2(b.pos.y), r2(b.pos.z)], tm: r2(b.timer), site: b.site ?? null, wp: b.wasPlanted ? 1 : 0, yaw: r2(b.mesh.rotation.y) },
+      ch: g.characters.map(c => this.charState(c)),
+    });
+  }
+  // The match as the save left it: score, round and its clock, everyone's
+  // state, the bomb; the bots make their plan again.
+  restore() {
+    const g = this.g, s = this.resume;
+    g.round = s.rd; g.score = { ...s.sc }; g.lossStreak = { ...(s.ls || g.lossStreak) }; g.winRounds = s.wr || g.winRounds;
+    g.state = s.st; g.stateTimer = s.tm; g.roundTime = s.rt || 0;
+    if (s.mo) g.matchOver = s.mo;
+    for (const c of g.characters) c.buys = [];
+    g.bomb.reset(); g.bomb.wasPlanted = !!s.bomb?.wp;
+    for (const c of s.ch) { const ch = this.byId.get(c.id); if (ch) this.applyState(ch, c); }
+    const bs = s.bomb;
+    if (bs?.st === 'carried') { const car = this.byId.get(bs.car); if (car?.alive) g.bomb.give(car); }
+    else if (bs?.st === 'dropped' || bs?.st === 'planted') {
+      const bomb = g.bomb;
+      bomb.state = bs.st; bomb.pos.set(...bs.p); bomb.mesh.visible = true; bomb.mesh.position.copy(bomb.pos);
+      if (bs.st === 'planted') { bomb.site = bs.site; bomb.timer = bs.tm; bomb.mesh.position.y += 0.04; bomb.mesh.rotation.set(0, bs.yaw || 0, 0); }
+    } else if (bs) g.bomb.state = bs.st;
+    const p = g.player;
+    g.deathCam = null; g.spec.target = null;
+    if (p.alive) g.vm.setWeapon(p.weapon.id, p.weapon.def.type, 0.3, g.vmSkin(p.weapon.id));
+    for (const b of g.bots) { b.bought = g.state !== 'freeze'; b.buyAt = b.human && !b.away ? Infinity : 0; }
+    g.planRound();
+    g.hud.notice('Back in the match', 3);
+    this.sendRoster();
+    this.sendSnapshot();
+    this.sendSave();
+  }
+
+  // ---------------------------------------------------------------- away / back
+  // Host: a player who dropped out is played by a bot (after a moment, so a
+  // blip doesn't hand it over); when they're back it's theirs again, as it is.
+  setAway(b, away) {
+    b.away = away;
+    if (away) { b.awaySince = performance.now(); return; }   // real time: a slow host's game clock runs behind
+    b.puppet = true; b.target = null; b.path = null; b.goal = null; b.netTarget = null; b.useHeld = false;
+  }
+  botTakeover(b) {
+    const g = this.g;
+    b.puppet = false; b.netTarget = null; b.useHeld = false;
+    b.bought = g.state !== 'freeze'; b.buyDelay = 0.5;
+    if (b.alive && g.state === 'live') g.assignHunt(b);
+  }
+  sendResume(id) {
+    const c = this.byId.get(id), g = this.g;
+    if (!c) return;
+    this.send({ k: 'resume', to: id, s: this.charState(c), st: g.state, tm: r2(g.stateTimer), sc: { ...g.score }, rd: g.round });
+  }
+  // Client: our character as the host has it (rejoining, or after a bot
+  // played it): put back where it is with what it has.
+  applyResume(d) {
+    const g = this.g, p = g.player;
+    g.state = d.st; g.stateTimer = d.tm; g.score = d.sc; g.round = d.rd;
+    this.applyState(p, d.s);
+    g.deathCam = null; g.spec.target = null; p.scoped = 0; g.hud.setScope(0);
+    if (p.alive) g.vm.setWeapon(p.weapon.id, p.weapon.def.type, 0.3, g.vmSkin(p.weapon.id));
+    g.hud.notice(p.alive ? 'Reconnected' : 'Reconnected: you play again next round', 3);
   }
   sendRoster(to) {
     const list = this.g.characters.map(c => [c.netId, c.name, c.team, c.human || c === this.g.player ? 1 : 0]);
@@ -88,6 +223,9 @@ export class NetMatch {
     if (this.isHost) {
       this.snapT -= dt;
       if (this.snapT <= 0) { this.snapT = 1 / SNAP_HZ; this.sendSnapshot(); }
+      this.saveT -= dt;
+      if (this.saveT <= 0) { this.saveT = SAVE_EVERY; this.sendSave(); }
+      for (const b of g.bots) if (b.away && b.puppet && !b.left && performance.now() - b.awaySince > AWAY_BOT_AFTER * 1000) this.botTakeover(b);
     } else {
       this.inT -= dt;
       if (this.inT <= 0) {
@@ -123,9 +261,13 @@ export class NetMatch {
 
   hostMessage(from, d) {
     const g = this.g, b = this.byId.get(from);
-    if (d.k === 'hello') { this.sendRoster(from); return; }
-    if (d.k === 'left') { if (b) { b.left = true; if (b.alive) { b.alive = false; b.health = 0; g.checkRoundEnd(); } } return; }
-    if (!b) return;
+    // a player (re)joining asks for the roster; they also get their own
+    // character as it stands (at the start of a match, where it spawned)
+    if (d.k === 'hello') { this.sendRoster(from); this.sendResume(from); return; }
+    if (d.k === 'left') { if (b) { b.left = true; b.away = false; b.puppet = true; if (b.alive) { b.alive = false; b.health = 0; g.checkRoundEnd(); } } return; }
+    if (d.k === 'away') { if (b && !b.left) this.setAway(b, true); return; }
+    if (d.k === 'back') { if (b && !b.left) { this.setAway(b, false); this.sendRoster(from); this.sendResume(from); } return; }
+    if (!b || b.away) return;
     if (d.k === 'in') {
       b.netTarget = { pos: new THREE.Vector3(...d.p), yaw: d.y, pitch: d.pi, crouch: d.c };
       b.vel.set(...d.v);
@@ -161,6 +303,10 @@ export class NetMatch {
   clientMessage(d) {
     const g = this.g;
     if (d.k === 'roster') { this.applyRoster(d.list); return; }
+    if (d.k === 'resume') { this.applyResume(d); return; }
+    if (d.k === 'hostaway') { g.hud.notice('The host lost connection: waiting for them to come back', 8); return; }
+    if (d.k === 'hostback') { g.hud.notice('The host is back', 3); return; }
+    if (d.k === 'hostchange') { g.hud.notice(`The host dropped out: the match carries on in ${d.name}'s game`, 5); return; }
     if (d.k === 'snap') {
       g.state = d.st; g.stateTimer = d.tm; g.score = d.sc; g.round = d.rd;
       for (const row of d.c) this.applyRow(row);
@@ -266,7 +412,7 @@ export class NetMatch {
     }
     return net.rpc('room.report', {
       winner: g.matchOver, score: { ...g.score }, rounds: g.round, stats, players,
-      left: g.characters.filter(c => c.left).map(c => c.netId),
+      left: g.characters.filter(c => c.left || c.away).map(c => c.netId),
       weaponKills: { [this.me]: { ...g.weaponKills } },
     });
   }

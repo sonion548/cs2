@@ -61,7 +61,8 @@ export class Strategy {
   }
 
   get enabled() { return !!this.pts; }
-  bots(team) { return this.g.bots.filter(b => b.team === team && b.alive && !b.puppet && !b.human); }
+  // (a player who dropped out is played by a bot meanwhile, and follows the plan)
+  bots(team) { return this.g.bots.filter(b => b.team === team && b.alive && !b.puppet && (!b.human || b.away)); }
   alive(team) { return this.g.characters.filter(c => c.team === team && c.alive).length; }
   cellPos(c, jitter = 1.2) {
     const p = this.g.level.nav.center(c[0], c[1]);

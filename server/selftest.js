@@ -159,5 +159,56 @@ ok(again.ok, 'host whose match crashed (no report, no leave) can queue again');
 ok((await b.waitEv('room.closed')).reason, 'the crashed match was closed for the other player');
 await a.rpc('mm.cancel');
 
+// reconnecting (run the server with HOST_GRACE_MS set low, and the same here,
+// or the host hand-over waits the full 20 s)
+const HOST_GRACE = +process.env.HOST_GRACE_MS || 20000;
+const waitMsg = async (c, k, ms = 4000) => {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    const i = c.events.findIndex(e => e.ev === 'room.msg' && e.data?.data?.k === k);
+    if (i >= 0) return c.events.splice(i, 1)[0].data;
+    await new Promise(r => setTimeout(r, 50));
+  }
+  throw new Error(`${c.label}: no ${k} message`);
+};
+const signBackIn = async (label, token) => { const c = await client(label); await c.rpc('auth.resume', { token }); return c; };
+ok((await a.rpc('mm.queue', { mode: 'casual', size: 2 })).ok, 'party queued for a match to drop out of');
+const f3a = await a.waitEv('match.found', 30000), f3b = await b.waitEv('match.found', 30000);
+const hostId = f3a.you, clientId = f3b.you;
+a.ws.send(JSON.stringify({ type: 'room.msg', data: { k: 'save', rd: 2, ch: [{ id: hostId }, { id: clientId }] } }));
+b.ws.close();
+ok((await waitMsg(a, 'away')).from === clientId, 'a player whose connection drops is away, not out of the match');
+const b2 = await signBackIn('B2', rb.token);
+const rejoinOffer = await b2.waitEv('match.rejoin');
+ok(rejoinOffer.room.id === f3a.room.id && !rejoinOffer.host, 'signing in again offers the match back');
+const rj = await b2.rpc('room.rejoin');
+ok(rj.role === 'client' && rj.room.id === f3a.room.id, 'rejoining puts them back in it as a player');
+ok((await waitMsg(a, 'back')).from === clientId, 'the host hears they are back (and hands their character back)');
+a.ws.send(JSON.stringify({ type: 'room.msg', data: { k: 'snap', t: 2 } }));
+ok(await waitMsg(b2, 'snap'), 'the rejoined player gets the match again');
+a.ws.close();
+ok(await waitMsg(b2, 'hostaway'), 'players hear when the host drops out');
+const a2 = await signBackIn('A2', ra.token);
+ok((await a2.waitEv('match.rejoin')).host, 'the host is offered its match back');
+const hr = await a2.rpc('room.rejoin');
+ok(hr.role === 'host' && hr.resume?.rd === 2, 'the host comes back to its match with its last save');
+ok(await waitMsg(b2, 'hostback'), 'players hear the host is back');
+a2.ws.close();
+await waitMsg(b2, 'hostaway');
+const moved = await b2.waitEv('match.found', HOST_GRACE + 8000);
+ok(moved.role === 'host' && moved.moved && moved.resume?.rd === 2 && moved.room.away.includes(hostId), 'a host that does not come back hands the match, with its save, to the player still in it');
+const a3 = await signBackIn('A3', ra.token);
+ok(!(await a3.waitEv('match.rejoin')).host, 'the old host is offered the match back, now as a player');
+ok((await a3.rpc('room.rejoin')).role === 'client', 'and rejoins it as a player');
+ok((await waitMsg(b2, 'back')).from === hostId, 'the new host hears the old one is back');
+a3.ws.close();
+await waitMsg(b2, 'away');
+await b2.rpc('room.report', { winner: moved.room.members[0].team, score: { T: 5, CT: 2 }, rounds: 7, stats: {} });
+const res3 = await b2.waitEv('match.result');
+ok(res3.reward && !res3.abandoned, 'the new host finishes the match and is paid for it');
+const a4 = await signBackIn('A4', ra.token);
+await new Promise(r => setTimeout(r, 400));
+ok(!a4.events.some(e => e.ev === 'match.rejoin'), 'a finished match is not offered back (a player still away at the end left it)');
+
 console.log('\nAll server checks passed.');
 process.exit(0);

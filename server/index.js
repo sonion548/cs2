@@ -198,6 +198,8 @@ function startRoom({ mode, size, teams, ladder, rating }) {
     botSkill: skillForMMR(rating || 1000),
     reported: false,
     lastMsg: now(),   // last relay from the host (a live match sends many per second)
+    away: {},         // userId -> when their connection dropped (they can rejoin)
+    save: null,       // the host's latest save of the match (to go on from if the host drops)
   };
   rooms.set(id, room);
   for (const m of room.members) {
@@ -206,7 +208,7 @@ function startRoom({ mode, size, teams, ladder, rating }) {
   }
   for (const m of room.members) notifyFriends(D.users[m.id]);
 }
-function publicRoom(r) { return { id: r.id, mode: r.mode, size: r.size, ladder: r.ladder, host: r.host, winRounds: r.winRounds, members: r.members, botSkill: r.botSkill }; }
+function publicRoom(r) { return { id: r.id, mode: r.mode, size: r.size, ladder: r.ladder, host: r.host, winRounds: r.winRounds, members: r.members, botSkill: r.botSkill, away: Object.keys(r.away || {}), left: r.left || [] }; }
 function equippedItems(u) {
   const out = {};
   for (const [slot, itemUid] of Object.entries(u.equipped)) { const it = E.findItem(u, itemUid); if (it) out[slot] = it; }
@@ -216,11 +218,49 @@ function equippedItems(u) {
 // A room whose host has gone quiet is over (the host's game crashed, closed
 // or stalled without reporting): close it so nobody stays stuck "in a match".
 const ROOM_QUIET_MS = 20000, ROOM_DEAD_MS = 90000;
+// Reconnecting. A player whose connection drops stays in the match: the host
+// hands their character to a bot until they're back, and they can rejoin it
+// from the menu (or are put straight back if their game is still open).
+// Someone still away when the match ends, or after AWAY_MAX, has left it. A
+// host whose connection drops has HOST_GRACE to come back (a host whose game
+// closed goes on from its last save); after that the match moves to another
+// player still in it, from that save. With no one to move it to, it waits
+// for the host up to AWAY_MAX.
+const AWAY_MAX = +process.env.AWAY_MAX_MS || 5 * 60000, HOST_GRACE = +process.env.HOST_GRACE_MS || 20000;
 setInterval(() => {
   for (const room of [...rooms.values()]) {
-    if (now() - (room.lastMsg || room.started) > ROOM_DEAD_MS) { room.reported = true; closeRoom(room, 'The match ended: the host stopped responding'); }
+    if (room.reported) continue;
+    const hostAway = room.away[room.host];
+    if (hostAway != null) {
+      const next = room.save && now() - hostAway > HOST_GRACE && room.members.find(m => m.id !== room.host && room.away[m.id] == null && !room.left?.includes(m.id) && online(m.id));
+      if (next) migrateHost(room, next.id);
+      else if (now() - hostAway > AWAY_MAX) { room.reported = true; closeRoom(room, 'The match ended: the host did not come back'); continue; }
+    } else if (now() - (room.lastMsg || room.started) > ROOM_DEAD_MS) { room.reported = true; closeRoom(room, 'The match ended: the host stopped responding'); continue; }
+    for (const [id, since] of Object.entries(room.away)) if (id !== room.host && now() - since > AWAY_MAX) leaveRoom(room, id);
   }
-}, 15000).unref?.();
+}, 2000).unref?.();
+
+// A player's connection dropped (their last socket closed) mid-match.
+function dropFromRoom(room, userId) {
+  if (room.reported || room.away[userId] != null) return;
+  room.away[userId] = now();
+  if (userId === room.host) { for (const m of room.members) if (m.id !== userId) push(m.id, 'room.msg', { from: 'server', data: { k: 'hostaway' } }); }
+  else push(room.host, 'room.msg', { from: userId, data: { k: 'away' } });
+}
+
+// The match moves to another player's game: it starts again there from the
+// host's last save, as the host, and the old host (if they come back) rejoins
+// it as a player.
+function migrateHost(room, userId) {
+  const old = room.host;
+  room.host = userId;
+  if (!room.left?.includes(old)) room.away[old] ??= now();
+  delete room.away[userId];
+  room.lastMsg = now();
+  const name = room.members.find(m => m.id === userId)?.name || 'another player';
+  push(userId, 'match.found', { room: publicRoom(room), role: 'host', you: userId, resume: room.save, moved: true });
+  for (const m of room.members) if (m.id !== userId && m.id !== old) push(m.id, 'room.msg', { from: 'server', data: { k: 'hostchange', name } });
+}
 
 function closeRoom(room, reason) {
   rooms.delete(room.id);
@@ -236,7 +276,7 @@ function settleRoom(room, report) {
   for (const m of room.members) {
     const u = D.users[m.id];
     const st = report.stats?.[m.id] || { kills: 0, deaths: 0, assists: 0, damage: 0 };
-    const left = report.left?.includes(m.id);
+    const left = report.left?.includes(m.id) || room.away[m.id] != null || !!room.left?.includes(m.id);
     const result = { won: !left && m.team === winner, team: m.team, score: report.score, stats: st, rounds: report.rounds, teamSize: room.size, weaponKills: report.weaponKills?.[m.id] || {}, abandoned: left };
     let ranked = null;
     const lid = room.mode === 'casual' ? null : room.ladder;
@@ -504,7 +544,7 @@ const handlers = {
     for (const m of members) {
       const r = roomOf.get(m);
       if (!r) continue;
-      if (now() - (r.lastMsg || r.started) > ROOM_QUIET_MS) { r.reported = true; closeRoom(r, 'The match had already ended'); }
+      if (r.away[r.host] == null && now() - (r.lastMsg || r.started) > ROOM_QUIET_MS) { r.reported = true; closeRoom(r, 'The match had already ended'); }
       else if (m === u.id) leaveRoom(r, m);   // queueing from the menu: you're not in that match any more
     }
     if (members.some(m => roomOf.get(m))) return { error: 'A party member is still in a match' };
@@ -526,6 +566,21 @@ const handlers = {
     leaveRoom(room, ws.user.id);
     return { ok: true };
   },
+  // Back in a match after dropping out: the host gets its last save (a host
+  // whose game is still open just carries on), a player their place back
+  // (the host hands their character back to them).
+  'room.rejoin'(ws) {
+    const u = ws.user, room = roomOf.get(u.id);
+    if (!room || room.reported) return { error: 'That match is over' };
+    delete room.away[u.id];
+    if (room.host === u.id) {
+      room.lastMsg = now();
+      for (const m of room.members) if (m.id !== u.id) push(m.id, 'room.msg', { from: 'server', data: { k: 'hostback' } });
+      return { room: publicRoom(room), role: 'host', you: u.id, resume: room.save };
+    }
+    push(room.host, 'room.msg', { from: u.id, data: { k: 'back' } });
+    return { room: publicRoom(room), role: 'client', you: u.id };
+  },
   'room.report'(ws, report) {
     const room = roomOf.get(ws.user.id);
     if (!room || room.host !== ws.user.id) return { error: 'Not the host' };
@@ -536,16 +591,27 @@ const handlers = {
 
 function leaveRoom(room, userId) {
   if (room.host === userId) {
-    // host left: match can't continue; nobody is penalised except the host in ranked
+    // host left: in ranked that's an abandon for the host; the match moves to
+    // another player still in it (from the host's last save) or, with no one
+    // to take it, ends for everyone (nobody else penalised)
     if (room.ladder && room.mode !== 'casual' && !room.reported) {
       const u = D.users[userId];
       applyMatch(u.ladders[room.ladder], { won: false, abandoned: true, rounds: 1, stats: { kills: 0, deaths: 0, damage: 0 } }, () => 9999);
       db.dirty();
     }
+    const next = !room.reported && room.save && room.members.find(m => m.id !== userId && room.away[m.id] == null && !room.left?.includes(m.id) && online(m.id));
+    if (next) {
+      delete room.away[userId];
+      room.left ||= []; room.left.push(userId);
+      roomOf.delete(userId);
+      migrateHost(room, next.id);
+      return;
+    }
     room.reported = true;
     closeRoom(room, 'The host left the match');
     return;
   }
+  delete room.away[userId];
   room.left ||= [];
   room.left.push(userId);
   roomOf.delete(userId);
@@ -575,6 +641,9 @@ function login(ws, u, token) {
     send(ws, 'social', friendList(u));
     send(ws, 'trades', tradesFor(u.id));
     send(ws, 'party', partyState(partyOf.get(u.id)));
+    // dropped out of a match that's still going: it can be rejoined
+    const room = roomOf.get(u.id);
+    if (room && !room.reported && room.away[u.id] != null) send(ws, 'match.rejoin', { room: publicRoom(room), host: room.host === u.id });
   }, 50);
   return { token, user: { id: u.id, name: u.name }, profile: profileOf(u) };
 }
@@ -629,6 +698,7 @@ wss.on('connection', (ws) => {
       const data = m.data;
       if (ws.user.id === room.host) {
         room.lastMsg = now();
+        if (data?.k === 'save') { room.save = data; return; }   // kept here, not relayed
         const to = data.to; // optional direct message
         for (const mem of room.members) if (mem.id !== room.host && (!to || to === mem.id) && !room.left?.includes(mem.id)) push(mem.id, 'room.msg', { from: room.host, data });
       } else push(room.host, 'room.msg', { from: ws.user.id, data });
@@ -648,7 +718,7 @@ wss.on('connection', (ws) => {
       sockets.delete(u.id);
       cancelQueue(u.id);
       const room = roomOf.get(u.id);
-      if (room) leaveRoom(room, u.id);
+      if (room) dropFromRoom(room, u.id);   // they can come back to it
       leaveParty(u.id);
       notifyFriends(u);
     }
