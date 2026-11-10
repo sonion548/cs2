@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { surface } from './textures.js';
+import { applyFinish, addDetailUVs, finishVariant } from './items/gunsurface.js';
 import { assets } from './assets.js';
 import { WEAPONS } from './weapons.js';
 
@@ -32,7 +33,22 @@ function mats() {
     cord: new THREE.MeshStandardMaterial({ color: 0x3b3a30, roughness: 0.9 }),
     leather: new THREE.MeshStandardMaterial({ color: 0x4a2e1c, roughness: 0.7 }),
     horn: new THREE.MeshStandardMaterial({ color: 0x5a3b22, roughness: 0.35, metalness: 0.05 }),
+    // sight dots: white paint (a touch of glow so they still read in shade)
+    dot: new THREE.MeshStandardMaterial({ color: 0xe8e5d8, roughness: 0.55, metalness: 0, emissive: 0x2c2b26 }),
   };
+  // each with its real surface (see gunsurface.js): a fine grain on finished
+  // steel and painted parts, brushed bare steel, stippled polymer, pebbled
+  // rubber, grain in the wood
+  applyFinish(MAT.paint, 'grain', 0.07);
+  applyFinish(MAT.steel, 'brushed', 0.08);
+  applyFinish(MAT.darkSteel, 'grain', 0.07);
+  applyFinish(MAT.polymer, 'stipple', 0.38);
+  applyFinish(MAT.rubber, 'pebble', 0.7);
+  applyFinish(MAT.wood, 'wood', 0.35);
+  applyFinish(MAT.brass, 'brushed', 0.2);
+  applyFinish(MAT.cord, 'pebble', 0.9);
+  applyFinish(MAT.leather, 'pebble', 0.5);
+  applyFinish(MAT.horn, 'grain', 0.25);
   return MAT;
 }
 
@@ -120,6 +136,26 @@ function triggerAndGuard(g, M, x0, x1, yTop, depth, part = 'skin', mat = M.paint
   g.add(profile([['M', tx - 0.003, yTop], ['Q', tx + 0.004, yTop - depth * 0.45, tx - 0.004, yTop - depth * 0.75], ['L', tx - 0.008, yTop - depth * 0.7], ['Q', tx - 0.002, yTop - depth * 0.45, tx - 0.009, yTop]], 0.006, M.darkSteel, 'metal', { bevel: 0.001 }));
 }
 
+// Parts whose surface differs from the rest of their material, by name:
+// chequered or knurled parts get the diamond pattern; polymer is stippled only
+// where hands go (grips, stocks, handguards) and a fine matte grain elsewhere.
+function surfaceFor(mat, partName, M) {
+  if (/chequer|knurl/i.test(partName)) return finishVariant(mat, 'knurl', 0.6);
+  if (mat === M.polymer && !/grip|stock|butt|cheek|hand|fore|pump/i.test(partName)) return finishVariant(mat, 'grain', 0.1);
+  return mat;
+}
+
+// A model's baked occlusion is in its vertex colours (a part with none, a
+// fallback model's, gets the plain material): each material has a twin
+// that multiplies by them.
+const aoTwins = new WeakMap();
+export function withAO(mat, geo) {
+  if (!mat || !geo?.attributes?.color) return mat;
+  let t = aoTwins.get(mat);
+  if (!t) { t = mat.clone(); t.vertexColors = true; aoTwins.set(mat, t); }
+  return t;
+}
+
 function finish(inner, extras = {}) {
   const outer = new THREE.Group();
   inner.rotation.y = Math.PI / 2;          // +X (muzzle) → -Z
@@ -130,6 +166,7 @@ function finish(inner, extras = {}) {
   if (extras.fore) outer.userData.fore = new THREE.Vector3(0, extras.fore[1], -extras.fore[0]);
   outer.userData.inner = inner;
   computeSkinUVs(inner);
+  addDetailUVs(inner);
   return outer;
 }
 
@@ -634,13 +671,14 @@ function fromAsset(key, lod = false) {
     skin_paint: M.paint, skin_wood: M.wood, skin_polymer: M.polymer, skin_tan: new THREE.MeshStandardMaterial({ color: 0x5a6343, roughness: 0.7, metalness: 0.15 }), skin_blade: M.blade,
     metal_steel: M.steel, metal_dark: M.darkSteel, detail_rubber: M.rubber, detail_polymer: M.polymer, detail_lens: M.lens,
     detail_brass: M.brass, detail_cord: M.cord, detail_horn: M.horn, detail_wood: M.wood,
+    skin_steel: M.steel, detail_dot: M.dot,
   };
   inner.traverse(o => {
     if (o.isMesh && /^ringmark/.test(o.name)) o.visible = false;   // where a ring spin goes round the finger (no ring there to see)
     if (o.isMesh) {
       const name = (o.material?.name || '').replace(/\.\d+$/, '');
       o.userData.part = name.startsWith('skin') ? 'skin' : name.startsWith('metal') ? 'metal' : 'detail';
-      o.material = byMat[name] || M.paint;
+      o.material = withAO(surfaceFor(byMat[name] || M.paint, o.name, M), o.geometry);
       o.castShadow = true; o.receiveShadow = true;
     } else {
       const a = /^(muzzle|grip|fore)$/.exec(o.name);

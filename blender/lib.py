@@ -437,12 +437,51 @@ def blade(name, cmds, edge_flags, thick, mat, parent=None, grind=0.35, seg=14):
 
 # ---------------------------------------------------------------- export
 
-def export_glb(path):
+def bake_ao(distance=0.022, samples=32, strength=0.85, floor=0.3):
+    """Ambient occlusion baked into each mesh's vertex colours ('AO'): the
+    crevices between parts, under rails and round pins, inside ports and
+    grooves come out darker, so a model's detail reads in the game (which
+    multiplies its materials by it). Occlusion from every part of the model
+    within `distance`; softened (strength) and never darker than `floor`.
+    Meshes that already carry it (a third-person copy joined from them) are
+    left as they are."""
+    sc = scene()
+    meshes = [o for o in sc.objects if o.type == 'MESH' and not o.get('_cutter') and len(o.data.vertices)]
+    todo = [o for o in meshes if 'AO' not in o.data.color_attributes]
+    if not todo:
+        return
+    try:
+        bpy.ops.preferences.addon_enable(module='cycles')
+    except Exception:
+        pass
+    sc.render.engine = 'CYCLES'
+    sc.cycles.device = 'CPU'
+    sc.cycles.samples = samples
+    if sc.world is None:
+        sc.world = bpy.data.worlds.new('world')
+    sc.world.light_settings.distance = distance
+    for o in todo:
+        ca = o.data.color_attributes.new('AO', 'BYTE_COLOR', 'POINT')
+        o.data.color_attributes.active_color = ca
+    for o in sc.objects:
+        o.select_set(o in todo)
+    bpy.context.view_layer.objects.active = todo[0]
+    bpy.ops.object.bake(type='AO', target='VERTEX_COLORS')
+    for o in todo:
+        for c in o.data.color_attributes['AO'].data:
+            a = max(floor, 1 - (1 - c.color[0]) * strength)
+            c.color = (a, a, a, 1.0)
+
+
+def export_glb(path, ao=None):
     apply_all()
+    if ao:
+        bake_ao(ao)
     bpy.ops.export_scene.gltf(
         filepath=path, export_format='GLB', export_apply=True, export_yup=True,
         export_extras=True, export_materials='EXPORT', export_normals=True,
         export_texcoords=True, use_visible=False, use_active_scene=True,
+        export_vertex_color='ACTIVE' if ao else 'MATERIAL',
     )
 
 

@@ -22,8 +22,15 @@ Add `--preview` to either script to also render PNG previews (Cycles, CPU), and
   lathe, rails, boolean cuts, bevel and weighted-normal modifiers, ground knife
   blades and glTF export
 - `weapons.py`: every gun and knife. Material name prefixes (`skin_`, `metal_`, `detail_`)
-  tell the game which parts take weapon finishes. Empties (`muzzle`, `grip`, `fore`) are the
-  anchor points, and objects named `mag`, `slide`, `bolt`, `bfA`, `bfB` and `karambitPivot` are animated.
+  tell the game which parts take weapon finishes (`skin_steel` is bare steel that still takes
+  them, `detail_dot` is white sight paint). Empties (`muzzle`, `grip`, `fore`) are the
+  anchor points, and objects named `mag`, `slide`, `bolt`, `cylinder`, `bfA`, `bfB` and
+  `karambitPivot` are animated; parts that ride on a slide or bolt are parented to it, and the
+  revolver's cylinder has its origin on its axis so it turns in place. Part names also pick a
+  surface in the game: `chequer` or `knurl` in a name gets diamond chequering, and polymer parts
+  are stippled only when named for a grip, stock or handguard. Every gun is exported with
+  ambient occlusion baked into a vertex colour (`export_glb(path, ao=...)` in `lib.py`, a quick
+  Cycles bake on the CPU), which the game multiplies into each part's material.
 - `characters.py`: one soldier per team plus their first-person arms
   (`characters/{t,ct}.glb`, `characters/arms_{t,ct}.glb`). Built on the CC0
   MakeHuman base mesh in `assets/makehuman/`:

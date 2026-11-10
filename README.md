@@ -539,6 +539,23 @@ dropped them.
   costs); a reel each spins together, stacked, and they stop one after another. Then everything won is
   laid out with what each is worth and the total: click one for a closer look (and you come back to
   the rest after), or open the same number again.
+- **Realistic weapon detail**: every gun's surfaces have their real finish: a fine grain on painted and
+  blued steel, brushed bare steel, moulded stippling on grips, stocks and handguards (other polymer is a
+  smooth matte grain), pebbled rubber, wood grain, and diamond chequering on chequered parts. Each model
+  has ambient occlusion baked in, so ports, seams, recesses and the gaps between parts are shaded. The
+  pistols are rebuilt one by one: the Glock pattern (U-notch sight, cover plate, one-slot rail, hooked
+  and serrated trigger guard, safety-blade trigger, finger grooves), the USP pattern (three-dot sights,
+  ring hammer, decocking lever, paddle release, chequered grip panels, threaded barrel under the
+  suppressor), the Desert Eagle pattern (fixed fluted barrel with a grooved rib, slide-mounted safety,
+  the bolt showing in the port), the 1911 pattern (lowered port, barrel bushing, grip and thumb safeties,
+  walnut panels with slotted screws, chequered back strap) and the Five-seveN pattern (polymer slide
+  cover, angled serrations). Sights and other parts on a slide now ride with it while the barrel stays,
+  so the barrel shows at the muzzle when the slide locks back. The other guns gain the bolt carrier
+  through the ejection port, selectors, safeties, charging handles, pins and screws, parting lines on
+  moulded shells, side rails, sling swivels and a dark bore at the muzzle; the M249's belt runs up into
+  its feed tray. The Desert Eagle's slide and barrel now take weapon finishes and stickers (they stayed
+  bare before), the 1911 and Five-seveN get sticker spots on their slides, and the revolver's cylinder
+  turns about its own axis (it used to swing off it).
 
 ## Blender models
 

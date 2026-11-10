@@ -1,6 +1,8 @@
 // Turns an inventory item into textures/materials: paints the finish, applies
 // wear for the item's float value, and attaches sticker decals.
 import * as THREE from 'three';
+import { applyFinish } from './gunsurface.js';
+import { withAO } from '../gunmodels.js';
 import { attachKillscribe, detachKillscribe } from './killscribe.js';
 import { SKINS, STICKERS } from './catalog.js';
 import { paintFinish } from './finishes.js';
@@ -72,7 +74,9 @@ export function skinTextureAsync(defId, float, seed, size = 1024) {
 function setSkinMaterial(gun, t, def) {
   if (def?.gloves) return setGloveMaterial(gun, t, def);
   const mat = new THREE.MeshStandardMaterial({ map: t.map, metalness: t.metal, roughness: t.rough });
-  gun.userData.inner.traverse(o => { if (o.isMesh && o.userData.part === 'skin') o.material = mat; });
+  // the metal under the paint still has its surface (a fine grain; a blade is brushed)
+  applyFinish(mat, def?.knife ? 'brushed' : 'grain', def?.knife ? 0.12 : 0.05);
+  gun.userData.inner.traverse(o => { if (o.isMesh && o.userData.part === 'skin') o.material = withAO(mat, o.geometry); });
 }
 
 // ---------------------------------------------------------------- gloves
@@ -222,7 +226,9 @@ export const STICKER_SLOTS = {
   awp: [[-0.48, -0.02], [-0.36, 0.0], [0.08, 0.0], [0.24, 0.0]],
   glock: [[0.02, 0.034], [0.07, 0.034], [0.12, 0.034], [-0.05, -0.055]],
   usp: [[0.02, 0.032], [0.08, 0.032], [0.24, 0.03], [-0.05, -0.055]],
-  deagle: [[0.02, 0.042], [0.08, 0.042], [0.14, 0.042], [-0.05, -0.06]],
+  deagle: [[0.008, 0.037], [0.045, 0.037], [0.13, 0.026], [-0.05, -0.06]],
+  m1911: [[0.0, 0.031], [0.04, 0.031], [0.085, 0.031], [0.13, 0.031]],
+  fiveseven: [[0.0, 0.0315], [0.05, 0.0315], [0.1, 0.0315], [-0.05, -0.06]],
 };
 
 // Applies an item's finish + stickers to a gun built by buildGun.
