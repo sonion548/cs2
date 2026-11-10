@@ -53,8 +53,13 @@ async function act(type, args, localFn) {
 }
 
 export const openCase = (caseUid) => act('inv.openCase', { uid: caseUid }, () => E.openCase(local, caseUid));
+export const openCases = (caseUids) => act('inv.openCases', { uids: caseUids }, () => E.openCases(local, caseUids));
+export const OPEN_MAX = E.OPEN_MAX;
 export const buyCase = (caseId) => act('inv.buyCase', { caseId }, () => E.buyCase(local, caseId));
 export const sellItem = (itemUid) => act('inv.quickSell', { uid: itemUid }, () => E.quickSell(local, itemUid));
+export const sellItems = (uids) => act('inv.quickSellMany', { uids }, () => E.quickSellMany(local, uids));
+export const quickSellBlock = E.quickSellBlock;
+export const QUICK_SELL = E.QUICK_SELL;
 export const equip = (itemUid) => act('inv.equip', { uid: itemUid }, () => E.equip(local, itemUid));
 export const applySticker = (skinUid, stickerUid, slot) => act('inv.applySticker', { skinUid, stickerUid, slot }, () => E.applySticker(local, skinUid, stickerUid, slot));
 export const scrapeSticker = (skinUid, slot) => act('inv.scrape', { uid: skinUid, slot }, () => E.scrapeSticker(local, skinUid, slot));

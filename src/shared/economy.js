@@ -242,6 +242,30 @@ export function openCase(state, caseUid, r = Math.random) {
   return { item: won, cost };
 }
 
+// Up to five of one kind of case opened together: a key for each (capsules
+// and the Gold Case need none), each rolled on its own.
+export const OPEN_MAX = 5;
+export function openCases(state, caseUids, r = Math.random) {
+  if (!Array.isArray(caseUids) || !caseUids.length) return { error: 'No case chosen' };
+  const cases = [...new Set(caseUids)].slice(0, OPEN_MAX).map(u => findItem(state, u));
+  if (cases.some(c => !c || c.kind !== 'case')) return { error: 'Case not found' };
+  if (cases.some(c => c.listed)) return { error: 'Item is listed on the market' };
+  if (new Set(cases.map(c => c.defId)).size > 1) return { error: 'Open one kind of case at a time' };
+  const each = cases[0].defId === 'capsule' || cases[0].defId === 'gold' ? 0 : KEY_PRICE, cost = each * cases.length;
+  if (state.credits < cost) return { error: `You need ${cost} credits for ${cases.length} keys` };
+  state.credits -= cost;
+  const items = [];
+  for (const c of cases) {
+    removeItem(state, c.uid);
+    const won = rollCase(c.defId, r);
+    state.items.push(won); items.push(won);
+    state.stats.casesOpened++;
+    state.history.unshift({ t: Date.now(), type: 'unbox', item: won.defId, from: c.defId });
+  }
+  state.history = state.history.slice(0, 100);
+  return { items, cost };
+}
+
 export function buyCase(state, caseId) {
   const price = caseId === 'capsule' ? STICKER_CAPSULE.price : CASES[caseId]?.price;
   if (price == null) return { error: 'Unknown case' };
@@ -252,16 +276,47 @@ export function buyCase(state, caseId) {
   return { item };
 }
 
-export function quickSell(state, itemUid) {
-  const it = findItem(state, itemUid);
-  if (!it) return { error: 'Item not found' };
-  if (it.listed) return { error: 'Cancel the market listing first' };
-  if (it.kind === 'case' && it.defId === 'gold') return { error: 'The Gold Case can\u2019t be sold. Open it for a free knife!' };
+// Why an item can't be quick-sold (or null if it can).
+export function quickSellBlock(it) {
+  if (!it) return 'Item not found';
+  if (it.listed) return 'Cancel the market listing first';
+  if (it.kind === 'case' && it.defId === 'gold') return 'The Gold Case can\u2019t be sold. Open it for a free knife!';
+  return null;
+}
+function sellOne(state, it) {
   const value = Math.floor(marketPrice(it) * QUICK_SELL);
   state.credits += value;
-  removeItem(state, itemUid);
+  removeItem(state, it.uid);
+  return value;
+}
+
+export function quickSell(state, itemUid) {
+  const it = findItem(state, itemUid), why = quickSellBlock(it);
+  if (why) return { error: why };
+  const value = sellOne(state, it);
   state.history.unshift({ t: Date.now(), type: 'sell', item: it.defId, value });
   return { value };
+}
+
+// Several items sold at once (the inventory's select mode), each for what a
+// quick sale of it pays; anything that can't be sold (listed on the market,
+// the Gold Case) is left where it is. One line in the history for the lot.
+export const QUICK_SELL_MAX = 500;
+export function quickSellMany(state, uids) {
+  if (!Array.isArray(uids) || !uids.length) return { error: 'Nothing selected' };
+  let value = 0, lastDef = null;
+  const sold = [], skipped = [];
+  for (const uid of [...new Set(uids)].slice(0, QUICK_SELL_MAX)) {
+    const it = findItem(state, uid);
+    if (quickSellBlock(it)) { skipped.push(uid); continue; }
+    value += sellOne(state, it);
+    sold.push(uid); lastDef = it.defId;
+  }
+  if (!sold.length) return { error: 'None of those can be quick-sold' };
+  state.history.unshift(sold.length === 1
+    ? { t: Date.now(), type: 'sell', item: lastDef, value }
+    : { t: Date.now(), type: 'sell', note: `${sold.length} items`, value });
+  return { value, sold, skipped };
 }
 
 export function equip(state, itemUid) {

@@ -529,6 +529,16 @@ dropped them.
 - **Skeleton knife**: a round hole through the blade near the spine (was a slot), the frame as thick as
   the blade so it reads as one piece of steel, and a tighter cord wrap. A Killscribe count now finds a
   solid spot on the blade, so it never runs into a hole.
+- **Quick-sell several items at once**: the inventory has a "Select to sell" button. Click items to pick
+  them (shift-click picks everything between two clicks, "Select all" picks everything in the current
+  category), and a bar along the bottom shows how many are picked and what a quick sale pays; "Quick
+  sell" sells them all after one confirmation (it says if any are equipped). Items that can't be quick
+  sold (listed on the market, the Gold Case) can't be picked. One line in your history covers the lot.
+- **Open up to five cases at once**: a container's window has ×1 to ×5 next to the unlock button.
+  Opening several charges a key for each (and buys any you don't have first, the button shows what it
+  costs); a reel each spins together, stacked, and they stop one after another. Then everything won is
+  laid out with what each is worth and the total: click one for a closer look (and you come back to
+  the rest after), or open the same number again.
 
 ## Blender models
 

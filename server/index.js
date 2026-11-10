@@ -346,8 +346,18 @@ const handlers = {
   'profile.get'(ws) { return { profile: profileOf(ws.user) }; },
   'profile.rename'(ws) { return { error: 'Names are fixed for online accounts' }; },
   'inv.openCase'(ws, { uid }) { return withSave(ws, E.openCase(ws.user, uid)); },
+  'inv.openCases'(ws, { uids }) {
+    if (!Array.isArray(uids)) return { error: 'No case chosen' };
+    return withSave(ws, E.openCases(ws.user, uids.filter(u => typeof u === 'string').slice(0, E.OPEN_MAX)));
+  },
   'inv.buyCase'(ws, { caseId }) { return withSave(ws, E.buyCase(ws.user, caseId)); },
   'inv.quickSell'(ws, { uid }) { const r = E.quickSell(ws.user, uid); if (!r.error) invalidateTradesWith(uid); return withSave(ws, r); },
+  'inv.quickSellMany'(ws, { uids }) {
+    if (!Array.isArray(uids)) return { error: 'Nothing selected' };
+    const r = E.quickSellMany(ws.user, uids.filter(u => typeof u === 'string').slice(0, E.QUICK_SELL_MAX));
+    if (!r.error) for (const u of r.sold) invalidateTradesWith(u);
+    return withSave(ws, r);
+  },
   'inv.equip'(ws, { uid }) { return withSave(ws, E.equip(ws.user, uid)); },
   'inv.applySticker'(ws, { skinUid, stickerUid, slot }) { return withSave(ws, E.applySticker(ws.user, skinUid, stickerUid, slot)); },
   'inv.scrape'(ws, { uid, slot }) { return withSave(ws, E.scrapeSticker(ws.user, uid, slot)); },

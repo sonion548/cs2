@@ -44,6 +44,29 @@ const gold = await a.rpc('inv.openCase', { uid: goldItem.uid });
 ok(gold.item && /^(knife|gloves):/.test(gold.item.defId) && gold.profile.credits === 2500 - 250, 'Gold Case opened free into a knife or gloves');
 const skin = opened.item;
 
+// several cases opened at once, and several items quick-sold at once (on a
+// third account, so nothing above or below is disturbed)
+{
+  const c = await client('C');
+  const rc = await c.rpc('auth.register', { name: 'charlie_' + tag, password: 'secret123' });
+  ok(rc.token, 'a third account');
+  for (let i = 0; i < 3; i++) await c.rpc('inv.buyCase', { caseId: 'dunehold' });
+  const mine = (await c.rpc('inv.buyCase', { caseId: 'dunehold' })).profile;   // a fourth, and the profile as it stands
+  const dune = mine.items.filter(i => i.kind === 'case' && i.defId === 'dunehold').map(i => i.uid);
+  const other = mine.items.find(i => i.kind === 'case' && i.defId !== 'dunehold' && i.defId !== 'gold');
+  if (other) ok((await c.rpc('inv.openCases', { uids: [dune[0], other.uid] })).error, 'opening two kinds of case together is refused');
+  const before = mine.credits;
+  const many = await c.rpc('inv.openCases', { uids: dune.slice(0, 3) });
+  ok(many.items?.length === 3 && many.profile.credits === before - 3 * 250, 'three cases opened at once, a key charged for each');
+  ok(many.profile.items.filter(i => i.kind === 'case' && i.defId === 'dunehold').length === dune.length - 3, 'the opened cases are gone');
+  const goldC = many.profile.items.find(i => i.kind === 'case' && i.defId === 'gold');
+  const sell = await c.rpc('inv.quickSellMany', { uids: [...many.items.map(i => i.uid), ...(goldC ? [goldC.uid] : [])] });
+  ok(sell.sold?.length === 3 && sell.profile.credits === many.profile.credits + sell.value, 'three items quick-sold at once, paid in one go');
+  ok(!goldC || (sell.skipped.includes(goldC.uid) && sell.profile.items.some(i => i.uid === goldC.uid)), 'the Gold Case is left out of a quick sale');
+  ok(!sell.profile.items.some(i => many.items.some(w => w.uid === i.uid)), 'the sold items are gone');
+  c.ws.close();
+}
+
 // friends
 ok((await a.rpc('social.request', { name: 'bravo_' + tag })).ok, 'friend request sent');
 await b.waitEv('social');

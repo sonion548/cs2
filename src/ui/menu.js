@@ -21,6 +21,7 @@ import { ask } from './confirm.js';
 const h = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const fmt = (n) => n.toLocaleString('en-US');
 const CR = (n) => `<span class="cr">${fmt(n)}</span>`;
+const crText = (n) => `${fmt(n)} credits`;   // in plain text (dialogs, toasts)
 
 export const MODES = [
   { id: '5v5', label: 'Competitive', size: 5, win: 5, note: '5 v 5 · first to 5' },
@@ -232,20 +233,76 @@ export class Menu {
     };
     items.sort(sorters[this.invSort]);
     const total = p.items.reduce((s, it) => s + P.marketPrice(it), 0);
+    // select mode: tiles are picked (shift-click for a run of them) and the lot
+    // quick-sold together; what can't be sold (listed, the Gold Case) can't be picked
+    const sel = this.invSel || (this.invSel = new Set());
+    for (const u of [...sel]) if (!P.findItem(u)) sel.delete(u);
+    const selecting = !!this.invSelect;
+    const sellable = (it) => !P.quickSellBlock(it);
     page.innerHTML = `
       <aside class="filters">
         <h3>Inventory</h3>
         <div class="count">${p.items.length} items · ${CR(total)} est.</div>
         ${cats.map(([id, l]) => `<button data-cat="${id}" class="${this.invFilter === id ? 'on' : ''}">${l}<span>${id === 'all' ? p.items.length : p.items.filter(i => catOf(i) === id).length}</span></button>`).join('')}
         <label class="sort">Sort <select>${[['newest', 'Newest'], ['rarity', 'Rarity'], ['value', 'Value']].map(([v, l]) => `<option value="${v}" ${this.invSort === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+        <button class="selbtn ${selecting ? 'on' : ''}" data-sel="toggle">${selecting ? 'Done selecting' : 'Select to sell'}</button>
       </aside>
-      <section class="grid">${items.length ? items.map(it => this.tile(it)).join('') : '<p class="empty">Nothing here yet. Open a container or win a match to get drops.</p>'}</section>`;
+      <section class="grid ${selecting ? 'selecting' : ''}">${items.length ? items.map(it => this.tile(it, selecting ? (sellable(it) ? (sel.has(it.uid) ? 'sel' : '') : 'nosel') : '')).join('') : '<p class="empty">Nothing here yet. Open a container or win a match to get drops.</p>'}
+        ${selecting ? '<div class="sellbar"><span class="si"></span><span class="sb"><button data-sel="all">Select all</button><button data-sel="clear">Clear</button><button class="pri" data-sel="sell">Quick sell</button></span></div>' : ''}</section>`;
+    const grid = page.querySelector('.grid');
+    // the bar: how many are picked and what a quick sale of them pays
+    const refreshBar = () => {
+      const bar = grid.querySelector('.sellbar'); if (!bar) return;
+      const picked = [...sel].map(u => P.findItem(u)).filter(Boolean);
+      const value = picked.reduce((s, it) => s + Math.floor(P.marketPrice(it) * P.QUICK_SELL), 0);
+      bar.querySelector('.si').innerHTML = picked.length ? `<b>${picked.length}</b> selected · quick sale pays <b>${CR(value)}</b>` : 'Click items to select them (shift-click selects a run)';
+      const sb = bar.querySelector('[data-sel="sell"]'); sb.disabled = !picked.length; sb.textContent = picked.length ? `Quick sell ${picked.length}` : 'Quick sell';
+    };
+    const mark = (uid, on) => { if (on) sel.add(uid); else sel.delete(uid); grid.querySelector(`.tile[data-uid="${uid}"]`)?.classList.toggle('sel', on); };
+    refreshBar();
     page.querySelector('select').onchange = (e) => { this.invSort = e.target.value; this.go('inventory'); };
-    page.querySelector('.filters').onclick = (e) => { const c = e.target.closest('[data-cat]'); if (c) { this.invFilter = c.dataset.cat; this.go('inventory'); } };
-    page.querySelector('.grid').onclick = (e) => {
+    page.querySelector('.filters').onclick = (e) => {
+      const c = e.target.closest('[data-cat]'); if (c) { this.invFilter = c.dataset.cat; this.go('inventory'); return; }
+      if (e.target.closest('[data-sel="toggle"]')) { audio.init(); audio.ui(); this.invSelect = !selecting; sel.clear(); this.invLast = null; this.go('inventory'); }
+    };
+    grid.onclick = async (e) => {
+      const sb = e.target.closest('[data-sel]');
+      if (sb) {
+        audio.init(); audio.ui();
+        const act = sb.dataset.sel;
+        if (act === 'all') { for (const it of items) if (sellable(it)) mark(it.uid, true); refreshBar(); }
+        else if (act === 'clear') { for (const u of [...sel]) mark(u, false); refreshBar(); }
+        else if (act === 'sell') {
+          const picked = [...sel].map(u => P.findItem(u)).filter(Boolean);
+          if (!picked.length) return;
+          const value = picked.reduce((s, it) => s + Math.floor(P.marketPrice(it) * P.QUICK_SELL), 0);
+          const eqd = new Set(Object.values(P.getProfile().equipped));
+          const nEq = picked.filter(it => eqd.has(it.uid)).length;
+          const msg = `Quick sell ${picked.length} item${picked.length === 1 ? '' : 's'} for ${crText(value)}?${nEq ? ` ${nEq} of them ${nEq === 1 ? 'is' : 'are'} equipped.` : ''} This can't be undone.`;
+          if (!await ask(msg, { ok: 'Sell', danger: true })) return;
+          const r = await P.sellItems(picked.map(it => it.uid));
+          if (r?.error) return this.toast(r.error);
+          sel.clear(); this.invLast = null;
+          this.toast(`Sold ${r.sold.length} item${r.sold.length === 1 ? '' : 's'} for ${crText(r.value)}${r.skipped?.length ? ` (${r.skipped.length} couldn't be sold)` : ''}`);
+          this.go('inventory');
+        }
+        return;
+      }
       const t = e.target.closest('.tile'); if (!t) return;
       audio.init(); audio.ui();
       const it = P.findItem(t.dataset.uid);
+      if (!it) return;
+      if (selecting) {
+        if (!sellable(it)) return this.toast(P.quickSellBlock(it));
+        const on = !sel.has(it.uid);
+        // shift-click: everything between the last one clicked and this one, in the order shown
+        const i0 = this.invLast ? items.findIndex(x => x.uid === this.invLast) : -1, i1 = items.findIndex(x => x.uid === it.uid);
+        if (e.shiftKey && i0 >= 0 && i1 >= 0) { for (let i = Math.min(i0, i1); i <= Math.max(i0, i1); i++) if (sellable(items[i])) mark(items[i].uid, on); }
+        else mark(it.uid, on);
+        this.invLast = it.uid;
+        refreshBar();
+        return;
+      }
       if (it.kind === 'skin') this.inspect(it);
       else if (it.kind === 'case') { this.go('cases'); this.openCaseView(it.defId); }
       else this.stickerInfo(it);
@@ -253,13 +310,13 @@ export class Menu {
     this.loadThumbs(page);
   }
 
-  tile(it) {
+  tile(it, extra = '') {
     const r = rarityOf(it), t = itemTitle(it), p = P.getProfile();
     const equipped = Object.values(p.equipped).includes(it.uid);
     const cond = it.kind === 'skin' ? condition(it.float).id : '';
     const img = it.kind === 'case' ? caseThumb(it.defId) : it.kind === 'sticker' ? stickerThumb(it.defId) : '';
     const ks = it.kind === 'skin' && it.tally != null;
-    return `<button class="tile ${it.kind}${ks ? ' ks' : ''}" data-uid="${it.uid}" style="--rc:${r ? r.color : '#6d6a62'}">
+    return `<button class="tile ${it.kind}${ks ? ' ks' : ''}${extra ? ' ' + extra : ''}" data-uid="${it.uid}" style="--rc:${r ? r.color : '#6d6a62'}">
       <img ${img ? `src="${img}"` : ''} alt="" ${it.kind === 'skin' ? 'data-thumb="1"' : ''}>
       ${equipped ? '<i class="eq">Equipped</i>' : ''}${it.listed ? '<i class="eq listed">Listed</i>' : ''}
       ${cond ? `<i class="cond">${cond}</i>` : ''}
@@ -339,7 +396,7 @@ export class Menu {
   }
 
   // ------------------------------------------------------------- inspect
-  inspect(it, { fromUnbox = false } = {}) {
+  inspect(it, { fromUnbox = false, onClose = null } = {}) {
     const layer = this.$('.modal-layer');
     const render = () => {
       const d = SKINS[it.defId], r = RARITY[d.rarity], t = itemTitle(it), c = condition(it.float);
@@ -412,7 +469,7 @@ export class Menu {
       }
       if (b.dataset.apply != null) return this.pickSticker(it, +b.dataset.apply, render);
     };
-    const close = () => { this.modalViewer?.dispose(); this.modalViewer = null; layer.innerHTML = ''; layer.onclick = null; if (this.tab === 'inventory') this.go('inventory'); };
+    const close = () => { this.modalViewer?.dispose(); this.modalViewer = null; layer.innerHTML = ''; layer.onclick = null; if (onClose) return onClose(); if (this.tab === 'inventory') this.go('inventory'); };
   }
 
   pickSticker(skin, slot, rerender) {
@@ -432,7 +489,7 @@ export class Menu {
     };
   }
 
-  stickerInfo(it) {
+  stickerInfo(it, { onClose = null } = {}) {
     const d = STICKERS[it.defId];
     const layer = this.$('.modal-layer');
     layer.innerHTML = `<div class="modal small" style="--rc:${RARITY[d.rarity].color}"><img class="big" src="${stickerThumb(it.defId)}" alt="">
@@ -441,8 +498,9 @@ export class Menu {
     layer.onclick = async (e) => {
       const b = e.target.closest('button'); if (!b) return;
       if (b.dataset.act === 'sell') await P.sellItem(it.uid);
-      if (b.dataset.act === 'list') return this.online.listDialog(it, () => this.go('inventory'));
-      layer.innerHTML = ''; this.go('inventory');
+      if (b.dataset.act === 'list') return this.online.listDialog(it, onClose || (() => this.go('inventory')));
+      layer.innerHTML = '';
+      if (onClose) onClose(); else this.go('inventory');
     };
   }
 
@@ -474,7 +532,6 @@ export class Menu {
   openCaseView(caseId) {
     const layer = this.$('.modal-layer');
     const def = caseDef(caseId), gold = caseId === 'gold';
-    const ownedItem = P.getProfile().items.find(i => i.kind === 'case' && i.defId === caseId);
     const contents = P.caseContents(caseId);
     const knives = caseId === 'capsule' ? [] : gold ? Object.keys(KNIFE_TYPES).filter(k => k !== 'standard') : CASES[caseId].knives;
     const gloveTypes = caseId !== 'capsule' && (gold || CASES[caseId]?.gloves) ? Object.values(GLOVE_TYPES) : [];
@@ -494,24 +551,133 @@ export class Menu {
         </div>
         <div class="cfoot">
           <table class="odds">${oddsRows.map(([n, o, c]) => `<tr><td><i style="background:${c || '#888'}"></i>${n}</td><td>${o}</td></tr>`).join('')}</table>
-          <div class="unlock">${ownedItem ? `<button class="pri big" data-act="open">${caseId === 'capsule' ? 'Open capsule' : gold ? 'Open Gold Case' : `Unlock · key ${CR(KEY_PRICE)}`}</button>` : gold ? '' : `<button class="pri big" data-act="buyopen">Buy &amp; unlock · ${CR(def.price + (caseId === 'capsule' ? 0 : KEY_PRICE))}</button>`}</div>
+          <div class="unlock"></div>
         </div>
+        <div class="reels hidden"></div>
       </div>`;
     // previews for contents, as they scroll into view (the Universal Case holds every finish)
     const io = new IntersectionObserver((ents) => { for (const e of ents) if (e.isIntersecting) { io.unobserve(e.target); thumbnail(previewItem(e.target.dataset.def), url => { e.target.src = url; }); } }, { rootMargin: '200px' });
     for (const img of layer.querySelectorAll('img[data-def]')) io.observe(img);
+    // how many to open at once (up to five; any you don't have are bought first)
+    let count = Math.max(1, Math.min(this.caseCount || 1, P.OPEN_MAX)), busy = false;
+    const owned = () => P.getProfile().items.filter(i => i.kind === 'case' && i.defId === caseId && !i.listed);
+    const key = caseId === 'capsule' || gold ? 0 : KEY_PRICE;
+    const drawUnlock = () => {
+      const have = owned().length, max = gold ? Math.min(P.OPEN_MAX, have) : P.OPEN_MAX;
+      count = Math.max(1, Math.min(count, max || 1));
+      const missing = Math.max(0, count - have), cost = missing * (def.price || 0) + count * key;
+      const many = count > 1 ? ` ×${count}` : '';
+      let btn = '';
+      if (!missing) btn = `<button class="pri big" data-act="open">${caseId === 'capsule' ? `Open capsule${count > 1 ? 's' : ''}${many}` : gold ? `Open Gold Case${many}` : `Unlock${many} · ${count > 1 ? `${count} keys` : 'key'} ${CR(count * key)}`}</button>`;
+      else if (!gold) btn = `<button class="pri big" data-act="open">${have ? `Buy ${missing} &amp; unlock${many}` : `Buy &amp; unlock${many}`} · ${CR(cost)}</button>`;
+      const picker = max > 1 ? `<div class="ncount" title="How many to open at once">${Array.from({ length: max }, (_, i) => i + 1).map(n => `<button data-n="${n}" class="${n === count ? 'on' : ''}">×${n}</button>`).join('')}</div>` : '';
+      layer.querySelector('.unlock').innerHTML = picker + btn;
+    };
+    drawUnlock();
     layer.onclick = async (e) => {
       const b = e.target.closest('button'); if (!b) return;
       if (b.dataset.act === 'close') { layer.innerHTML = ''; layer.onclick = null; this.go(this.tab); return; }
-      if (b.dataset.act === 'buyopen') {
-        const r = await P.buyCase(caseId); if (r.error) return this.toast(r.error);
+      if (b.dataset.n) { audio.ui(); count = this.caseCount = +b.dataset.n; return drawUnlock(); }
+      if (b.dataset.act === 'open' && !busy) {
+        busy = true;
+        try {
+          // buy whatever's missing, then open them together
+          const missing = Math.max(0, count - owned().length);
+          for (let i = 0; i < missing; i++) { const r = await P.buyCase(caseId); if (r.error) { this.toast(r.error); return drawUnlock(); } }
+          const uids = owned().slice(0, count).map(i => i.uid);
+          if (uids.length <= 1) {
+            const res = await P.openCase(uids[0]);
+            if (res.error) { this.toast(res.error); return drawUnlock(); }
+            this.spin(caseId, res.item);
+          } else {
+            const res = await P.openCases(uids);
+            if (res.error) { this.toast(res.error); return drawUnlock(); }
+            this.spinMany(caseId, res.items);
+          }
+        } finally { busy = false; }
       }
-      if (b.dataset.act === 'open' || b.dataset.act === 'buyopen') {
-        const it = P.getProfile().items.find(i => i.kind === 'case' && i.defId === caseId);
-        const res = await P.openCase(it.uid);
-        if (res.error) return this.toast(res.error);
-        this.spin(caseId, res.item);
+    };
+  }
+
+  // Several cases at once: a reel each, stacked, all spinning together and
+  // stopping one after another; then everything won, side by side.
+  spinMany(caseId, wons) {
+    const layer = this.$('.modal-layer');
+    layer.querySelector('.contents').classList.add('hidden');
+    layer.querySelector('.cfoot').classList.add('hidden');
+    const box = layer.querySelector('.reels'); box.classList.remove('hidden');
+    const N = 44, WIN = 36, TW = 128;   // tiles a reel, the winner's place, a tile's width with its gap
+    box.innerHTML = wons.map((_, k) => `<div class="reel-wrap mini"><div class="needle"></div><div class="reel" data-k="${k}"></div></div>`).join('');
+    let done = 0;
+    wons.forEach((won, k) => {
+      const reel = box.querySelector(`.reel[data-k="${k}"]`), wrap = reel.parentElement;
+      const filler = [];
+      for (let i = 0; i < N; i++) filler.push(i === WIN ? won : P.rollCase(caseId));
+      reel.innerHTML = filler.map((it, i) => this.reelTile(it, i, i === WIN)).join('');
+      for (const img of reel.querySelectorAll('img[data-i]')) thumbnail(previewItem(filler[+img.dataset.i].defId), url => { img.src = url; });
+      const vw = wrap.clientWidth;
+      const offset = WIN * TW - vw / 2 + TW / 2 + (Math.random() - 0.5) * (TW * 0.8);
+      reel.style.transition = 'none'; reel.style.transform = 'translateX(0)';
+      void reel.offsetWidth;
+      reel.style.transition = `transform ${5.4 + k * 0.45}s cubic-bezier(0.12, 0.72, 0.1, 1)`;
+      reel.style.transform = `translateX(${-offset}px)`;
+      // the first reel ticks as tiles pass its needle (all of them at once is a din)
+      if (k === 0) {
+        let last = -1;
+        const tick = () => {
+          const m = new DOMMatrix(getComputedStyle(reel).transform);
+          const idx = Math.floor((-m.m41 + vw / 2) / TW);
+          if (idx !== last) { last = idx; audio.ui(); }
+          if (reel.isConnected && reel.dataset.done !== '1') requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
       }
+      reel.addEventListener('transitionend', () => {
+        reel.dataset.done = '1';
+        wrap.classList.add('stopped');
+        reel.children[WIN]?.classList.add('won');
+        audio.ui(rarityOf(won).tier >= 2 ? 'win' : 'click');
+        if (++done === wons.length) setTimeout(() => { if (box.isConnected) this.showUnboxed(caseId, wons); }, 900);
+      }, { once: true });
+    });
+  }
+
+  // One reel tile (the winner's always shows what it is; any other knife or
+  // gloves are a mystery star).
+  reelTile(it, i, isWin) {
+    const r = rarityOf(it), t = itemTitle(it);
+    const img = it.kind === 'sticker' ? stickerThumb(it.defId) : '';
+    const knife = it.kind === 'skin' && (SKINS[it.defId].knife || SKINS[it.defId].gloves) && !isWin;
+    return `<div class="rt" style="--rc:${r.color}">${knife ? '<div class="star">★</div>' : `<img src="${img}" ${it.kind === 'skin' ? `data-i="${i}"` : ''} alt="">`}<span class="w">${knife ? 'Rare special item' : h(t.weapon)}</span><span class="n">${knife ? '★' : h(t.name)}</span></div>`;
+  }
+
+  // What a multiple unbox won: each item (click for a closer look, and back
+  // here after), what they're worth together, and open the same again.
+  showUnboxed(caseId, wons) {
+    const layer = this.$('.modal-layer');
+    const def = caseDef(caseId);
+    const value = wons.reduce((s, it) => s + (P.findItem(it.uid) ? P.marketPrice(it) : 0), 0);
+    layer.innerHTML = `<div class="modal unboxed">
+      <div class="ch"><div><small>${h(def.name)}</small><h2>You unboxed ${wons.length} items</h2></div><button class="x" data-act="close">Close</button></div>
+      <div class="ugrid">${wons.map((it, i) => {
+        const r = rarityOf(it), t = itemTitle(it), gone = !P.findItem(it.uid);
+        const img = it.kind === 'sticker' ? stickerThumb(it.defId) : '';
+        return `<button class="ut${gone ? ' gone' : ''}" data-i="${i}" style="--rc:${r.color}"><img ${img ? `src="${img}"` : ''} ${it.kind === 'skin' ? `data-u="${i}"` : ''} alt="">
+          <span class="w">${h(t.weapon)}</span><span class="n">${h(t.name)}</span><span class="v">${gone ? 'Sold' : `${it.kind === 'skin' ? condition(it.float).id + ' · ' : ''}${CR(P.marketPrice(it))}`}</span></button>`;
+      }).join('')}</div>
+      <div class="ufoot"><span>Worth <b>${CR(value)}</b> together</span><span class="btns"><button data-act="again" class="pri">Open ${wons.length} more</button><button data-act="close">Done</button></span></div>
+    </div>`;
+    for (const img of layer.querySelectorAll('img[data-u]')) thumbnail(wons[+img.dataset.u], url => { img.src = url; });
+    layer.onclick = (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      audio.ui();
+      if (b.dataset.act === 'close') { layer.innerHTML = ''; layer.onclick = null; this.go(this.tab); return; }
+      if (b.dataset.act === 'again') { this.caseCount = wons.length; return this.openCaseView(caseId); }
+      const it = wons[+b.dataset.i];
+      if (!it || !P.findItem(it.uid)) return;
+      const back = () => this.showUnboxed(caseId, wons);
+      if (it.kind === 'skin') this.inspect(it, { fromUnbox: true, onClose: back });
+      else this.stickerInfo(it, { onClose: back });
     };
   }
 
@@ -525,12 +691,7 @@ export class Menu {
     const N = 56, WIN = 48, TW = 168;
     const filler = [];
     for (let i = 0; i < N; i++) filler.push(i === WIN ? won : P.rollCase(caseId));
-    reel.innerHTML = filler.map((it, i) => {
-      const r = rarityOf(it), t = itemTitle(it);
-      const img = it.kind === 'sticker' ? stickerThumb(it.defId) : '';
-      const knife = it.kind === 'skin' && (SKINS[it.defId].knife || SKINS[it.defId].gloves) && i !== WIN;
-      return `<div class="rt" style="--rc:${r.color}">${knife ? '<div class="star">★</div>' : `<img src="${img}" ${it.kind === 'skin' ? `data-i="${i}"` : ''} alt="">`}<span class="w">${knife ? 'Rare special item' : h(t.weapon)}</span><span class="n">${knife ? '★' : h(t.name)}</span></div>`;
-    }).join('');
+    reel.innerHTML = filler.map((it, i) => this.reelTile(it, i, i === WIN)).join('');
     // one preview per skin, shared with the contents grid, so the reel is usually ready instantly
     for (const img of reel.querySelectorAll('img[data-i]')) thumbnail(previewItem(filler[+img.dataset.i].defId), url => { img.src = url; });
     const vw = wrap.clientWidth;
